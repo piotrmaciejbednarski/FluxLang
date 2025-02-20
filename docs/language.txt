@@ -1,0 +1,458 @@
+Flux is a mix of C++ and Python, it can be both dynamically or statically typed, has a slightly more strict syntax than C++, and introduces a couple new things.
+
+Flux goes the route of **object-oriented programming** by literally having an `object` keyword.
+
+**What's the difference between `object` and `class` types?**
+
+**Objects - `object myObj {};` :**
+> - More flexible containers that can have both data and behavior.
+> - Support runtime modification (mutable).
+> - Suitable for dynamic programming.
+
+**Classes - `class myClass {};` :**
+> - Strict container for methods and members.
+> - Compile-time checked.
+> - Suited for system-level programming.
+> - Contained within namespaces.
+
+There is also only memory safety when you explicitly want it with the `volatile` keyword. Flux is not memory safe, like C++, ***but it can be.***
+`volatile` is accepted by the interpreter a few different ways syntactically. If something is declared volatile, garbage collection occurs for that something.
+Garbage collection occurs **if and only if** something is volatile.
+Imagine if new and delete were perfectly managed by the interpreter, that is what volitile does under the hood.
+
+> `volatile int[] index;`  - Automatically cleaned up.
+> `void main() volatile { char[] myString=['H','e','l','l','o']; print(myString); };` - All code blocks must end with a semicolon `{};` - This code block is volatile and char[] gets collected.
+
+Interrupt-style programming is in with `when`. Ever need something to occur but you know things won't be defined till this event? `when` promises to the interpreter (eventually the compiler) that anything referenced within its block is valid and is not checked at compile time for scope or access, scope is inherited from whatever parent block the `when` statement lives in. Here's how `when` is written:
+
+```c
+when (a == 5) [volatile] {
+    // ... code ...
+};
+```
+
+If the block is not marked volatile, members will be inherited by the parent.
+Declaring a class or object prototype as `volatile` will make any instance of those classes or objects volatile by default and **cannot become non-volatile.**
+
+Flux also allows defining custom operators with `operator` as follows:
+
+```cpp
+operator(Type1, Type2)[op] {
+    // Implementation
+};
+```
+
+You can also use `asm` directly:
+
+```cpp
+asm {
+    // Your ASM here
+};
+```
+
+Input and output are input() and print() respectively.
+
+The syntax for Python-like f-strings would be i"{x}{y}{z}":{x;y;z;}
+An example of a Flux i-string: print(i"{x} {y}":{first_name;last_name;});
+
+**Namespaces are __strictly__ class containers** in Flux.
+This is to prevent naming conflicts, enforce modularity, and support hierarchical organization.
+
+There is also **concurrency** built in with `async`.
+
+- `async int{32} myFunc() {};` - Returns a 32-bit integer
+- `async when () {};`
+- `async for () {};`
+
+Asynchronous functions inherit a built-in method called `lock()` which you can call anywhere in the body of an `async` block. This immediately stops execution of this thread like a breakpoint. You can also define a function's pre/post lock behavior like so:
+
+```py
+int{32} main() volatile {
+    int{64} x = 1;
+    char[] name = ['K','a','r','a','c'];
+    char[] cPostLock;
+    int{8} retval = myFunc(name, x);
+    print(cPostLock);    // Normally would be undefined
+};
+
+async int{8} myFunc(char[] s, int{64} y) {
+    lock(); // Halt execution
+};
+
+lock myFunc ::scope1 ::scope2 {}; // During lock
+
+__lock myFunc ::scope1 ::scope2 {}; // Pre lock
+
+lock__ myFunc ::main::cPostLock ::scope2 { // Post lock
+    cPostLock = std::string::reverse(s);   // No need to return anything
+};
+```
+
+myFunc must be **async** or defining a lock behavior will return an error.
+
+**Yes, you can refer to index 5 of an array with length 3.**
+**Yes, you can make void pointers.**
+**Yes, you can do very dangerous programming like C++ with this language.**
+
+Here's two examples of the same Flux program, one statically typed, one dynamically typed.
+
+**Static:**
+```cpp
+char[] concat(char[] a, char[] b) {
+    return a+b;  // Character array addition is native
+};
+
+int{32} main() volatile {
+    char[] h = ['H','e','l','l','o'];
+    char[] w = ['W','o','r','l','d'];
+    char[] x = ['o','f'];
+    char[] y = ['C','o','d','i','n','g'];
+    print(i"{} {}":{concat(h,w); concat(x,y);}); // injectable string   i"{1}{2}":{1;2;}
+    return 0;
+};
+```
+```
+Result:
+HelloWorld ofCoding
+```
+
+**Dynamic:**
+```cpp
+string concat(string a, string b) {
+    return a+b;  // String addition is native
+};
+
+int main() volatile {
+    string h = "Hello";
+    string w = "World";
+    string x = "of";
+    string y = "Coding";
+    print(i"{} {}":{concat(h,w); concat(x,y);});
+    return 0;
+};
+```
+```
+Result:
+HelloWorld ofCoding
+```
+
+Flux allows you to set the bit width of your datatypes when programming statically. This means you must be acutely aware of your data structures.
+There is a `sizeof` helper built-in to view the default bit-widths of Flux types.
+
+**Static HelloWorld with pointers:**
+```cpp
+char[] concat(char[] *a, char[] *b) {
+    return *a+*b;  // Character array addition is native
+};
+
+int{32} main() volatile {
+    char[] h = ['H','e','l','l','o'];           // char[] internally translates to string, however
+    char[5] w;                                  // if you specify a length you can not initialize it.
+    w = ['W','o','r','l','d','!'];              // ! will be truncated
+    char[] x = ['o','f'];
+    char[] y = ['C','o','d','i','n','g'];
+    char[] *ph, *pw, *px, *py = @h, @w, @x, @y;  // Can declare multiple variables at once.
+    print(i"{} {}":{concat(h,w); concat(x,y);}); // injectable string   i"{1}{2}":{1;2;}
+    return 0;
+};
+```
+```
+Result:
+HelloWorld ofCoding
+```
+
+**Dynamic HelloWorld with pointers:**
+```cpp
+string concat(string *a, string *b) {
+    return *a+*b;  // String addition is native
+};
+
+int main() volatile {
+    string h = "Hello";
+    string w = "World";
+    string x = "of";
+    string y = "Coding";
+    string *ph, *pw, *px, *py = @h, @w, @x, @y;
+    print(i"{} {}":{concat(h,w); concat(x,y);});
+    return 0;
+};
+```
+```
+Result:
+HelloWorld ofCoding
+```
+
+Function overloading, static vs. dynamic:
+
+**Static:**
+```cpp
+int{32} fibonacci(int{32} n) {
+    // Base cases
+    if (n <= 1) {
+        return n;
+    }
+    
+    // Recursive case
+    return fibonacci(n - 1) + fibonacci(n - 2);
+};
+
+long{32} fibonacci(long{32} n) {
+    // Base cases
+    if (n <= 1) {
+        return n;
+    }
+    
+    // Recursive case
+    return fibonacci(n - 1) + fibonacci(n - 2);
+};
+
+int{32} main(string *argc, string[] *argv) {
+    print(int{32}:fibonacci(10));       // Statically defined means it must be statically called.
+    print(long{32}:fibonacci(8));       // Must specifically indicate the long type, because we could have
+    return 0;                           // a long{48} fibonacci() implementation
+}
+```
+```
+Result:
+55
+21
+```
+
+**Dynamic:**
+```cpp
+int fibonacci(int n) {  // int{32} is default
+    // Base cases
+    if (n <= 1) {
+        return n;
+    }
+    
+    // Recursive case
+    return fibonacci(n - 1) + fibonacci(n - 2);
+};
+
+long fibonacci(long n) {  // long{64} is default
+    // Base cases
+    if (n <= 1) {
+        return n;
+    }
+    
+    // Recursive case
+    return fibonacci(n - 1) + fibonacci(n - 2);
+};
+
+long{42} fibonacci(long n) {
+    // Base cases
+    if (n <= 1) {
+        return n;
+    }
+    
+    // Recursive case
+    return fibonacci(n - 1) + fibonacci(n - 2);
+};
+
+int main(string *argc, string[] *argv) {
+    print(fibonacci(10));
+    print(fibonacci( /*some 60 bit large number*/ ));            // Will automatically overload to the long implementation
+    print(long{42}:fibonacci( /*some 60 bit large number*/ ));   // Static and dynamic code can mix.
+    return 0;
+};
+```
+```
+Result:
+55
+// whatever output would come from that
+```
+
+**Arrays and memory management:**
+```cpp
+int{64} sum_array(int[] *arr, int len) {
+    int{64} sum = 0;
+    for (int i = 0; i < len; i = i + 1) {
+        sum = sum + arr[i];
+    };
+    return sum;
+};
+
+int main(string *argc, string[] *argv) {
+    int[5] numbers = [1, 2, 3, 4, 5];
+    print(sum_array(&numbers, 5));  // Prints 15
+};
+```
+
+**String manipulation:**
+```cpp
+string reverse(string str) {
+    int len = length(str);
+    string result = "";
+    for (int i = len - 1; i >= 0; i = i - 1) {
+        result = result + str[i];
+    };
+    return result;
+};
+
+int main(string *argc, string[] *argv) {
+    print(reverse("Hello World!"));  // Prints "!dlroW olleH"
+};
+```
+
+**Advanced types:**
+```cpp
+struct{
+    int{32} x;
+    int{32} y;
+} Point;
+
+Point{} create_point(int{32} x, int{32} y) {
+    Point{} p;
+    p.x = x;
+    p.y = y;
+    return p;
+};
+
+float{64} distance(Point{} *p1, Point{} *p2) {
+    int{32} dx = p2->x - p1->x;
+    int{32} dy = p2->y - p1->y;
+    return sqrt(dx * dx + dy * dy);
+};
+
+int{32} main(char[] *argc, char[][] *argv) {
+    Point{} p1 = create_point(0, 0);
+    Point{} p2 = create_point(3, 4);
+    print(distance(&p1, &p2));  // Prints 5.0
+    return 0;
+};
+```
+
+**Dynamically typed first class functions:**
+```cpp
+int apply(int (*fn)(int), int value) {
+    return fn(value);
+};
+
+int square(int x) {
+    return x * x;
+};
+
+int cube(int x) {
+    return x * x * x;
+};
+
+int main(string *argc, string[] *argv) {
+    print(apply(square, 5));  // Prints 25
+    print(apply(cube, 3));    // Prints 27
+    return 0;
+};
+```
+
+**Data structure:**
+```cpp
+List{T} create_list() {
+    return List{T}{
+        data: [],
+        length: 0
+    };
+};
+
+void append{T}(List{T} *list, T item) {
+    list->data[list->length] = item;
+    list->length = list->length + 1;
+};
+
+int main(string *argc, string[] *argv) {
+    List{int} numbers = create_list();
+    append(&numbers, 1);
+    append(&numbers, 2);
+    append(&numbers, 3);
+    print(numbers.data);  // Prints [1, 2, 3]
+    return 0;
+};
+```
+
+**Complex number calculator:**
+```cpp
+struct{
+    float{64} real;
+    float{64} imag;
+} Complex;
+
+// Constructor function for Complex numbers
+Complex create_complex(float{64} r, float{64} i) {
+    Complex {
+        real = r;
+        imag = i;
+    } c;
+    return c;
+};
+
+// Addition of complex numbers
+Complex add(Complex a, Complex b) {
+    return create_complex(
+        a.real + b.real,
+        a.imag + b.imag
+    );
+};
+
+// Multiplication of complex numbers
+Complex multiply(Complex a, Complex b) {
+    return create_complex(
+        a.real * b.real - a.imag * b.imag,
+        a.real * b.imag + a.imag * b.real
+    );
+};
+
+// Calculate magnitude of a complex number
+float{64} magnitude(Complex c) {
+    return sqrt(c.real * c.real + c.imag * c.imag);
+};
+
+// Power function for complex numbers using DeMoivre's formula
+Complex power(Complex base, int{32} exp) {
+    if (exp == 0) {
+        return create_complex(1.0, 0.0);
+    };
+
+    float{64} r = magnitude(base);
+    float{64} theta = atan2(base.imag, base.real);
+    float{64} new_r = pow(r, exp);
+    float{64} new_theta = theta * exp;
+
+    return create_complex(
+        new_r * cos(new_theta),
+        new_r * sin(new_theta)
+    );
+};
+
+// Calculate roots of a quadratic equation ax² + bx + c = 0
+void quadratic_solver(float{64} a, float{64} b, float{64} c) {
+    float{64} discriminant = b * b - 4.0 * a * c;
+    
+    if (discriminant > 0.0) {
+        float{64} root1 = (-b + sqrt(discriminant)) / (2.0 * a);
+        float{64} root2 = (-b - sqrt(discriminant)) / (2.0 * a);
+    } else {
+        float{64} real_part = -b / (2.0 * a);
+        float{64} imag_part = sqrt(-discriminant) / (2.0 * a);
+        Complex{} root1 = create_complex(real_part, imag_part);
+        Complex{} root2 = create_complex(real_part, -imag_part);
+    };
+};
+```
+
+**Input / output:**
+```cpp
+filename = input("Enter a file name: ", _) { /*  This code executes on the value of _ before passing to the left  */ };
+                                            // _ is functionally equivalent to filename before assignment
+open(filename, "r") [file] {
+        // Imagine it just like Python.
+        data = file.read();      // No need to .seek(0) - Can if uncomfortable.
+        header = data[0:3];      // First 4 bytes
+
+        if (header != "WoC!") {
+            throw("Bad file!") { /* Execute this when you throw. */ };  // Default behavior without trailing {} is print()-like
+        };
+
+        for (i = 0; i < len(data); i++) {
+            // Do file stuff
+        };
+};
+```
