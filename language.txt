@@ -15,28 +15,13 @@ Flux goes the route of **object-oriented programming** by literally having an `o
 > - Suited for system-level programming.
 > - Contained within namespaces.
 
-There is also only memory safety when you explicitly want it with the `volatile` keyword. Flux is not memory safe, like C++, ***but it can be.***
-`volatile` is accepted by the interpreter a few different ways syntactically. If something is declared volatile, garbage collection occurs for that something.
-Garbage collection occurs **if and only if** something is volatile.
-Imagine if new and delete were perfectly managed by the interpreter, that is what volitile does under the hood.
+A namespace can only contain classes.
+Classes can contain objects and structs, but not functions.
+Objects can contain functions, datatypes, and make instances of themselves.
 
-> `volatile int[] index;`  - Automatically cleaned up.
-> `void main() volatile { char[] myString=['H','e','l','l','o']; print(myString); };` - All code blocks must end with a semicolon `{};` - This code block is volatile and char[] gets collected.
+Flux allows defining custom operators with `operator` as follows:
 
-Interrupt-style programming is in with `when`. Ever need something to occur but you know things won't be defined till this event? `when` promises to the interpreter (eventually the compiler) that anything referenced within its block is valid and is not checked at compile time for scope or access, scope is inherited from whatever parent block the `when` statement lives in. Here's how `when` is written:
-
-```c
-when (a == 5) [volatile] {
-    // ... code ...
-};
 ```
-
-If the block is not marked volatile, members will be inherited by the parent.
-Declaring a class or object prototype as `volatile` will make any instance of those classes or objects volatile by default and **cannot become non-volatile.**
-
-Flux also allows defining custom operators with `operator` as follows:
-
-```cpp
 operator(Type1, Type2)[op] {
     // Implementation
 };
@@ -44,7 +29,7 @@ operator(Type1, Type2)[op] {
 
 You can also use `asm` directly:
 
-```cpp
+```
 asm {
     // Your ASM here
 };
@@ -58,51 +43,15 @@ An example of a Flux i-string: print(i"{x} {y}":{first_name;last_name;});
 **Namespaces are __strictly__ class containers** in Flux.
 This is to prevent naming conflicts, enforce modularity, and support hierarchical organization.
 
-There is also **concurrency** built in with `async`.
-
-- `async int{32} myFunc() {};` - Returns a 32-bit integer
-- `async when () {};`
-- `async for () {};`
-
-Asynchronous functions inherit a built-in method called `lock()` which you can call anywhere in the body of an `async` block. This immediately stops execution of this thread like a breakpoint. You can also define a function's pre/post lock behavior like so:
-
-```py
-int{32} main() volatile {
-    int{64} x = 1;
-    char[] name = ['K','a','r','a','c'];
-    char[] cPostLock;
-    int{8} retval = myFunc(name, x);
-    print(cPostLock);    // Normally would be undefined
-};
-
-async int{8} myFunc(char[] s, int{64} y) {
-    lock(); // Halt execution
-};
-
-lock myFunc ::scope1 ::scope2 {}; // During lock
-
-__lock myFunc ::scope1 ::scope2 {}; // Pre lock
-
-lock__ myFunc ::main::cPostLock ::scope2 { // Post lock
-    cPostLock = std::string::reverse(s);   // No need to return anything
-};
-```
-
-myFunc must be **async** or defining a lock behavior will return an error.
-
-**Yes, you can refer to index 5 of an array with length 3.**
-**Yes, you can make void pointers.**
-**Yes, you can do very dangerous programming like C++ with this language.**
-
 Here's two examples of the same Flux program, one statically typed, one dynamically typed.
 
 **Static:**
-```cpp
+```
 char[] concat(char[] a, char[] b) {
     return a+b;  // Character array addition is native
 };
 
-int{32} main() volatile {
+int{32} main() {
     char[] h = ['H','e','l','l','o'];
     char[] w = ['W','o','r','l','d'];
     char[] x = ['o','f'];
@@ -117,12 +66,12 @@ HelloWorld ofCoding
 ```
 
 **Dynamic:**
-```cpp
+```
 string concat(string a, string b) {
     return a+b;  // String addition is native
 };
 
-int main() volatile {
+int main() {
     string h = "Hello";
     string w = "World";
     string x = "of";
@@ -136,16 +85,17 @@ Result:
 HelloWorld ofCoding
 ```
 
-Flux allows you to set the bit width of your datatypes when programming statically. This means you must be acutely aware of your data structures.
+Flux allows you to set the bit width of your datatypes when programming statically.
+This means you must be acutely aware of your data structures.
 There is a `sizeof` helper built-in to view the default bit-widths of Flux types.
 
 **Static HelloWorld with pointers:**
-```cpp
+```
 char[] concat(char[] *a, char[] *b) {
     return *a+*b;  // Character array addition is native
 };
 
-int{32} main() volatile {
+int{32} main() {
     char[] h = ['H','e','l','l','o'];           // char[] internally translates to string, however
     char[5] w;                                  // if you specify a length you can not initialize it.
     w = ['W','o','r','l','d','!'];              // ! will be truncated
@@ -162,12 +112,12 @@ HelloWorld ofCoding
 ```
 
 **Dynamic HelloWorld with pointers:**
-```cpp
+```
 string concat(string *a, string *b) {
     return *a+*b;  // String addition is native
 };
 
-int main() volatile {
+int main() {
     string h = "Hello";
     string w = "World";
     string x = "of";
@@ -185,7 +135,7 @@ HelloWorld ofCoding
 Function overloading, static vs. dynamic:
 
 **Static:**
-```cpp
+```
 int{32} fibonacci(int{32} n) {
     // Base cases
     if (n <= 1) {
@@ -219,7 +169,7 @@ Result:
 ```
 
 **Dynamic:**
-```cpp
+```
 int fibonacci(int n) {  // int{32} is default
     // Base cases
     if (n <= 1) {
@@ -264,7 +214,7 @@ Result:
 ```
 
 **Arrays and memory management:**
-```cpp
+```
 int{64} sum_array(int[] *arr, int len) {
     int{64} sum = 0;
     for (int i = 0; i < len; i = i + 1) {
@@ -280,7 +230,7 @@ int main(string *argc, string[] *argv) {
 ```
 
 **String manipulation:**
-```cpp
+```
 string reverse(string str) {
     int len = length(str);
     string result = "";
@@ -296,20 +246,20 @@ int main(string *argc, string[] *argv) {
 ```
 
 **Advanced types:**
-```cpp
-struct{
+```
+struct {
     int{32} x;
     int{32} y;
 } Point;
 
-Point{} create_point(int{32} x, int{32} y) {
-    Point{} p;
+Point create_point(int{32} x, int{32} y) {
+    Point p;
     p.x = x;
     p.y = y;
     return p;
 };
 
-float{64} distance(Point{} *p1, Point{} *p2) {
+float{64} distance(Point *p1, Point *p2) {
     int{32} dx = p2->x - p1->x;
     int{32} dy = p2->y - p1->y;
     return sqrt(dx * dx + dy * dy);
@@ -344,32 +294,8 @@ int main(string *argc, string[] *argv) {
 };
 ```
 
-**Data structure:**
-```cpp
-List{T} create_list() {
-    return List{T}{
-        data: [],
-        length: 0
-    };
-};
-
-void append{T}(List{T} *list, T item) {
-    list->data[list->length] = item;
-    list->length = list->length + 1;
-};
-
-int main(string *argc, string[] *argv) {
-    List{int} numbers = create_list();
-    append(&numbers, 1);
-    append(&numbers, 2);
-    append(&numbers, 3);
-    print(numbers.data);  // Prints [1, 2, 3]
-    return 0;
-};
-```
-
 **Complex number calculator:**
-```cpp
+```
 struct{
     float{64} real;
     float{64} imag;
@@ -439,7 +365,7 @@ void quadratic_solver(float{64} a, float{64} b, float{64} c) {
 ```
 
 **Input / output:**
-```cpp
+```
 filename = input("Enter a file name: ", _) { /*  This code executes on the value of _ before passing to the left  */ };
                                             // _ is functionally equivalent to filename before assignment
 open(filename, "r") [file] {
@@ -456,3 +382,42 @@ open(filename, "r") [file] {
         };
 };
 ```
+
+**Pointer to a pointer:**
+```
+void data;
+void *p_data;
+void **pp_data; // Pointer to a pointer.
+```
+
+
+Keyword list:
+object, asm, and, assert, break, case, catch, string, class, const, continue,
+default, delete, do, else, enum, false, float, for, if, import, int, is, lambda,
+memalloc, namespace, new, not, nullptr, operator, or, require, return, signed,
+sizeof, struct, super, switch, this, throw, true, try, typedef, union, unsigned,
+using, void, while, xor, memalloc, sin, cos, tan, cot, sec, cosec, quad_eq, sqrt
+
+
+Builtins:
+print, input, open, socket
+
+
+## Operator Precedence (highest to lowest)
+Scope resolution ::
+Member access ., ->
+Function call (), array subscript []
+Increment, decrement ++, --
+Exponent **
+Unary +, -, !, ~
+Multiplication, division, modulo *, /, %
+Addition, subtraction +, -
+Bitwise shift <<, >>
+Relational <, <=, >, >=
+Equality ==, !=, is, not
+Bitwise AND &
+Bitwise XOR ^
+Bitwise OR |
+Logical AND and, &&
+Logical OR or, ||
+Assignment =, +=, -=, *=, /=, %=, &=, |=, ^=

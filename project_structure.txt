@@ -1,0 +1,45 @@
+flux/
+├── CMakeLists.txt                # Main CMake configuration file
+├── .gitignore                    # Git ignore file
+├── README.md                     # Project documentation
+
+├── docs/                         # Documentation
+│   ├── language_reference.md     # Comprehensive language reference
+│   └── examples/                 # Example Flux programs
+│       ├── hello_world.flux      # Simple Hello World
+│       └── ...
+
+├── src/                          # Source code
+│   ├── include/                  # Header files  REDO
+│   │   ├── lexer.h               # Lexical analyzer 
+│   │   ├── parser.h              # Syntax parser 
+│   │   ├── ast.h                 # Abstract Syntax Tree nodes 
+│   │   ├── interpreter.h         # Interpreter 
+│   │   ├── error.h               # Error handling 
+│   │   ├── builtin.h             # Built-in functions 
+│   ├── lexer.cpp                 # Lexer implementation 
+│   ├── parser.cpp                # Parser implementation 
+│   ├── ast.cpp                   # AST nodes implementation 
+│   ├── interpreter.cpp           # Interpreter implementation 
+│   ├── error.cpp                 # Error handling implementation 
+│   ├── builtin.cpp               # Built-in functions implementation 
+│   └── main.cpp                  # Main entry point
+
+├── tests/                        # Test suite
+│   ├── CMakeLists.txt            # Test CMake configuration
+│   ├── test_lexer.cpp            # Lexer tests
+│   ├── test_parser.cpp           # Parser tests
+│   ├── test_interpreter.cpp      # Interpreter tests
+│   ├── test_type_system.cpp      # Type system tests
+│   └── fixtures/                 # Test fixtures
+│       ├── valid_programs/       # Valid Flux programs
+│       └── invalid_programs/     # Invalid Flux programs
+
+├── tools/                        # Development tools
+│   ├── formatter/                # Code formatter
+│   └── repl/                     # Interactive REPL
+
+└── scripts/                      # Build and utility scripts
+    ├── build.sh                  # Build script
+    ├── test.sh                   # Test runner script
+    └── install.sh                # Installation script

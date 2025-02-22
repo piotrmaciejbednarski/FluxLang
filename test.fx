@@ -1,0 +1,4 @@
+namespace nTest {
+	class cTest {
+	};
+};
