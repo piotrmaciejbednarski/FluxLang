@@ -1,6 +1,10 @@
 #include "include/parser.h"
 #include <stdexcept>
 #include <algorithm>
+#include <iostream>
+
+using std::cout;
+using std::endl;
 
 namespace flux {
 
@@ -209,8 +213,7 @@ std::shared_ptr<Program> Parser::parseProgram() {
                     }
                 }
                 
-                // Consume function name
-                Token nameToken = consume(TokenType::IDENTIFIER, "Expect function name");
+                //Token nameToken = consume(TokenType::IDENTIFIER, "Expect function name");
                 
                 // Parse function, using previously determined return type
                 declaration = parseFunction(returnType);
@@ -737,8 +740,8 @@ std::shared_ptr<ObjectDeclaration> Parser::parseObject() {
     return objectDecl;
 }
 
-std::shared_ptr<FunctionDeclaration> Parser::parseFunction(std::shared_ptr<Type> optionalReturnType) {
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect function name");
+std::shared_ptr<FunctionDeclaration> Parser::parseFunction(std::shared_ptr<Type> optionalReturnType) {    
+    Token nameToken = advance();
     
     auto returnType = parseType();
     
