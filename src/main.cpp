@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "include/lexer.h"
+#include "include/parser.h"
 
 using namespace flux;
 
@@ -29,6 +30,9 @@ int main(int argc, char* argv[]) {
     // Create lexer and tokenize the source
     Lexer lexer(source, filename);
     
+    // Collect all tokens
+    std::vector<Token> tokens;
+    
     // Output header with the filename
     std::cout << "====================================================" << std::endl;
     std::cout << "Lexical Analysis for " << filename << std::endl;
@@ -48,16 +52,32 @@ int main(int argc, char* argv[]) {
         
         // Print the token information
         Lexer::printTokenTableRow(token);
+        tokens.push_back(token);
         
         token = lexer.nextToken();
     }
     
     // Print the EOF token
     Lexer::printTokenTableRow(token);
+    tokens.push_back(token);
               
     std::cout << "====================================================" << std::endl;
     std::cout << "Lexical analysis completed successfully." << std::endl;
     std::cout << "====================================================" << std::endl;
+    
+    // Parse the tokens
+	try {
+	    Parser parser(tokens);
+	    auto [program, declarationCount] = parser.parse();
+	    
+	    std::cout << "====================================================" << std::endl;
+	    std::cout << "Parsing completed successfully." << std::endl;
+	    std::cout << "Total declarations: " << declarationCount << std::endl;
+	    std::cout << "====================================================" << std::endl;
+	} catch (const ParseError& e) {
+	    std::cerr << "Parsing error: " << e.what() << std::endl;
+	    return 1;
+	}
     
     return 0;
 }

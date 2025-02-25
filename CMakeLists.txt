@@ -18,9 +18,10 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 # Add source files
 set(SOURCES
     src/main.cpp
+    src/error.cpp
+    src/ast.cpp
     src/lexer.cpp
-    #src/parser.cpp
-    #src/ast.cpp
+    src/parser.cpp
     #src/builtins.cpp
     #src/typechecker.cpp
     #src/runtime.cpp
@@ -31,10 +32,10 @@ set(SOURCES
 
 # Add header files
 set(HEADERS
-    #src/include/error.h
+    src/include/error.h
     src/include/ast.h
     src/include/lexer.h
-    #src/include/parser.h
+    src/include/parser.h
     #src/include/builtins.h
     #src/include/typechecker.h
     #src/include/runtime.h

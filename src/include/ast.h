@@ -33,7 +33,7 @@ public:
     
     SourceLocation getLocation() const { return location; }
     
-private:
+protected:
     SourceLocation location;
 };
 
