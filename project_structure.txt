@@ -10,20 +10,22 @@ flux/
 │       └── ...
 
 ├── src/                          # Source code
-│   ├── include/                  # Header files  REDO
+│   ├── include/                  # Header files 
 │   │   ├── lexer.h               # Lexical analyzer 
 │   │   ├── parser.h              # Syntax parser 
 │   │   ├── ast.h                 # Abstract Syntax Tree nodes 
 │   │   ├── interpreter.h         # Interpreter 
 │   │   ├── error.h               # Error handling 
-│   │   ├── builtin.h             # Built-in functions 
+│   │   ├── builtins.h            # Built-in functions 
+│   │   ├── runtime.h             # Flux runtime
+│   │   ├── typechecker.h         # Type checking
 │   ├── lexer.cpp                 # Lexer implementation 
 │   ├── parser.cpp                # Parser implementation 
 │   ├── ast.cpp                   # AST nodes implementation 
 │   ├── interpreter.cpp           # Interpreter implementation 
 │   ├── error.cpp                 # Error handling implementation 
 │   ├── builtin.cpp               # Built-in functions implementation 
-│   └── main.cpp                  # Main entry point
+│   └── main.cpp                  # Application
 
 ├── tests/                        # Test suite
 │   ├── CMakeLists.txt            # Test CMake configuration

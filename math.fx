@@ -1,3 +1,4 @@
+// Scientific notation operators
 operator(int{32}, int{32})[e+]
 {
     return x * pow(10, y);
@@ -44,28 +45,28 @@ namespace std
     {
         object Constants
         {
-            const float{64} PI, E, SQRT2, LN2, LN10, LOG2E, LOG10E, PI_2, PI_4, INF, NAN, EPSILON, MAX_VALUE, MIN_VALUE = 
-                3.14159265358979323846,
-                2.71828182845904523536,
-                1.41421356237309504880,
-                0.69314718055994530942,
-                2.30258509299404568402,
-                1.44269504088896340736,
-                0.43429448190325182765,
-                1.57079632679489661923,
-                0.78539816339744830962,
-                1.0 / 0.0,
-                0.0 / 0.0,
-                2.2e-16,
-                1.7e+308,
-                5.0e-324;
+            const float{64} PI = 3.14159265358979323846;
+            const float{64} E = 2.71828182845904523536;
+            const float{64} SQRT2 = 1.41421356237309504880;
+            const float{64} LN2 = 0.69314718055994530942;
+            const float{64} LN10 = 2.30258509299404568402;
+            const float{64} LOG2E = 1.44269504088896340736;
+            const float{64} LOG10E = 0.43429448190325182765;
+            const float{64} PI_2 = 1.57079632679489661923;
+            const float{64} PI_4 = 0.78539816339744830962;
+            const float{64} INF = 1.0 / 0.0;
+            const float{64} NAN = 0.0 / 0.0;
+            const float{64} EPSILON = 2.2e-16;
+            const float{64} MAX_VALUE = 1.7e+308;
+            const float{64} MIN_VALUE = 5.0e-324;
         };
 
         object Complex
         {
             struct ComplexNum
             {
-                float{64} real, imag;
+                float{64} real;
+                float{64} imag;
             };
 
             ComplexNum create(float{64} real, float{64} imag)
@@ -178,7 +179,8 @@ namespace std
         {
             float{64} exp(float{64} x)
             {
-                if (x == 0.0) return 1.0;
+                if (x == 0.0) 
+                    return 1.0;
                 
                 float{64} sum = 1.0;
                 float{64} term = 1.0;
@@ -196,8 +198,10 @@ namespace std
 
             float{64} log(float{64} x)
             {
-                if (x <= 0.0) return Constants.NAN;
-                if (x == 1.0) return 0.0;
+                if (x <= 0.0) 
+                    return Constants.NAN;
+                if (x == 1.0) 
+                    return 0.0;
                 
                 float{64} y = (x - 1.0) / (x + 1.0);
                 float{64} y2 = y * y;
@@ -222,8 +226,10 @@ namespace std
 
             float{64} sqrt(float{64} x)
             {
-                if (x < 0.0) return Constants.NAN;
-                if (x == 0.0) return 0.0;
+                if (x < 0.0) 
+                    return Constants.NAN;
+                if (x == 0.0) 
+                    return 0.0;
                 
                 float{64} guess = x / 2.0;
                 float{64} prev;
@@ -283,26 +289,31 @@ namespace std
             float{64} tan(float{64} x)
             {
                 float{64} c = cos(x);
-                if (abs(c) < Constants.EPSILON) return Constants.INF;
+                if (abs(c) < Constants.EPSILON) 
+                    return Constants.INF;
                 return sin(x) / c;
             };
 
             float{64} asin(float{64} x)
             {
-                if (abs(x) > 1.0) return Constants.NAN;
+                if (abs(x) > 1.0) 
+                    return Constants.NAN;
                 return atan2(x, sqrt(1.0 - x * x));
             };
 
             float{64} acos(float{64} x)
             {
-                if (abs(x) > 1.0) return Constants.NAN;
+                if (abs(x) > 1.0) 
+                    return Constants.NAN;
                 return atan2(sqrt(1.0 - x * x), x);
             };
 
             float{64} atan(float{64} x)
             {
-                if (x == 0.0) return 0.0;
-                if (x > 0.0) return atan2(x, 1.0);
+                if (x == 0.0) 
+                    return 0.0;
+                if (x > 0.0) 
+                    return atan2(x, 1.0);
                 return atan2(x, -1.0);
             };
 
@@ -310,8 +321,10 @@ namespace std
             {
                 if (x == 0.0)
                 {
-                    if (y > 0.0) return Constants.PI_2;
-                    if (y < 0.0) return -Constants.PI_2;
+                    if (y > 0.0) 
+                        return Constants.PI_2;
+                    if (y < 0.0) 
+                        return -Constants.PI_2;
                     return 0.0;
                 };
                 
@@ -319,7 +332,8 @@ namespace std
                 
                 if (x < 0.0)
                 {
-                    if (y >= 0.0) return atan + Constants.PI;
+                    if (y >= 0.0) 
+                        return atan + Constants.PI;
                     return atan - Constants.PI;
                 };
                 
@@ -349,7 +363,9 @@ namespace std
         {
             struct Vector3
             {
-                float{64} x, y, z;
+                float{64} x;
+                float{64} y;
+                float{64} z;
             };
 
             Vector3 create(float{64} x, float{64} y, float{64} z)
@@ -398,7 +414,8 @@ namespace std
             Vector3 normalize(Vector3 v)
             {
                 float{64} mag = magnitude(v);
-                if (mag < Constants.EPSILON) return v;
+                if (mag < Constants.EPSILON) 
+                    return v;
                 return scale(v, 1.0 / mag);
             };
         };
@@ -437,7 +454,8 @@ namespace std
             float{64} median(float{64}[] values)
             {
                 int{32} len = length(values);
-                if (len == 0) return Constants.NAN;
+                if (len == 0) 
+                    return Constants.NAN;
                 
                 if (len % 2 == 0)
                 {
@@ -450,4 +468,19 @@ namespace std
             };
         };
     };
+};
+
+// Main function (required by Flux)
+int{32} main() 
+{
+    // Example usage of the math library
+    float{64} pi = std::Math::Constants.PI;
+    print(i"Pi is approximately {pi}":{pi;});
+    
+    // Example of using complex numbers
+    std::Math::Complex::ComplexNum c1 = std::Math::Complex::create(3.0, 4.0);
+    float{64} mag = std::Math::Complex::magnitude(c1);
+    print(i"Magnitude of 3+4i is {mag}":{mag;});
+    
+    return 0;
 };

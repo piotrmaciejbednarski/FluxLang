@@ -37,11 +37,13 @@ asm {
 
 Input and output are input() and print() respectively.
 
-The syntax for Python-like f-strings would be i"{x}{y}{z}":{x;y;z;}
-An example of a Flux i-string: print(i"{x} {y}":{first_name;last_name;});
+The syntax for Python-like f-strings in Flux would be i"{x}{y}{z}":{x;y;z;}
+An example of using a Flux i-string: print(i"{x} {y}":{x;y;});
 
 **Namespaces are __strictly__ class containers** in Flux.
 This is to prevent naming conflicts, enforce modularity, and support hierarchical organization.
+
+A Flux program must have a main() function defined somewhere in the global scope.
 
 Here's two examples of the same Flux program, one statically typed, one dynamically typed.
 
@@ -85,7 +87,7 @@ Result:
 HelloWorld ofCoding
 ```
 
-Flux allows you to set the bit width of your datatypes when programming statically.
+Flux allows you to set the bit width of int and float.
 This means you must be acutely aware of your data structures.
 There is a `sizeof` helper built-in to view the default bit-widths of Flux types.
 
@@ -111,108 +113,6 @@ Result:
 HelloWorld ofCoding
 ```
 
-**Dynamic HelloWorld with pointers:**
-```
-string concat(string *a, string *b) {
-    return *a+*b;  // String addition is native
-};
-
-int main() {
-    string h = "Hello";
-    string w = "World";
-    string x = "of";
-    string y = "Coding";
-    string *ph, *pw, *px, *py = @h, @w, @x, @y;
-    print(i"{} {}":{concat(h,w); concat(x,y);});
-    return 0;
-};
-```
-```
-Result:
-HelloWorld ofCoding
-```
-
-Function overloading, static vs. dynamic:
-
-**Static:**
-```
-int{32} fibonacci(int{32} n) {
-    // Base cases
-    if (n <= 1) {
-        return n;
-    }
-    
-    // Recursive case
-    return fibonacci(n - 1) + fibonacci(n - 2);
-};
-
-long{32} fibonacci(long{32} n) {
-    // Base cases
-    if (n <= 1) {
-        return n;
-    }
-    
-    // Recursive case
-    return fibonacci(n - 1) + fibonacci(n - 2);
-};
-
-int{32} main(string *argc, string[] *argv) {
-    print(int{32}:fibonacci(10));       // Statically defined means it must be statically called.
-    print(long{32}:fibonacci(8));       // Must specifically indicate the long type, because we could have
-    return 0;                           // a long{48} fibonacci() implementation
-}
-```
-```
-Result:
-55
-21
-```
-
-**Dynamic:**
-```
-int fibonacci(int n) {  // int{32} is default
-    // Base cases
-    if (n <= 1) {
-        return n;
-    }
-    
-    // Recursive case
-    return fibonacci(n - 1) + fibonacci(n - 2);
-};
-
-long fibonacci(long n) {  // long{64} is default
-    // Base cases
-    if (n <= 1) {
-        return n;
-    }
-    
-    // Recursive case
-    return fibonacci(n - 1) + fibonacci(n - 2);
-};
-
-long{42} fibonacci(long n) {
-    // Base cases
-    if (n <= 1) {
-        return n;
-    }
-    
-    // Recursive case
-    return fibonacci(n - 1) + fibonacci(n - 2);
-};
-
-int main(string *argc, string[] *argv) {
-    print(fibonacci(10));
-    print(fibonacci( /*some 60 bit large number*/ ));            // Will automatically overload to the long implementation
-    print(long{42}:fibonacci( /*some 60 bit large number*/ ));   // Static and dynamic code can mix.
-    return 0;
-};
-```
-```
-Result:
-55
-// whatever output would come from that
-```
-
 **Arrays and memory management:**
 ```
 int{64} sum_array(int[] *arr, int len) {
@@ -225,23 +125,8 @@ int{64} sum_array(int[] *arr, int len) {
 
 int main(string *argc, string[] *argv) {
     int[5] numbers = [1, 2, 3, 4, 5];
+    int{8}[8] x;                    // 8-bit int array length 8
     print(sum_array(&numbers, 5));  // Prints 15
-};
-```
-
-**String manipulation:**
-```
-string reverse(string str) {
-    int len = length(str);
-    string result = "";
-    for (int i = len - 1; i >= 0; i = i - 1) {
-        result = result + str[i];
-    };
-    return result;
-};
-
-int main(string *argc, string[] *argv) {
-    print(reverse("Hello World!"));  // Prints "!dlroW olleH"
 };
 ```
 
@@ -273,26 +158,6 @@ int{32} main(char[] *argc, char[][] *argv) {
 };
 ```
 
-**Dynamically typed first class functions:**
-```cpp
-int apply(int (*fn)(int), int value) {
-    return fn(value);
-};
-
-int square(int x) {
-    return x * x;
-};
-
-int cube(int x) {
-    return x * x * x;
-};
-
-int main(string *argc, string[] *argv) {
-    print(apply(square, 5));  // Prints 25
-    print(apply(cube, 3));    // Prints 27
-    return 0;
-};
-```
 
 **Complex number calculator:**
 ```
@@ -366,8 +231,8 @@ void quadratic_solver(float{64} a, float{64} b, float{64} c) {
 
 **Input / output:**
 ```
-filename = input("Enter a file name: ", _) { /*  This code executes on the value of _ before passing to the left  */ };
-                                            // _ is functionally equivalent to filename before assignment
+filename = input("Enter a file name: ")
+
 open(filename, "r") [file] {
         // Imagine it just like Python.
         data = file.read();      // No need to .seek(0) - Can if uncomfortable.
@@ -392,7 +257,7 @@ void **pp_data; // Pointer to a pointer.
 
 
 Keyword list:
-object, asm, and, assert, break, case, catch, string, class, const, continue,
+object, asm, and, assert, break, case, catch, char, class, const, continue,
 default, delete, do, else, enum, false, float, for, if, import, int, is, lambda,
 memalloc, namespace, new, not, nullptr, operator, or, require, return, signed,
 sizeof, struct, super, switch, this, throw, true, try, typedef, union, unsigned,
@@ -401,6 +266,9 @@ using, void, while, xor, memalloc, sin, cos, tan, cot, sec, cosec, quad_eq, sqrt
 
 Builtins:
 print, input, open, socket
+
+Types:
+char, float, int, void
 
 
 ## Operator Precedence (highest to lowest)

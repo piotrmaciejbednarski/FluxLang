@@ -1,3 +1,3 @@
-double x = 5;
+string x = "Hello World!";
 
 print(x);

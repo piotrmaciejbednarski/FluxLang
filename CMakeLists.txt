@@ -19,26 +19,26 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 set(SOURCES
     src/main.cpp
     src/lexer.cpp
-    src/parser.cpp
-    src/ast.cpp
-    src/builtins.cpp
-    src/typechecker.cpp
-    src/runtime.cpp
-    src/runtime_utils.cpp
-    src/interpreter.cpp
+    #src/parser.cpp
+    #src/ast.cpp
+    #src/builtins.cpp
+    #src/typechecker.cpp
+    #src/runtime.cpp
+    #src/runtime_utils.cpp
+    #src/interpreter.cpp
     # Add more source files here as they are created
 )
 
 # Add header files
 set(HEADERS
-    src/include/error.h
+    #src/include/error.h
     src/include/ast.h
     src/include/lexer.h
-    src/include/parser.h
-    src/include/builtins.h
-    src/include/typechecker.h
-    src/include/runtime.h
-    src/include/interpreter.h
+    #src/include/parser.h
+    #src/include/builtins.h
+    #src/include/typechecker.h
+    #src/include/runtime.h
+    #src/include/interpreter.h
     # Add more header files here as they are created
 )
 
