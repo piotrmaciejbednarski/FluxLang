@@ -39,6 +39,7 @@ const std::unordered_map<std::string_view, TokenType> Lexer::keywords = {
     {"nullptr", TokenType::NULLPTR},
     {"operator", TokenType::OPERATOR},
     {"or", TokenType::OR},
+    {"print", TokenType::PRINT},
     {"require", TokenType::REQUIRE},
     {"return", TokenType::RETURN},
     {"signed", TokenType::SIGNED},

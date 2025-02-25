@@ -57,6 +57,7 @@ enum class TokenType {
     NULLPTR,
     OPERATOR,
     OR,
+    PRINT,
     REQUIRE,
     RETURN,
     SIGNED,

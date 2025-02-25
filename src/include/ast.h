@@ -845,6 +845,21 @@ public:
 // Global memory arena for AST allocation
 extern MemoryArena astArena;
 
+class PrintStatement : public Statement {
+private:
+    std::shared_ptr<Expression> expression;
+    
+public:
+    PrintStatement(std::shared_ptr<Expression> expr, AstLocation location)
+        : Statement(location), expression(std::move(expr)) {}
+    
+    const std::shared_ptr<Expression>& getExpression() const { return expression; }
+    
+    void execute() override {
+        // Execution will be handled by the interpreter
+    }
+};
+
 } // namespace flux
 
 #endif // FLUX_AST_H

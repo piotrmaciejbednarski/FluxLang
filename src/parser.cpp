@@ -208,8 +208,8 @@ std::shared_ptr<Program> Parser::parseProgram() {
                     
                     // Optional bit width specification for int/float
                     if (match(TokenType::LEFT_BRACE)) {
-                        Token bitWidthToken = consume(TokenType::INT_LITERAL, "Expect bit width");
-                        consume(TokenType::RIGHT_BRACE, "Expect '}' after bit width");
+                        Token bitWidthToken = consume(TokenType::INT_LITERAL, "Expected: bit width");
+                        consume(TokenType::RIGHT_BRACE, "Expected: '}'");
                     }
                 }
                 
@@ -229,52 +229,56 @@ std::shared_ptr<Program> Parser::parseProgram() {
                 synchronize();
                 continue;
             }
-            else if (match(TokenType::INT) || 
-                    match(TokenType::FLOAT) || 
-                    match(TokenType::VOID) || 
-                    match(TokenType::BOOL) || 
-                    match(TokenType::STRING) || 
-                    (check(TokenType::IDENTIFIER) && (
-                        peek().lexeme == "int" || 
-                        peek().lexeme == "float" || 
-                        peek().lexeme == "void" || 
-                        peek().lexeme == "bool" || 
-                        peek().lexeme == "string") && (advance(), true))) {
-                // Look ahead to determine if this is a function or variable declaration
-                Token typeToken = previous();
+            else if (match({TokenType::INT, TokenType::FLOAT, TokenType::VOID, TokenType::BOOL, TokenType::STRING}) || 
+                (check(TokenType::IDENTIFIER) && 
+                    (trimLexeme(peek().lexeme) == "int" || 
+                     trimLexeme(peek().lexeme) == "float" || 
+                     trimLexeme(peek().lexeme) == "void" || 
+                     trimLexeme(peek().lexeme) == "bool" || 
+                     trimLexeme(peek().lexeme) == "string"))) {
                 
+                // Consume type token if it was an identifier
+                if (check(TokenType::IDENTIFIER)) {
+                    advance();
+                }
+                
+                // Optional bit-width specification
+                if (match(TokenType::LEFT_BRACE)) {
+                    consume(TokenType::INT_LITERAL, "Expected: bit width");
+                    consume(TokenType::RIGHT_BRACE, "Expected: '}'");
+                }
+                
+                // Ensure we have an identifier for function/variable name
                 if (check(TokenType::IDENTIFIER)) {
                     Token nameToken = advance();
                     
                     // Check for function declaration
                     if (check(TokenType::LEFT_PAREN)) {
-                        // This is a function
-                        current -= 2; // Go back to type token
+                        // Roll back to the name token for function parsing
+                        current = current - 1;
                         declaration = parseFunction();
-                    } else {
-                        // This is a global variable declaration
-                        std::shared_ptr<Type> type = std::make_shared<PrimitiveType>(Type::Kind::INT); // Simplified for now
-                        
-                        // Handle initializer if present
+                    }
+                    else {
+                        // Potential global variable
                         std::shared_ptr<Expression> initializer = nullptr;
                         if (match(TokenType::EQUAL)) {
                             initializer = parseExpression();
                         }
                         
-                        consume(TokenType::SEMICOLON, "Expect ';' after variable declaration");
+                        consume(TokenType::SEMICOLON, "Expected: ';'");
                         
-                        // Create variable declaration node
-                        auto varDecl = std::make_shared<VariableDeclaration>(
-                            trimLexeme(nameToken.lexeme),
-                            type,
+                        // Note: You might want to create a method to process global variables
+                        declaration = processGlobalVariable(
+                            trimLexeme(nameToken.lexeme), 
+                            // You'll need to create the type based on the previous context
+                            typeRegistry->getIntType(), // Placeholder
                             initializer,
-                            makeLocation(typeToken, previous())
+                            makeLocation(nameToken, previous())
                         );
-                        
-                        declaration = varDecl;
                     }
-                } else {
-                    error("Expected identifier after type name");
+                }
+                else {
+                    error("Expected: identifier");
                     synchronize();
                     continue;
                 }
@@ -313,7 +317,7 @@ std::shared_ptr<Program> Parser::parseProgram() {
                             initializer = parseExpression();
                         }
                         
-                        consume(TokenType::SEMICOLON, "Expect ';' after variable declaration");
+                        consume(TokenType::SEMICOLON, "Expected: ';'");
                         
                         // Create variable declaration node
                         auto varDecl = std::make_shared<VariableDeclaration>(
@@ -326,17 +330,20 @@ std::shared_ptr<Program> Parser::parseProgram() {
                         declaration = varDecl;
                     }
                 } else {
-                    error("Expected declaration");
+                    error("Expected: declaration");
                     synchronize();
                     continue;
                 }
+            }
+            else if (match(TokenType::PRINT)) {
+                declaration = parseStatement();
             }
             else if (match(TokenType::SEMICOLON)) {
                 // Skip standalone semicolons at global scope
                 continue;
             }
             else {
-                error("Expected declaration");
+                error("[parseProgram()] Expected: declaration");
                 synchronize();
                 continue;
             }
@@ -353,7 +360,7 @@ std::shared_ptr<Program> Parser::parseProgram() {
 }
 
 std::shared_ptr<NamespaceDeclaration> Parser::parseNamespace() {
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect namespace name");
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
     
     auto namespaceDecl = std::make_shared<NamespaceDeclaration>(
         trimLexeme(nameToken.lexeme), 
@@ -362,7 +369,7 @@ std::shared_ptr<NamespaceDeclaration> Parser::parseNamespace() {
     
     enterNamespace(trimLexeme(nameToken.lexeme));
     
-    consume(TokenType::LEFT_BRACE, "Expect '{' after namespace name");
+    consume(TokenType::LEFT_BRACE, "Expected: '{'");
     
     while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
         if (match(TokenType::CLASS)) {
@@ -383,10 +390,8 @@ std::shared_ptr<NamespaceDeclaration> Parser::parseNamespace() {
         }
     }
     
-    consume(TokenType::RIGHT_BRACE, "Expect '}' after namespace body");
-    
-    // Handle the optional semicolon after the namespace closing brace
-    match(TokenType::SEMICOLON);
+    consume(TokenType::RIGHT_BRACE, "Expected: '}'");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     exitNamespace();
     
@@ -394,7 +399,7 @@ std::shared_ptr<NamespaceDeclaration> Parser::parseNamespace() {
 }
 
 std::shared_ptr<ClassDeclaration> Parser::parseClass() {
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect class name");
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
     
     auto classDecl = std::make_shared<ClassDeclaration>(
         trimLexeme(nameToken.lexeme), 
@@ -403,7 +408,7 @@ std::shared_ptr<ClassDeclaration> Parser::parseClass() {
     
     enterClass(trimLexeme(nameToken.lexeme));
     
-    consume(TokenType::LEFT_BRACE, "Expect '{' after class name");
+    consume(TokenType::LEFT_BRACE, "Expected: '{'");
     
     while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
         // Handle semicolons inside class definition
@@ -416,9 +421,9 @@ std::shared_ptr<ClassDeclaration> Parser::parseClass() {
                 advance(); // Consume the object token if it was an identifier
             }
             
-            Token objectNameToken = consume(TokenType::IDENTIFIER, "Expect object name");
+            Token objectNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
             
-            consume(TokenType::LEFT_BRACE, "Expect '{' after object name");
+            consume(TokenType::LEFT_BRACE, "Expected: '{'");
             
             auto objType = std::make_shared<ObjectType>(trimLexeme(objectNameToken.lexeme));
             classDecl->addObject(objType);
@@ -462,23 +467,23 @@ std::shared_ptr<ClassDeclaration> Parser::parseClass() {
                 
                 // Check if there's a field name after the closing brace
                 if (check(TokenType::IDENTIFIER)) {
-                    Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expect field name after struct");
+                    Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
                     auto structType = std::make_shared<StructType>("anonymous");
                     classDecl->addField(StructField(trimLexeme(fieldNameToken.lexeme), structType));
-                    consume(TokenType::SEMICOLON, "Expect ';' after struct field");
+                    consume(TokenType::SEMICOLON, "Expected: ';'");
                 } else {
-                    error("Expected field name after anonymous struct");
+                    error("Expecteded: field name after anonymous struct");
                     synchronize();
                 }
             } else {
                 // Named struct
                 Token structNameToken = previous();
                 if (check(TokenType::IDENTIFIER)) {
-                    structNameToken = consume(TokenType::IDENTIFIER, "Expect struct name");
+                    structNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
                 }
                 
                 // Now expect a LEFT_BRACE
-                consume(TokenType::LEFT_BRACE, "Expect '{' after struct name");
+                consume(TokenType::LEFT_BRACE, "Expected: '{'");
                 
                 // Skip through the struct body
                 int braceCount = 1;
@@ -495,14 +500,14 @@ std::shared_ptr<ClassDeclaration> Parser::parseClass() {
                 
                 // Check if there's a field name after the closing brace
                 if (check(TokenType::IDENTIFIER)) {
-                    Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expect field name after struct");
+                    Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
                     auto structType = std::make_shared<StructType>(
                         structNameToken.type == TokenType::IDENTIFIER ? trimLexeme(structNameToken.lexeme) : "anonymous");
                     classDecl->addField(StructField(trimLexeme(fieldNameToken.lexeme), structType));
-                    consume(TokenType::SEMICOLON, "Expect ';' after struct field");
+                    consume(TokenType::SEMICOLON, "Expected: ';'");
                 } else {
                     // It's a struct type definition without a field
-                    consume(TokenType::SEMICOLON, "Expect ';' after struct definition");
+                    consume(TokenType::SEMICOLON, "Expected: ';'");
                 }
             }
         }
@@ -529,25 +534,25 @@ std::shared_ptr<ClassDeclaration> Parser::parseClass() {
                 
                 // Check if there's a field name after the closing brace
                 if (check(TokenType::IDENTIFIER)) {
-                    Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expect field name after union");
+                    Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
                     auto unionType = std::make_shared<UnionType>("anonymous");
                     classDecl->addField(StructField(trimLexeme(fieldNameToken.lexeme), unionType));
-                    consume(TokenType::SEMICOLON, "Expect ';' after union field");
+                    consume(TokenType::SEMICOLON, "Expected: ';'");
                 } else {
-                    error("Expected field name after anonymous union");
+                    error("Expecteded: identifier");
                     synchronize();
                 }
             }
         }
         // Handle field declarations
         else if (check(TokenType::IDENTIFIER)) {
-            Token typeToken = consume(TokenType::IDENTIFIER, "Expect type name");
-            Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expect field name");
+            Token typeToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
+            Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
             
             auto fieldType = std::make_shared<PrimitiveType>(Type::Kind::INT); // Simplified type
             classDecl->addField(StructField(trimLexeme(fieldNameToken.lexeme), fieldType));
             
-            consume(TokenType::SEMICOLON, "Expect ';' after field declaration");
+            consume(TokenType::SEMICOLON, "Expected: ';'");
         }
         else {
             error("Unexpected token in class");
@@ -555,10 +560,8 @@ std::shared_ptr<ClassDeclaration> Parser::parseClass() {
         }
     }
     
-    consume(TokenType::RIGHT_BRACE, "Expect '}' after class body");
-    
-    // Handle optional semicolon after class closing brace
-    match(TokenType::SEMICOLON);
+    consume(TokenType::RIGHT_BRACE, "Expected: '}'");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     exitClass();
     
@@ -566,7 +569,7 @@ std::shared_ptr<ClassDeclaration> Parser::parseClass() {
 }
 
 std::shared_ptr<StructDeclaration> Parser::parseStruct() {
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect struct name");
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
     
     std::vector<StructField> fields;
     
@@ -574,14 +577,14 @@ std::shared_ptr<StructDeclaration> Parser::parseStruct() {
         while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
             auto fieldType = parseType();
             
-            Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expect field name");
+            Token fieldNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
             
             fields.emplace_back(std::string(fieldNameToken.lexeme), fieldType);
             
-            consume(TokenType::SEMICOLON, "Expect ';' after field declaration");
+            consume(TokenType::SEMICOLON, "Expected: ';'");
         }
         
-        consume(TokenType::RIGHT_BRACE, "Expect '}' after struct fields");
+        consume(TokenType::RIGHT_BRACE, "Expected: '}'");
     }
     
     return std::make_shared<StructDeclaration>(
@@ -620,10 +623,10 @@ std::shared_ptr<ObjectDeclaration> Parser::parseObject() {
             int bitWidth = 32;
             if ((trimLexeme(typeToken.lexeme) == "int" || trimLexeme(typeToken.lexeme) == "float") && 
                 check(TokenType::LEFT_BRACE)) {
-                consume(TokenType::LEFT_BRACE, "Expect '{'");
-                Token bitWidthToken = consume(TokenType::INT_LITERAL, "Expect bit width");
+                consume(TokenType::LEFT_BRACE, "Expected: '{'");
+                Token bitWidthToken = consume(TokenType::INT_LITERAL, "Expected: integer bit width");
                 bitWidth = static_cast<int>(bitWidthToken.intValue);
-                consume(TokenType::RIGHT_BRACE, "Expect '}'");
+                consume(TokenType::RIGHT_BRACE, "Expected: '}'");
             }
             
             // Create the appropriate type
@@ -643,7 +646,7 @@ std::shared_ptr<ObjectDeclaration> Parser::parseObject() {
             }
             
             // Parse function or field name
-            Token nameToken = consume(TokenType::IDENTIFIER, "Expect function or field name");
+            Token nameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
             
             // Function declaration - check for opening parenthesis
             if (match(TokenType::LEFT_PAREN)) {
@@ -671,7 +674,7 @@ std::shared_ptr<ObjectDeclaration> Parser::parseObject() {
                                 paramType = std::make_shared<PrimitiveType>(Type::Kind::VOID);
                             }
                         } else {
-                            error("Expected parameter type");
+                            error("Expected: datatype");
                             paramType = std::make_shared<PrimitiveType>(Type::Kind::VOID);
                         }
                         
@@ -681,16 +684,16 @@ std::shared_ptr<ObjectDeclaration> Parser::parseObject() {
                         }
                         
                         // Parameter name
-                        Token paramNameToken = consume(TokenType::IDENTIFIER, "Expect parameter name");
+                        Token paramNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
                         
                         parameters.emplace_back(trimLexeme(paramNameToken.lexeme), paramType);
                     } while (match(TokenType::COMMA));
                 }
                 
-                consume(TokenType::RIGHT_PAREN, "Expect ')' after parameters");
+                consume(TokenType::RIGHT_PAREN, "Expected: ')'");
                 
                 // Parse function body
-                consume(TokenType::LEFT_BRACE, "Expect '{' before function body");
+                consume(TokenType::LEFT_BRACE, "Expected: '{'");
                 
                 // Skip function body content
                 int braceCount = 1;
@@ -723,7 +726,7 @@ std::shared_ptr<ObjectDeclaration> Parser::parseObject() {
                 auto fieldType = returnType;
                 objectDecl->addField(StructField(trimLexeme(nameToken.lexeme), fieldType));
                 
-                consume(TokenType::SEMICOLON, "Expect ';' after field declaration");
+                consume(TokenType::SEMICOLON, "Expected: ';'");
             }
         }
         else {
@@ -732,7 +735,7 @@ std::shared_ptr<ObjectDeclaration> Parser::parseObject() {
         }
     }
     
-    consume(TokenType::RIGHT_BRACE, "Expect '}' after object body");
+    consume(TokenType::RIGHT_BRACE, "Expected: '}'");
     
     // Handle optional semicolon after object closing brace
     match(TokenType::SEMICOLON);
@@ -745,9 +748,9 @@ std::shared_ptr<FunctionDeclaration> Parser::parseFunction(std::shared_ptr<Type>
     
     auto returnType = parseType();
     
-    consume(TokenType::LEFT_PAREN, "Expect '(' after function name");
+    consume(TokenType::LEFT_PAREN, "Expected: '('");
     std::vector<Parameter> parameters = parseParameterList();
-    consume(TokenType::RIGHT_PAREN, "Expect ')' after parameters");
+    consume(TokenType::RIGHT_PAREN, "Expected: ')'");
     
     auto functionDecl = std::make_shared<FunctionDeclaration>(
         std::string(nameToken.lexeme), 
@@ -757,7 +760,7 @@ std::shared_ptr<FunctionDeclaration> Parser::parseFunction(std::shared_ptr<Type>
         makeLocation(previous(), nameToken)
     );
     
-    consume(TokenType::LEFT_BRACE, "Expect '{' before function body");
+    consume(TokenType::LEFT_BRACE, "Expected: '{'");
     
     beginScope();
     
@@ -775,13 +778,19 @@ std::shared_ptr<FunctionDeclaration> Parser::parseFunction(std::shared_ptr<Type>
     
     endScope();
     
+    consume(TokenType::RIGHT_BRACE, "Expected: '}'");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
+    
     return functionDecl;
 }
 
 std::shared_ptr<ImportDeclaration> Parser::parseImport() {
     Token pathToken = consume(TokenType::STRING_LITERAL, "Expect import path as string");
     
-    consume(TokenType::SEMICOLON, "Expect ';' after import");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
+    
+    // Read file, if access fails give err,
+    // else replace the import line with the import source.
     
     return std::make_shared<ImportDeclaration>(
         std::string(pathToken.lexeme), 
@@ -790,7 +799,7 @@ std::shared_ptr<ImportDeclaration> Parser::parseImport() {
 }
 
 std::shared_ptr<UnionDeclaration> Parser::parseUnion() {
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect union name");
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
     
     std::vector<StructField> variants;
     
@@ -798,14 +807,15 @@ std::shared_ptr<UnionDeclaration> Parser::parseUnion() {
         while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
             auto variantType = parseType();
             
-            Token variantNameToken = consume(TokenType::IDENTIFIER, "Expect variant name");
+            Token variantNameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
             
             variants.emplace_back(std::string(variantNameToken.lexeme), variantType);
             
-            consume(TokenType::SEMICOLON, "Expect ';' after variant declaration");
+            consume(TokenType::SEMICOLON, "Expected: ';'");
         }
         
-        consume(TokenType::RIGHT_BRACE, "Expect '}' after union variants");
+        consume(TokenType::RIGHT_BRACE, "Expected: '}'");
+        consume(TokenType::SEMICOLON, "Expected ';'");
     }
     
     return std::make_shared<UnionDeclaration>(
@@ -843,7 +853,7 @@ std::shared_ptr<TypedefDeclaration> Parser::parseTypedef() {
             if (match(TokenType::INT_LITERAL)) {
                 bitWidth = static_cast<int>(previous().intValue);
             }
-            consume(TokenType::RIGHT_BRACE, "Expect '}' after bit width");
+            consume(TokenType::RIGHT_BRACE, "Expected: '}' after bit width");
         }
         
         baseType = std::make_shared<PrimitiveType>(Type::Kind::INT, bitWidth, isUnsigned);
@@ -860,7 +870,7 @@ std::shared_ptr<TypedefDeclaration> Parser::parseTypedef() {
             if (match(TokenType::INT_LITERAL)) {
                 bitWidth = static_cast<int>(previous().intValue);
             }
-            consume(TokenType::RIGHT_BRACE, "Expect '}' after bit width");
+            consume(TokenType::RIGHT_BRACE, "Expected: '}' after bit width");
         }
         
         baseType = std::make_shared<PrimitiveType>(Type::Kind::FLOAT, bitWidth);
@@ -873,9 +883,9 @@ std::shared_ptr<TypedefDeclaration> Parser::parseTypedef() {
     }
     
     // Get the typedef name
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect new type name");
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
     
-    consume(TokenType::SEMICOLON, "Expect ';' after typedef");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     return std::make_shared<TypedefDeclaration>(
         trimLexeme(nameToken.lexeme),
@@ -896,8 +906,23 @@ std::shared_ptr<Statement> Parser::parseStatement() {
     if (match(TokenType::THROW)) return parseThrowStatement();
     if (match(TokenType::TRY)) return parseTryCatchStatement();
     if (match(TokenType::ASM)) return parseAsmStatement();
+    if (match(TokenType::PRINT)) return parsePrintStatement();
     
     return parseExpressionStatement();
+}
+
+bool Parser::isInFunctionOrClassContext() const {
+	if (!currentFunction.empty())
+	{
+		return true;
+	}
+	
+	if (!currentClass.empty())
+	{
+		return true;
+	}
+	
+	return false;
 }
 
 std::shared_ptr<BlockStatement> Parser::parseBlock() {
@@ -906,14 +931,47 @@ std::shared_ptr<BlockStatement> Parser::parseBlock() {
         makeLocation(startToken, Token(TokenType::RIGHT_BRACE, "}", startToken.line, startToken.column))
     );
     
-    while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
+    bool isAnonymousBlock = true;
+    bool hasDeclarations = false;    
+    
+    while (!check(TokenType::RIGHT_BRACE) && !isAtEnd())
+    {
+        if (match(TokenType::LEFT_BRACE))
+        {
+            auto nestedBlock = parseBlock();
+            if (nestedBlock)
+            {
+                block->addStatement(nestedBlock);
+                
+                if (!hasDeclarations)
+                {
+                    consume(TokenType::SEMICOLON, "Expected: ';'");
+                }
+            }
+        }
+        else
+        {
+            auto statement = parseStatement();
+            if (statement)
+            {
+                block->addStatement(statement);
+                hasDeclarations = true;
+                isAnonymousBlock = false;
+            }
+        }
+        
         auto statement = parseStatement();
         if (statement) {
             block->addStatement(statement);
         }
     }
     
-    Token endToken = consume(TokenType::RIGHT_BRACE, "Expect '}' after block");
+    Token endToken = consume(TokenType::RIGHT_BRACE, "Expected: '}'");
+    
+    if (isAnonymousBlock && !hasDeclarations && !isInFunctionOrClassContext())
+    {
+    	consume(TokenType::SEMICOLON, "Expected: ';'");
+    }
     
     return block;
 }
@@ -921,7 +979,7 @@ std::shared_ptr<BlockStatement> Parser::parseBlock() {
 std::shared_ptr<ExpressionStatement> Parser::parseExpressionStatement() {
     auto expr = parseExpression();
     
-    consume(TokenType::SEMICOLON, "Expect ';' after expression");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     return std::make_shared<ExpressionStatement>(
         expr,
@@ -930,11 +988,11 @@ std::shared_ptr<ExpressionStatement> Parser::parseExpressionStatement() {
 }
 
 std::shared_ptr<IfStatement> Parser::parseIfStatement() {
-    consume(TokenType::LEFT_PAREN, "Expect '(' after 'if'");
+    consume(TokenType::LEFT_PAREN, "Expected: '('");
     
     auto condition = parseExpression();
     
-    consume(TokenType::RIGHT_PAREN, "Expect ')' after if condition");
+    consume(TokenType::RIGHT_PAREN, "Expected: ')'");
     
     auto thenBranch = parseStatement();
     
@@ -953,11 +1011,11 @@ std::shared_ptr<IfStatement> Parser::parseIfStatement() {
 }
 
 std::shared_ptr<WhileStatement> Parser::parseWhileStatement() {
-    consume(TokenType::LEFT_PAREN, "Expect '(' after 'while'");
+    consume(TokenType::LEFT_PAREN, "Expected: '('");
     
     auto condition = parseExpression();
     
-    consume(TokenType::RIGHT_PAREN, "Expect ')' after while condition");
+    consume(TokenType::RIGHT_PAREN, "Expected: ')'");
     
     auto body = parseStatement();
     
@@ -969,7 +1027,7 @@ std::shared_ptr<WhileStatement> Parser::parseWhileStatement() {
 }
 
 std::shared_ptr<ForStatement> Parser::parseForStatement() {
-    consume(TokenType::LEFT_PAREN, "Expect '(' after 'for'");
+    consume(TokenType::LEFT_PAREN, "Expected: '('");
     
     std::shared_ptr<Statement> initializer = nullptr;
     if (match(TokenType::SEMICOLON)) {
@@ -982,14 +1040,14 @@ std::shared_ptr<ForStatement> Parser::parseForStatement() {
     if (!check(TokenType::SEMICOLON)) {
         condition = parseExpression();
     }
-    consume(TokenType::SEMICOLON, "Expect ';' after loop condition");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     std::shared_ptr<Expression> increment = nullptr;
     if (!check(TokenType::RIGHT_PAREN)) {
         increment = parseExpression();
     }
     
-    consume(TokenType::RIGHT_PAREN, "Expect ')' after for clauses");
+    consume(TokenType::RIGHT_PAREN, "Expected: ')'");
     
     auto body = parseStatement();
     
@@ -1010,7 +1068,7 @@ std::shared_ptr<ReturnStatement> Parser::parseReturnStatement() {
         value = parseExpression();
     }
     
-    consume(TokenType::SEMICOLON, "Expect ';' after return value");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     return std::make_shared<ReturnStatement>(
         value, 
@@ -1021,7 +1079,7 @@ std::shared_ptr<ReturnStatement> Parser::parseReturnStatement() {
 std::shared_ptr<BreakStatement> Parser::parseBreakStatement() {
     Token breakToken = previous();
     
-    consume(TokenType::SEMICOLON, "Expect ';' after 'break'");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     return std::make_shared<BreakStatement>(
         makeLocation(breakToken, previous())
@@ -1031,7 +1089,7 @@ std::shared_ptr<BreakStatement> Parser::parseBreakStatement() {
 std::shared_ptr<ContinueStatement> Parser::parseContinueStatement() {
     Token continueToken = previous();
     
-    consume(TokenType::SEMICOLON, "Expect ';' after 'continue'");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     return std::make_shared<ContinueStatement>(
         makeLocation(continueToken, previous())
@@ -1046,7 +1104,7 @@ std::shared_ptr<ThrowStatement> Parser::parseThrowStatement() {
         handler = parseBlock();
     }
     
-    consume(TokenType::SEMICOLON, "Expect ';' after throw");
+    consume(TokenType::SEMICOLON, "Expected: ';'");
     
     return std::make_shared<ThrowStatement>(
         exception,
@@ -1056,18 +1114,18 @@ std::shared_ptr<ThrowStatement> Parser::parseThrowStatement() {
 }
 
 std::shared_ptr<TryCatchStatement> Parser::parseTryCatchStatement() {
-    consume(TokenType::LEFT_BRACE, "Expect '{' after 'try'");
+    consume(TokenType::LEFT_BRACE, "Expected: '{'");
     auto tryBlock = parseBlock();
     
-    consume(TokenType::CATCH, "Expect 'catch' after try block");
+    consume(TokenType::CATCH, "Expected: catch after try block");
     
-    consume(TokenType::LEFT_PAREN, "Expect '(' after 'catch'");
+    consume(TokenType::LEFT_PAREN, "Expected: '('");
     
-    Token exceptionVarToken = consume(TokenType::IDENTIFIER, "Expect exception variable name");
+    Token exceptionVarToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
     
-    consume(TokenType::RIGHT_PAREN, "Expect ')' after exception variable");
+    consume(TokenType::RIGHT_PAREN, "Expect: ')'");
     
-    consume(TokenType::LEFT_BRACE, "Expect '{' after catch clause");
+    consume(TokenType::LEFT_BRACE, "Expect: '{'");
     auto catchBlock = parseBlock();
     
     return std::make_shared<TryCatchStatement>(
@@ -1082,7 +1140,7 @@ std::shared_ptr<TryCatchStatement> Parser::parseTryCatchStatement() {
 std::shared_ptr<AsmStatement> Parser::parseAsmStatement() {
     Token asmToken = previous();
     
-    consume(TokenType::LEFT_BRACE, "Expect '{' after 'asm'");
+    consume(TokenType::LEFT_BRACE, "Expected: '{'");
     
     std::string asmCode;
     
@@ -1090,7 +1148,7 @@ std::shared_ptr<AsmStatement> Parser::parseAsmStatement() {
         asmCode += std::string(advance().lexeme) + " ";
     }
     
-    Token endToken = consume(TokenType::RIGHT_BRACE, "Expect '}' after ASM block");
+    Token endToken = consume(TokenType::RIGHT_BRACE, "Expected: '}'");
     
     return std::make_shared<AsmStatement>(
         asmCode, 
@@ -1454,6 +1512,20 @@ std::shared_ptr<Expression> Parser::parsePostfix() {
     return expr;
 }
 
+std::shared_ptr<Statement> Parser::parsePrintStatement() {
+    Token printToken = previous(); // PRINT token
+    
+    consume(TokenType::LEFT_PAREN, "Expected '(' after 'print'");
+    auto expr = parseExpression();
+    consume(TokenType::RIGHT_PAREN, "Expected ')' after expression");
+    consume(TokenType::SEMICOLON, "Expected ';' after print statement");
+    
+    return std::make_shared<PrintStatement>(
+        expr,
+        makeLocation(printToken, previous())
+    );
+}
+
 std::shared_ptr<Expression> Parser::parsePrimary() {
     // Literal parsing
     if (match({TokenType::INT_LITERAL, TokenType::FLOAT_LITERAL, 
@@ -1523,7 +1595,7 @@ std::shared_ptr<Expression> Parser::parsePrimary() {
     // Parenthesized expression
     if (match(TokenType::LEFT_PAREN)) {
         auto expr = parseExpression();
-        consume(TokenType::RIGHT_PAREN, "Expect ')' after expression");
+        consume(TokenType::RIGHT_PAREN, "Expected: ')'");
         return expr;
     }
     
@@ -1532,7 +1604,7 @@ std::shared_ptr<Expression> Parser::parsePrimary() {
         return parseArrayLiteral();
     }
     
-    error("Expected expression");
+    error("Expected: expression");
     return nullptr;
 }
 
@@ -1546,7 +1618,7 @@ std::shared_ptr<Expression> Parser::parseArrayLiteral() {
         } while (match(TokenType::COMMA));
     }
     
-    Token endToken = consume(TokenType::RIGHT_BRACKET, "Expect ']' after array elements");
+    Token endToken = consume(TokenType::RIGHT_BRACKET, "Expected: ']'");
     
     return std::make_shared<ArrayLiteralExpression>(
         elements,
@@ -1563,7 +1635,7 @@ std::shared_ptr<Expression> Parser::finishCall(std::shared_ptr<Expression> calle
         } while (match(TokenType::COMMA));
     }
     
-    Token endToken = consume(TokenType::RIGHT_PAREN, "Expect ')' after arguments");
+    Token endToken = consume(TokenType::RIGHT_PAREN, "Expected: ')'");
     
     return std::make_shared<CallExpression>(
         callee,
@@ -1575,7 +1647,7 @@ std::shared_ptr<Expression> Parser::finishCall(std::shared_ptr<Expression> calle
 
 std::shared_ptr<Expression> Parser::finishIndexAccess(std::shared_ptr<Expression> array) {
     auto index = parseExpression();
-    Token endToken = consume(TokenType::RIGHT_BRACKET, "Expect ']' after index");
+    Token endToken = consume(TokenType::RIGHT_BRACKET, "Expected: ']'");
     
     return std::make_shared<IndexExpression>(
         array,
@@ -1586,7 +1658,7 @@ std::shared_ptr<Expression> Parser::finishIndexAccess(std::shared_ptr<Expression
 }
 
 std::shared_ptr<Expression> Parser::finishMemberAccess(std::shared_ptr<Expression> object) {
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect property name after '.'");
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expected: member identifier");
     
     return std::make_shared<MemberExpression>(
         object,
@@ -1597,7 +1669,7 @@ std::shared_ptr<Expression> Parser::finishMemberAccess(std::shared_ptr<Expressio
 }
 
 std::shared_ptr<Expression> Parser::finishArrowAccess(std::shared_ptr<Expression> pointer) {
-    Token nameToken = consume(TokenType::IDENTIFIER, "Expect property name after '->'");
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expected: member identifier");
     
     return std::make_shared<ArrowExpression>(
         pointer,
@@ -1608,45 +1680,87 @@ std::shared_ptr<Expression> Parser::finishArrowAccess(std::shared_ptr<Expression
 }
 
 std::shared_ptr<Type> Parser::parseType() {
-    bool isArray = false;
-    bool isPointer = false;
-    std::shared_ptr<Type> baseType = nullptr;
+    bool isUnsigned = false;
+    int bitWidth = 32; // Default bit width
     
-    if (match(TokenType::INT) || (check(TokenType::IDENTIFIER) && peek().lexeme == "int" && (advance(), true))) {
-        int bitWidth = 32; // Default bit width
+    // Optional unsigned modifier
+    if (match(TokenType::UNSIGNED) || 
+        (check(TokenType::IDENTIFIER) && trimLexeme(peek().lexeme) == "unsigned")) {
+        if (check(TokenType::IDENTIFIER)) advance();
+        isUnsigned = true;
+    }
+    
+    std::shared_ptr<Type> baseType = nullptr;
+    Token typeToken = (previous().type == TokenType::IDENTIFIER) ? previous() : peek();
+    
+    // Primitive type handling
+    if (match({TokenType::INT, TokenType::FLOAT, TokenType::VOID, 
+               TokenType::BOOL, TokenType::STRING}) || 
+        (check(TokenType::IDENTIFIER) && 
+         (trimLexeme(peek().lexeme) == "int" || 
+          trimLexeme(peek().lexeme) == "float" || 
+          trimLexeme(peek().lexeme) == "void" || 
+          trimLexeme(peek().lexeme) == "bool" || 
+          trimLexeme(peek().lexeme) == "string"))) {
         
-        if (match(TokenType::LEFT_BRACE)) {
-            // Parse the bit width
-            if (match(TokenType::INT_LITERAL)) {
-                bitWidth = static_cast<int>(previous().intValue);
+        // Consume identifier type token if needed
+        typeToken = (previous().type == TokenType::IDENTIFIER) ? previous() : peek();
+        if (typeToken.type == TokenType::IDENTIFIER) advance();
+        
+        std::string typeName = trimLexeme(typeToken.lexeme);
+        
+        // Prevent bit-width for void, bool, and string
+        if ((typeName == "void" || typeName == "bool" || typeName == "string")) {
+            // Disallow bit-width specification
+            if (match(TokenType::LEFT_BRACE)) {
+                error("Cannot specify bit-width for " + typeName + " type");
+                consume(TokenType::INT_LITERAL, "");
+                consume(TokenType::RIGHT_BRACE, "");
             }
-            consume(TokenType::RIGHT_BRACE, "Expect '}' after bit width");
         }
         
-        baseType = std::make_shared<PrimitiveType>(Type::Kind::INT, bitWidth);
+        // Optional bit-width specification for int and float
+        if ((typeName == "int" || typeName == "float") && 
+            match(TokenType::LEFT_BRACE)) {
+            Token bitWidthToken = consume(TokenType::INT_LITERAL, "Expected: bit width");
+            bitWidth = static_cast<int>(bitWidthToken.intValue);
+            consume(TokenType::RIGHT_BRACE, "Expected: '}'");
+        }
+        
+        // Create appropriate type
+        if (typeName == "int") {
+            baseType = typeRegistry->getIntType(bitWidth, isUnsigned);
+        }
+        else if (typeName == "float") {
+            baseType = typeRegistry->getFloatType(bitWidth);
+        }
+        else if (typeName == "void") {
+            baseType = typeRegistry->getVoidType();
+        }
+        else if (typeName == "bool") {
+            baseType = typeRegistry->getBoolType();
+        }
+        else if (typeName == "string") {
+            baseType = typeRegistry->getStringType();
+        }
     }
     else if (match(TokenType::IDENTIFIER)) {
-        std::string typeName = std::string(previous().lexeme);
+        // Handle custom type names
+        std::string customTypeName = std::string(previous().lexeme);
+        baseType = typeRegistry->getType(customTypeName);
         
-        // Look up the type in the registry
-        baseType = typeRegistry->getType(typeName);
         if (!baseType) {
-            // Create a simple placeholder type
+            error("Unknown type: " + customTypeName);
             baseType = std::make_shared<PrimitiveType>(Type::Kind::INT, 32);
         }
-    } 
+    }
     else {
-        error("Expected type name");
+        error("Expected: identifier");
         baseType = std::make_shared<PrimitiveType>(Type::Kind::VOID);
     }
     
     // Check for pointer
     if (match(TokenType::STAR)) {
-        isPointer = true;
-    }
-    
-    // Apply modifiers
-    if (isArray || isPointer) {
         return std::make_shared<PointerType>(baseType);
     }
     
@@ -1659,7 +1773,7 @@ int Parser::parseBitWidth() {
         return static_cast<int>(token.intValue);
     }
     
-    error("Expected integer bit width");
+    error("Expected: bit width");
     return 32; // Default bit width
 }
 
@@ -1669,7 +1783,7 @@ std::vector<Parameter> Parser::parseParameterList() {
     if (!check(TokenType::RIGHT_PAREN)) {
         do {
             auto type = parseType();
-            Token nameToken = consume(TokenType::IDENTIFIER, "Expect parameter name");
+            Token nameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
             
             parameters.emplace_back(std::string(nameToken.lexeme), type);
         } while (match(TokenType::COMMA));

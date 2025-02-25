@@ -6,6 +6,7 @@
 
 #include "include/lexer.h"
 #include "include/parser.h"
+#include "include/interpreter.h"
 #include "include/error.h"
 
 // Helper function to read entire file contents
@@ -20,6 +21,44 @@ std::string readFile(const std::string& filename) {
     buffer << file.rdbuf();
     return buffer.str();
 }
+
+// Custom output buffer to capture stdout
+class OutputCapture {
+private:
+    std::streambuf* oldCoutBuf;
+    std::stringstream capturedOutput;
+    bool isCapturing;
+
+public:
+    static bool disableCapture;
+    OutputCapture() : oldCoutBuf(nullptr), isCapturing(false) {}
+
+    void start() {
+	    if (!isCapturing && !disableCapture) {
+		oldCoutBuf = std::cout.rdbuf();
+		std::cout.rdbuf(capturedOutput.rdbuf());
+		isCapturing = true;
+	    }
+	}
+
+    void stop() {
+        if (isCapturing) {
+            std::cout.rdbuf(oldCoutBuf);
+            isCapturing = false;
+        }
+    }
+
+    std::string get() {
+        return capturedOutput.str();
+    }
+
+    void clear() {
+        capturedOutput.str("");
+        capturedOutput.clear();
+    }
+};
+
+bool OutputCapture::disableCapture = false;
 
 int main(int argc, char* argv[]) {
     // Check if filename is provided
@@ -53,28 +92,28 @@ int main(int argc, char* argv[]) {
     flux::Parser parser;
     
     std::cout << "Source code:" << std::endl;
-	for (int i = 0; i < sourceCode.length(); i++) {
-	    char c = sourceCode[i];
-	    if (c == '\n') {
-		std::cout << "\\n" << std::endl;
-	    } else if (c == '\t') {
-		std::cout << "\\t";
-	    } else if (c < 32 || c > 126) {
-		std::cout << "\\x" << std::hex << (int)c;
-	    } else {
-		std::cout << c;
-	    }
-	}
-	std::cout << std::endl;
+    for (int i = 0; i < sourceCode.length(); i++) {
+        char c = sourceCode[i];
+        if (c == '\n') {
+            std::cout << "\\n" << std::endl;
+        } else if (c == '\t') {
+            std::cout << "\\t";
+        } else if (c < 32 || c > 126) {
+            std::cout << "\\x" << std::hex << (int)c;
+        } else {
+            std::cout << c;
+        }
+    }
+    std::cout << std::endl;
 
-	std::cout << "Tokens: " << tokens.size() << std::endl;
-	for (size_t i = 0; i < std::min(tokens.size(), size_t(20)); i++) {
-	    const auto& token = tokens[i];
-	    std::cout << "Token " << i << ": Type=" << static_cast<int>(token.type) 
-		      << ", Lexeme='" << token.lexeme 
-		      << "', Line=" << token.line 
-		      << ", Column=" << token.column << std::endl;
-	}
+    std::cout << "Tokens: " << tokens.size() << std::endl;
+    for (size_t i = 0; i < std::min(tokens.size(), size_t(20)); i++) {
+        const auto& token = tokens[i];
+        std::cout << "Token " << i << ": Type=" << static_cast<int>(token.type) 
+                  << ", Lexeme='" << token.lexeme 
+                  << "', Line=" << token.line 
+                  << ", Column=" << token.column << std::endl;
+    }
     
     // Parse tokens into AST
     std::shared_ptr<flux::Program> program = nullptr;
@@ -100,8 +139,37 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Parsing completed successfully!" << std::endl;
 
-    // Optional: Could add additional processing stages here
-    // Such as semantic analysis, type checking, or code generation
+    // Set up output capturing
+    OutputCapture outputCapture;
+    outputCapture.start();
+
+    // Initialize interpreter and run program
+    flux::Interpreter interpreter;
+    interpreter.initialize();
+    
+    try {
+        interpreter.interpret(program);
+    } catch (const flux::RuntimeError& e) {
+        outputCapture.stop();
+        std::cerr << "Runtime error: " << e.what() << std::endl;
+        return 1;
+    }
+
+        outputCapture.stop();
+    
+    // Output the result with the [Result] header
+    std::string result = outputCapture.get();
+    std::cout << "\n[Result]" << std::endl;
+    std::cout << result;
+    
+    // Debug to see if capture is working
+    if (result.empty()) {
+        std::cout << "No output captured. Bypassing capture mechanism:" << std::endl;
+        
+        // Try executing without capturing
+        OutputCapture::disableCapture = true;  // Add this static flag to OutputCapture class
+        interpreter.interpret(program);
+    }
 
     return 0;
 }

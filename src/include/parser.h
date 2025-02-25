@@ -21,6 +21,7 @@ private:
     std::vector<Token> tokens;
     size_t current;
     std::string_view filename;
+    std::string currentFunction;
     
     // Symbol tables and type system
     std::shared_ptr<SymbolTable> currentScope;
@@ -43,6 +44,7 @@ private:
     bool match(TokenType type);
     bool match(const std::initializer_list<TokenType>& types);
     bool isAtEnd() const;
+    bool isInFunctionOrClassContext() const;
     
     // Expect a token of a specific type, or report an error
     Token consume(TokenType type, const std::string& message);
@@ -126,6 +128,7 @@ private:
     std::shared_ptr<Expression> parseIdentifier();
     std::shared_ptr<Expression> parseArrayLiteral();
     std::shared_ptr<Expression> parseStringInterpolation();
+    std::shared_ptr<Statement> parsePrintStatement();
     
     // Scope and symbol management
     void beginScope();

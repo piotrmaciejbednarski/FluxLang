@@ -21,6 +21,11 @@ set(SOURCES
     src/lexer.cpp
     src/parser.cpp
     src/ast.cpp
+    src/builtins.cpp
+    src/typechecker.cpp
+    src/runtime.cpp
+    src/runtime_utils.cpp
+    src/interpreter.cpp
     # Add more source files here as they are created
 )
 
@@ -30,6 +35,10 @@ set(HEADERS
     src/include/ast.h
     src/include/lexer.h
     src/include/parser.h
+    src/include/builtins.h
+    src/include/typechecker.h
+    src/include/runtime.h
+    src/include/interpreter.h
     # Add more header files here as they are created
 )
 
