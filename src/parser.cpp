@@ -48,6 +48,7 @@ std::shared_ptr<Program> Parser::parse(const std::vector<Token>& tokens, std::st
     this->panicMode = false;
     
     auto program = parseProgram();
+    std::cout << "Starting parse with " << tokens.size() << " tokens" << std::endl;
     
     if (isAtEnd() && !hadError) {
         return program;
@@ -283,54 +284,11 @@ std::shared_ptr<Program> Parser::parseProgram() {
                     continue;
                 }
             }
-            else if (match(TokenType::IDENTIFIER)) {
-                // This could be a variable declaration, function declaration, or other type
-                Token nameToken = previous();
-                
-                // Try to parse as a function
-                if (check(TokenType::IDENTIFIER)) {
-                    Token returnTypeToken = nameToken;
-                    Token funcNameToken = peek();
-                    
-                    // Check if this looks like a function declaration
-                    size_t lookAhead = current;
-                    while (lookAhead < tokens.size() && tokens[lookAhead].type != TokenType::LEFT_PAREN && 
-                           tokens[lookAhead].type != TokenType::SEMICOLON && 
-                           tokens[lookAhead].type != TokenType::END_OF_FILE) {
-                        lookAhead++;
-                    }
-                    
-                    if (lookAhead < tokens.size() && tokens[lookAhead].type == TokenType::LEFT_PAREN) {
-                        // This is likely a function declaration
-                        current--; // Go back to type token
-                        declaration = parseFunction();
-                    } else {
-                        // This is likely a variable declaration
-                        // Handle initializer if present
-                        Token typeToken = nameToken;
-                        Token varNameToken = advance();
-                        
-                        std::shared_ptr<Type> type = std::make_shared<PrimitiveType>(Type::Kind::INT); // Simplified
-                        
-                        std::shared_ptr<Expression> initializer = nullptr;
-                        if (match(TokenType::EQUAL)) {
-                            initializer = parseExpression();
-                        }
-                        
-                        consume(TokenType::SEMICOLON, "Expected: ';'");
-                        
-                        // Create variable declaration node
-                        auto varDecl = std::make_shared<VariableDeclaration>(
-                            trimLexeme(varNameToken.lexeme),
-                            type,
-                            initializer,
-                            makeLocation(typeToken, previous())
-                        );
-                        
-                        declaration = varDecl;
-                    }
-                } else {
-                    error("Expected: declaration");
+            if (check(TokenType::IDENTIFIER)) {
+                try {
+                    declaration = parseVariableDeclaration();
+                } catch (const std::exception& e) {
+                    error(e.what());
                     synchronize();
                     continue;
                 }
@@ -1680,8 +1638,16 @@ std::shared_ptr<Expression> Parser::finishArrowAccess(std::shared_ptr<Expression
 }
 
 std::shared_ptr<Type> Parser::parseType() {
+    std::cout << "Parsing type: " << (peek().lexeme.empty() ? "EMPTY" : std::string(peek().lexeme)) << std::endl;
     bool isUnsigned = false;
     int bitWidth = 32; // Default bit width
+    std::string customTypeName = std::string(previous().lexeme);
+    
+    if (!typeRegistry->hasType(customTypeName)) {
+        std::cerr << "Parsing Error: Undefined type '" << customTypeName << "'" << std::endl;
+        error("Unknown type: " + customTypeName);
+        throw std::runtime_error("Undefined type: " + customTypeName);
+    }
     
     // Optional unsigned modifier
     if (match(TokenType::UNSIGNED) || 
@@ -1711,7 +1677,6 @@ std::shared_ptr<Type> Parser::parseType() {
         
         // Prevent bit-width for void, bool, and string
         if ((typeName == "void" || typeName == "bool" || typeName == "string")) {
-            // Disallow bit-width specification
             if (match(TokenType::LEFT_BRACE)) {
                 error("Cannot specify bit-width for " + typeName + " type");
                 consume(TokenType::INT_LITERAL, "");
@@ -1727,41 +1692,66 @@ std::shared_ptr<Type> Parser::parseType() {
             consume(TokenType::RIGHT_BRACE, "Expected: '}'");
         }
         
-        // Create appropriate type
-        if (typeName == "int") {
-            baseType = typeRegistry->getIntType(bitWidth, isUnsigned);
+        // Verify type exists in type registry
+        std::string fullTypeName = isUnsigned ? "unsigned " : "";
+        fullTypeName += typeName;
+        if (typeName == "int" && bitWidth != 32) {
+            fullTypeName += "{" + std::to_string(bitWidth) + "}";
         }
-        else if (typeName == "float") {
-            baseType = typeRegistry->getFloatType(bitWidth);
+        else if (typeName == "float" && bitWidth != 32) {
+            fullTypeName += "{" + std::to_string(bitWidth) + "}";
         }
-        else if (typeName == "void") {
-            baseType = typeRegistry->getVoidType();
+        
+        // Strict type checking
+        if (!typeRegistry->hasType(fullTypeName)) {
+            error("Unknown type: " + fullTypeName);
+            // Fallback to a default type to continue parsing
+            baseType = typeRegistry->getIntType();
+            hadError = true;
         }
-        else if (typeName == "bool") {
-            baseType = typeRegistry->getBoolType();
-        }
-        else if (typeName == "string") {
-            baseType = typeRegistry->getStringType();
+        else {
+            // Create the appropriate type from registry
+            if (typeName == "int") {
+                baseType = typeRegistry->getIntType(bitWidth, isUnsigned);
+            }
+            else if (typeName == "float") {
+                baseType = typeRegistry->getFloatType(bitWidth);
+            }
+            else if (typeName == "void") {
+                baseType = typeRegistry->getVoidType();
+            }
+            else if (typeName == "bool") {
+                baseType = typeRegistry->getBoolType();
+            }
+            else if (typeName == "string") {
+                baseType = typeRegistry->getStringType();
+            }
         }
     }
     else if (match(TokenType::IDENTIFIER)) {
         // Handle custom type names
         std::string customTypeName = std::string(previous().lexeme);
-        baseType = typeRegistry->getType(customTypeName);
         
-        if (!baseType) {
+        // Strict type checking for custom types
+        if (!typeRegistry->hasType(customTypeName)) {
             error("Unknown type: " + customTypeName);
-            baseType = std::make_shared<PrimitiveType>(Type::Kind::INT, 32);
+            // Fallback to a default type to continue parsing
+            baseType = typeRegistry->getIntType();
+            hadError = true;
+        }
+        else {
+            baseType = typeRegistry->getType(customTypeName);
         }
     }
     else {
-        error("Expected: identifier");
-        baseType = std::make_shared<PrimitiveType>(Type::Kind::VOID);
+        error("Expected: type identifier");
+        baseType = typeRegistry->getIntType(); // Fallback type
+        hadError = true;
     }
     
     // Check for pointer
     if (match(TokenType::STAR)) {
-        return std::make_shared<PointerType>(baseType);
+        return typeRegistry->getPointerType(baseType);
     }
     
     return baseType;
@@ -1775,6 +1765,33 @@ int Parser::parseBitWidth() {
     
     error("Expected: bit width");
     return 32; // Default bit width
+}
+
+std::shared_ptr<VariableDeclaration> Parser::parseVariableDeclaration() {
+    std::shared_ptr<Type> type = parseType();
+    
+    std::string typeName = type->toString();
+    if (!typeRegistry->hasType(typeName)) {
+        error("Undefined type: " + typeName);
+        throw std::runtime_error("Undefined type in variable declaration: " + typeName);
+    }
+    
+    Token nameToken = consume(TokenType::IDENTIFIER, "Expected: identifier");
+    
+    // Optional initializer
+    std::shared_ptr<Expression> initializer = nullptr;
+    if (match(TokenType::EQUAL)) {
+        initializer = parseExpression();
+    }
+    
+    consume(TokenType::SEMICOLON, "Expected: ';'");
+    
+    return std::make_shared<VariableDeclaration>(
+        trimLexeme(nameToken.lexeme),
+        type,
+        initializer,
+        makeLocation(nameToken, previous())
+    );
 }
 
 std::vector<Parameter> Parser::parseParameterList() {
@@ -1898,12 +1915,28 @@ TypeRegistry::TypeRegistry() {
 }
 
 void TypeRegistry::initializeBuiltinTypes() {
-    // Register the basic types according to the Flux language spec
+    types.clear(); // Ensure a clean slate
+    
+    // Explicitly define only these exact types
     registerType("void", std::make_shared<PrimitiveType>(Type::Kind::VOID));
     registerType("bool", std::make_shared<PrimitiveType>(Type::Kind::BOOL));
     registerType("int", std::make_shared<PrimitiveType>(Type::Kind::INT, 32, false));
+    registerType("unsigned int", std::make_shared<PrimitiveType>(Type::Kind::INT, 32, true));
     registerType("float", std::make_shared<PrimitiveType>(Type::Kind::FLOAT, 32));
     registerType("string", std::make_shared<PrimitiveType>(Type::Kind::STRING));
+    
+    // Predefined int/float variations with bit widths
+    registerType("int{8}", std::make_shared<PrimitiveType>(Type::Kind::INT, 8, false));
+    registerType("int{16}", std::make_shared<PrimitiveType>(Type::Kind::INT, 16, false));
+    registerType("int{32}", std::make_shared<PrimitiveType>(Type::Kind::INT, 32, false));
+    registerType("int{64}", std::make_shared<PrimitiveType>(Type::Kind::INT, 64, false));
+    registerType("unsigned int{8}", std::make_shared<PrimitiveType>(Type::Kind::INT, 8, true));
+    registerType("unsigned int{16}", std::make_shared<PrimitiveType>(Type::Kind::INT, 16, true));
+    registerType("unsigned int{32}", std::make_shared<PrimitiveType>(Type::Kind::INT, 32, true));
+    registerType("unsigned int{64}", std::make_shared<PrimitiveType>(Type::Kind::INT, 64, true));
+    
+    registerType("float{32}", std::make_shared<PrimitiveType>(Type::Kind::FLOAT, 32));
+    registerType("float{64}", std::make_shared<PrimitiveType>(Type::Kind::FLOAT, 64));
 }
 
 void TypeRegistry::registerType(const std::string& name, std::shared_ptr<Type> type) {

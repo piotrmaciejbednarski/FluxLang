@@ -117,12 +117,13 @@ int main(int argc, char* argv[]) {
     
     // Parse tokens into AST
     std::shared_ptr<flux::Program> program = nullptr;
-    try {
-        program = parser.parse(tokens, argv[1]);
-    } catch (const std::exception& e) {
-        std::cerr << "Parsing error: " << e.what() << std::endl;
-        return 1;
-    }
+	try {
+	    std::cout << "Attempting to parse " << tokens.size() << " tokens" << std::endl;
+	    program = parser.parse(tokens, argv[1]);
+	} catch (const std::exception& e) {
+	    std::cerr << "Parsing error: " << e.what() << std::endl;
+	    return 1;
+	}
 
     // Check for parsing errors
     if (parser.hasError()) {

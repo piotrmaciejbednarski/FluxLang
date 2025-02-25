@@ -1,3 +1,3 @@
-string x = "Hello";
+double x = 5;
 
 print(x);

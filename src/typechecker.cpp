@@ -9,7 +9,9 @@ TypeChecker::TypeChecker() {}
 TypeChecker::~TypeChecker() {}
 
 void TypeChecker::initialize() {
-    // Register fundamental types
+    typeEnvironment.clear();
+    
+    // Register only the precise native types
     defineType("void", std::make_shared<PrimitiveType>(Type::Kind::VOID));
     defineType("bool", std::make_shared<PrimitiveType>(Type::Kind::BOOL));
     defineType("int", std::make_shared<PrimitiveType>(Type::Kind::INT, 32, false));
@@ -19,16 +21,34 @@ void TypeChecker::initialize() {
 }
 
 bool TypeChecker::checkProgram(const std::shared_ptr<Program>& program) {
-    // Reset type environment before checking
     reset();
     initialize();
 
-    // Temporary implementation - will be expanded
     bool hasErrors = false;
 
     for (const auto& declaration : program->getDeclarations()) {
-        // Type-checking logic for different declaration types would be added here
-        // For now, just a placeholder
+        if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(declaration)) {
+            // Get the type string
+            std::string typeName = varDecl->getType()->toString();
+            
+            // Explicitly check against known types
+            if (typeName != "void" && 
+                typeName != "bool" && 
+                typeName != "int" && 
+                typeName != "unsigned int" && 
+                typeName != "float" && 
+                typeName != "string" &&
+                !typeName.find("int{") == 0 &&  // Allow int with bit width
+                !typeName.find("float{") == 0)  // Allow float with bit width
+            {
+                std::cerr << "Error: Undefined type '" 
+                          << typeName 
+                          << "' for variable '" 
+                          << varDecl->getName() 
+                          << "'" << std::endl;
+                hasErrors = true;
+            }
+        }
     }
 
     return !hasErrors;
