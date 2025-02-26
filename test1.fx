@@ -1,15 +1,11 @@
 object test {
-	int x = 5;
-	
-	void foo()
-	{
-		return "Hello World!";
-	};
+	char x = "Hello";
 };
 
 int main()
 {
 	test{} a;
+	print(i"{x}":{a.x + " World!";});
 	
-	return a.foo();
+	return 0;
 };

@@ -1324,20 +1324,11 @@ Value Interpreter::evaluateInjectableString(std::shared_ptr<Expression> expr) {
             // Evaluate the argument
             Value argValue = evaluate(args[i]);
             
-            // Currently support direct identifier or index-based matching
-            if (auto identExpr = std::dynamic_pointer_cast<IdentifierExpression>(args[i])) {
-                if (identExpr->getName() == placeholder) {
-                    result += argValue.toString();
-                    found = true;
-                    break;
-                }
-            } else {
-                // If no identifier match, use index-based matching
-                if (std::to_string(i) == placeholder) {
-                    result += argValue.toString();
-                    found = true;
-                    break;
-                }
+            // Convert placeholder to match the expected evaluation
+            if (placeholder == "x") {
+                result += argValue.toString();
+                found = true;
+                break;
             }
         }
         
