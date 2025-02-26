@@ -1,4 +1,3 @@
-// Scientific notation operators
 operator(int{32}, int{32})[e+]
 {
     return x * pow(10, y);
@@ -470,17 +469,14 @@ namespace std
     };
 };
 
-// Main function (required by Flux)
 int main() 
 {
-    // Example usage of the math library
     float{64} pi = std::Math::Constants.PI;
-    print(i"Pi is approximately {pi}":{pi;});
+    print(i"Pi is approximately {}":{pi;});
     
-    // Example of using complex numbers
     std::Math::Complex::ComplexNum c1 = std::Math::Complex::create(3.0, 4.0);
     float{64} mag = std::Math::Complex::magnitude(c1);
-    print(i"Magnitude of 3+4i is {mag}":{mag;});
+    print(i"Magnitude of 3+4i is {}":{mag;});
     
     return 0;
 };

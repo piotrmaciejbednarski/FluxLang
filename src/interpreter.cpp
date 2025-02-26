@@ -350,17 +350,58 @@ Value Interpreter::execute(std::shared_ptr<Program> program) {
 
 void Interpreter::execute(std::shared_ptr<Statement> stmt) {
     if (auto exprStmt = std::dynamic_pointer_cast<ExpressionStatement>(stmt)) {
-        evaluate(exprStmt->getExpr());
-    } else if (auto blockStmt = std::dynamic_pointer_cast<BlockStatement>(stmt)) {
+        auto expr = exprStmt->getExpr();
+        
+        if (auto identExpr = std::dynamic_pointer_cast<IdentifierExpression>(expr)) {
+            std::string name = identExpr->getName();
+            
+            try {
+                Value structValue = globals->get(name);
+                
+                if (structValue.isObject()) {
+                    globals->define(name, structValue);
+                    return;
+                }
+            } catch (const InterpreterError&) {}
+        }
+        
+        evaluate(expr);
+        return;
+    }
+    
+    if (auto blockStmt = std::dynamic_pointer_cast<BlockStatement>(stmt)) {
         executeBlock(stmt, std::make_shared<Environment>(environment));
-    } else if (auto ifStmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
+        return;
+    }
+    
+    if (auto ifStmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
         executeIf(stmt);
-    } else if (auto whileStmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
+        return;
+    }
+    
+    if (auto whileStmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
         executeWhile(stmt);
-    } else if (auto forStmt = std::dynamic_pointer_cast<ForStatement>(stmt)) {
+        return;
+    }
+    
+    if (auto forStmt = std::dynamic_pointer_cast<ForStatement>(stmt)) {
         executeFor(stmt);
-    } else if (auto returnStmt = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
+        return;
+    }
+    
+    if (auto returnStmt = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
         executeReturn(stmt);
+        return;
+    }
+    
+    if (auto varDeclStmt = std::dynamic_pointer_cast<VariableDeclaration>(stmt)) {
+        executeVariableDeclaration(stmt);
+        return;
+    }
+    
+    if (auto structDeclStmt = std::dynamic_pointer_cast<StructDeclaration>(stmt)) {
+        executeStructDeclaration(structDeclStmt);
+        return;
     }
 }
 
@@ -408,45 +449,65 @@ void Interpreter::executeDeclaration(std::shared_ptr<Declaration> decl) {
 }
 
 void Interpreter::executeBlock(std::shared_ptr<Statement> blockStmt, std::shared_ptr<Environment> env) {
-    // Ensure the statement is a BlockStatement
     auto block = std::dynamic_pointer_cast<BlockStatement>(blockStmt);
     if (!block) {
         std::cerr << "executeBlock called with non-block statement" << std::endl;
         return;
     }
 
-    // Save the current environment
     auto previous = environment;
     
     try {
-        // Set the new environment
         environment = env;
         
-        // Execute all statements in the block
         for (const auto& statement : block->getStatements()) {
             if (!statement) {
                 std::cerr << "Null statement in block" << std::endl;
                 continue;
             }
-            execute(statement);
+            
+            // Explicit handling for variable declarations
+            if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(statement)) {
+                std::string varName = varDecl->getName();
+                Value value;
+                
+                if (varDecl->getInitializer()) {
+                    value = evaluate(varDecl->getInitializer());
+                }
+                
+                environment->define(varName, value);
+            } 
+            // Explicit handling for struct declarations within functions
+            else if (auto structDecl = std::dynamic_pointer_cast<StructDeclaration>(statement)) {
+                std::string structName = structDecl->getName();
+                
+                std::unordered_map<std::string, Value> structTemplate;
+                
+                for (const auto& field : structDecl->getFields()) {
+                    Value fieldValue;
+                    if (field.getInitializer()) {
+                        fieldValue = evaluate(field.getInitializer());
+                    }
+                    
+                    structTemplate[field.getName()] = fieldValue;
+                }
+                
+                // Define the struct in the current environment
+                environment->define(structName, Value(structTemplate));
+            } 
+            else {
+                execute(statement);
+            }
         }
     } catch (const ReturnValue& returnValue) {
-        // Restore environment before propagating return
-        environment = previous;
-        throw;  // Re-throw to handle function returns
-    } catch (const std::exception& e) {
-        // Restore the previous environment even if an exception occurs
-        std::cerr << "Exception during block execution: " << e.what() << std::endl;
         environment = previous;
         throw;
-    } catch (...) {
-        // Restore the previous environment even if an exception occurs
-        std::cerr << "Unknown exception during block execution" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Exception during block execution: " << e.what() << std::endl;
         environment = previous;
         throw;
     }
     
-    // Restore the previous environment
     environment = previous;
 }
 
@@ -539,16 +600,19 @@ void Interpreter::executeReturn(std::shared_ptr<Statement> stmt) {
 }
 
 void Interpreter::executeVariableDeclaration(std::shared_ptr<Statement> stmt) {
-    // Convert the statement back to a variable declaration
     auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(stmt);
     if (!varDecl) return;
 
+    std::string varName = varDecl->getName();
     Value value;
+
+    // Evaluate initializer if present
     if (varDecl->getInitializer()) {
         value = evaluate(varDecl->getInitializer());
     }
     
-    environment->define(varDecl->getName(), value);
+    // Define the variable in the current environment
+    environment->define(varName, value);
 }
 
 void Interpreter::executeFunctionDeclaration(std::shared_ptr<Statement> stmt) {
@@ -678,10 +742,26 @@ Value Interpreter::evaluateIdentifier(std::shared_ptr<Expression> expr) {
     auto identifier = std::dynamic_pointer_cast<IdentifierExpression>(expr);
     if (!identifier) return Value();
     
+    std::string varName = identifier->getName();
+    
     try {
-        return environment->get(identifier->getName());
+        // Try current environment first
+        return environment->get(varName);
     } catch (const InterpreterError& e) {
-        throw InterpreterError("Undefined variable '" + identifier->getName() + "'");
+        try {
+            // If not in current environment, try globals
+            return globals->get(varName);
+        } catch (const InterpreterError& globalErr) {
+            // Detailed logging of environments
+            std::cerr << "Variable '" << varName << "' not found." << std::endl;
+            std::cerr << "Current Environment Symbols:" << std::endl;
+            environment->printSymbols();
+            std::cerr << "\nGlobal Environment Symbols:" << std::endl;
+            globals->printSymbols();
+            
+            // Rethrow the original error
+            throw;
+        }
     }
 }
 
@@ -1198,9 +1278,6 @@ void Interpreter::executeNamespaceDeclaration(std::shared_ptr<NamespaceDeclarati
     
     // Register namespace in global environment
     globals->define(namespaceName, Value(namespaceEnv));
-    
-    std::cout << "Registered namespace '" << namespaceName << "' with " 
-              << decl->getClasses().size() << " classes" << std::endl;
 }
 
 void Interpreter::executeClassDeclaration(std::shared_ptr<ClassDeclaration> decl) {
@@ -1271,20 +1348,29 @@ void Interpreter::executeClassDeclaration(std::shared_ptr<ClassDeclaration> decl
 void Interpreter::executeStructDeclaration(std::shared_ptr<StructDeclaration> decl) {
     std::string structName = decl->getName();
     
-    // Create struct template (fields without values)
     std::unordered_map<std::string, Value> structTemplate;
     
-    // Process fields
     for (const auto& field : decl->getFields()) {
-        // Default field value
-        Value defaultValue;
+        Value fieldValue;
+        if (field.getInitializer()) {
+            try {
+                fieldValue = evaluate(field.getInitializer());
+            } catch (const std::exception& e) {
+                std::cerr << "Error evaluating initializer for field " 
+                          << field.getName() << ": " << e.what() << std::endl;
+            }
+        }
         
-        // Add field to struct template
-        structTemplate[field.getName()] = defaultValue;
+        structTemplate[field.getName()] = fieldValue;
     }
     
-    // Register struct template in global environment
-    globals->define(structName, Value(structTemplate));
+    // For anonymous structs, don't register in globals
+    if (!structName.empty()) {
+        globals->define(structName, Value(structTemplate));
+    } else {
+        // If it's an anonymous struct, still make it accessible
+        environment->define("__anonymous_struct", Value(structTemplate));
+    }
 }
 
 void Interpreter::executeObjectDeclaration(std::shared_ptr<ObjectDeclaration> decl) {
@@ -1400,8 +1486,6 @@ Value Interpreter::evaluateObjectInstantiation(std::shared_ptr<Expression> expr)
         
         // Define the new object in the environment
         environment->define(objectName, Value(objectInstance));
-        
-        std::cout << "Created instance of '" << objectType << "' named '" << objectName << "'" << std::endl;
         
         // Return the object instance
         return Value(objectInstance);

@@ -37,6 +37,7 @@ enum class TokenType {
     KW_AND,
     KW_ASSERT,
     KW_BREAK,
+    KW_BOOL,
     KW_CASE,
     KW_CATCH,
     KW_CHAR,

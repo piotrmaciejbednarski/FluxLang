@@ -82,6 +82,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::KW_AND: return "KW_AND";
         case TokenType::KW_ASSERT: return "KW_ASSERT";
         case TokenType::KW_BREAK: return "KW_BREAK";
+        case TokenType::KW_BOOL: return "KW_BOOL";
         case TokenType::KW_CASE: return "KW_CASE";
         case TokenType::KW_CATCH: return "KW_CATCH";
         case TokenType::KW_CHAR: return "KW_CHAR";
