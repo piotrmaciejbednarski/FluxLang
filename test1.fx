@@ -1,11 +1,11 @@
 object test {
-	char x = "Hello";
+	char y = "Hello";
 };
 
 int main()
 {
 	test{} a;
-	print(i"{x}":{a.x + " World!";});
+	print(i"{}\n{}":{a.y + " World!"; a.y + " there!";});
 	
 	return 0;
 };

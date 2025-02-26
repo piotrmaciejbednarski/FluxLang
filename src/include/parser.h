@@ -67,6 +67,7 @@ private:
     std::shared_ptr<Expression> parsePrimaryExpression();
     std::shared_ptr<Expression> parseQualifiedIdentifier();
     std::shared_ptr<Expression> parseInjectableString();
+    std::shared_ptr<Expression> parseIndex(std::shared_ptr<Expression>);
     std::shared_ptr<ImportDeclaration> parseImportDeclaration();
     
     // Type parsing

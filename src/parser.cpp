@@ -549,19 +549,7 @@ std::shared_ptr<Expression> Parser::parsePostfixExpression() {
             );
         }
         else if (match({TokenType::LBRACKET})) {
-            // Parse index expression
-            std::shared_ptr<Expression> index = parseExpression();
-            
-            Token bracketToken = consume(TokenType::RBRACKET, "Expect ']' after index");
-
-            // Create source location
-            SourceLocation loc;
-            loc.filename = std::string(bracketToken.lexeme);
-            loc.line = static_cast<int>(bracketToken.line);
-            loc.column = static_cast<int>(bracketToken.column);
-            loc.length = static_cast<int>(bracketToken.length);
-
-            expr = std::make_shared<IndexExpression>(loc, expr, index);
+            expr = parseIndex(expr);
         }
         else if (match({TokenType::OP_PLUS_PLUS, TokenType::OP_MINUS_MINUS})) {
             // Postfix increment/decrement
@@ -2584,6 +2572,136 @@ std::shared_ptr<ImportDeclaration> Parser::parseImportDeclaration() {
     }
     
     return std::make_shared<ImportDeclaration>(loc, path);
+}
+
+std::shared_ptr<Expression> Parser::parseIndex(std::shared_ptr<Expression> array) {
+    Token startToken = previous();
+    
+    // Expect an index inside the brackets
+    std::shared_ptr<Expression> indexExpr;
+    
+    // Check for slice notation with missing start index
+    if (match({TokenType::COLON})) {
+        if (match({TokenType::INTEGER_LITERAL})) {
+            Token endIndexToken = previous();
+            int64_t endIndex = std::get<int64_t>(endIndexToken.value.value);
+            
+            // Create custom binary expression for slicing
+            SourceLocation loc;
+            loc.filename = std::string(startToken.lexeme);
+            loc.line = static_cast<int>(startToken.line);
+            loc.column = static_cast<int>(startToken.column);
+            loc.length = static_cast<int>(endIndexToken.length);
+            
+            indexExpr = std::make_shared<BinaryExpression>(
+                loc, 
+                BinaryExpression::Operator::CUSTOM, 
+                std::make_shared<LiteralExpression>(
+                    loc, 
+                    static_cast<int64_t>(-1), // Use -1 to indicate missing start index
+                    std::make_shared<PrimitiveType>(
+                        loc, 
+                        PrimitiveTypeKind::INT, 
+                        BitWidth::_32, 
+                        false
+                    )
+                ),
+                std::make_shared<LiteralExpression>(
+                    loc, 
+                    endIndex, 
+                    std::make_shared<PrimitiveType>(
+                        loc, 
+                        PrimitiveTypeKind::INT, 
+                        BitWidth::_32, 
+                        false
+                    )
+                ),
+                ":"
+            );
+        } else {
+            // Partial slice like a[:] - not implemented
+            throw error(peek(), "Expected end index after ':'");
+        }
+    } else if (match({TokenType::INTEGER_LITERAL})) {
+        Token startIndexToken = previous();
+        int64_t startIndex = std::get<int64_t>(startIndexToken.value.value);
+        
+        // Check for colon-based slice
+        if (match({TokenType::COLON})) {
+            // Parse end index
+            if (match({TokenType::INTEGER_LITERAL})) {
+                Token endIndexToken = previous();
+                int64_t endIndex = std::get<int64_t>(endIndexToken.value.value);
+                
+                // Create custom binary expression for slicing
+                SourceLocation loc;
+                loc.filename = std::string(startToken.lexeme);
+                loc.line = static_cast<int>(startToken.line);
+                loc.column = static_cast<int>(startToken.column);
+                loc.length = static_cast<int>(endIndexToken.length);
+                
+                indexExpr = std::make_shared<BinaryExpression>(
+                    loc, 
+                    BinaryExpression::Operator::CUSTOM, 
+                    std::make_shared<LiteralExpression>(
+                        loc, 
+                        startIndex, 
+                        std::make_shared<PrimitiveType>(
+                            loc, 
+                            PrimitiveTypeKind::INT, 
+                            BitWidth::_32, 
+                            false
+                        )
+                    ),
+                    std::make_shared<LiteralExpression>(
+                        loc, 
+                        endIndex, 
+                        std::make_shared<PrimitiveType>(
+                            loc, 
+                            PrimitiveTypeKind::INT, 
+                            BitWidth::_32, 
+                            false
+                        )
+                    ),
+                    ":"
+                );
+            } else {
+                // Partial slice like a[start:]
+                throw error(peek(), "Expected end index after ':'");
+            }
+        } else {
+            // Regular index
+            indexExpr = std::make_shared<LiteralExpression>(
+                SourceLocation{
+                    std::string(startToken.lexeme), 
+                    static_cast<int>(startToken.line), 
+                    static_cast<int>(startToken.column), 
+                    static_cast<int>(startToken.length)
+                }, 
+                startIndex, 
+                std::make_shared<PrimitiveType>(
+                    SourceLocation{}, 
+                    PrimitiveTypeKind::INT, 
+                    BitWidth::_32, 
+                    false
+                )
+            );
+        }
+    } else {
+        throw error(peek(), "Expected index or slice");
+    }
+    
+    // Consume closing bracket
+    consume(TokenType::RBRACKET, "Expect ']' after index");
+    
+    // Create index expression
+    SourceLocation loc;
+    loc.filename = std::string(startToken.lexeme);
+    loc.line = static_cast<int>(startToken.line);
+    loc.column = static_cast<int>(startToken.column);
+    loc.length = 1; // Bracket length
+    
+    return std::make_shared<IndexExpression>(loc, array, indexExpr);
 }
 
 } // namespace flux

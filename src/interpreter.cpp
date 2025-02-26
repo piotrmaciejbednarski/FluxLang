@@ -884,46 +884,92 @@ Value Interpreter::evaluateIndex(std::shared_ptr<Expression> expr) {
 
     // Evaluate the array and index expressions
     Value arrayValue = evaluate(index->getArray());
-    Value indexValue = evaluate(index->getIndex());
     
-    // Check if it's a string (for character access)
+    // Check if it's a string
     if (arrayValue.isString()) {
-        if (!indexValue.isInteger()) {
-            throw InterpreterError("String index must be an integer");
-        }
-        
-        int64_t i = indexValue.as<int64_t>();
         const std::string& str = arrayValue.as<std::string>();
         
-        if (i < 0 || i >= static_cast<int64_t>(str.length())) {
-            throw InterpreterError("String index out of bounds");
+        // Check if the index is a range (has a colon)
+        if (auto binaryIndex = std::dynamic_pointer_cast<BinaryExpression>(index->getIndex())) {
+            // Check if it's a colon operation
+            if (binaryIndex->getOperator() == BinaryExpression::Operator::CUSTOM && 
+                binaryIndex->getCustomOperator() == ":") {
+                
+                // Evaluate start and end indices
+                Value startValue = evaluate(binaryIndex->getLeft());
+                Value endValue = evaluate(binaryIndex->getRight());
+                
+                // Ensure indices are integers
+                if (!endValue.isInteger()) {
+                    throw InterpreterError("String slice end index must be an integer");
+                }
+                
+                int64_t start, end;
+                end = endValue.as<int64_t>();
+                
+                // Check if start is a special null/void literal
+                auto startLiteral = std::dynamic_pointer_cast<LiteralExpression>(binaryIndex->getLeft());
+                if (startLiteral && startLiteral->getValue().index() == 0) {
+                    // When start is missing, calculate from the end
+                    start = std::max<int64_t>(0, static_cast<int64_t>(str.length()) - end);
+                } else {
+                    // Get the start value from the literal
+                    start = startValue.as<int64_t>();
+                }
+                
+                // Adjust indices to be within string bounds
+                start = std::max<int64_t>(0, std::min<int64_t>(start, static_cast<int64_t>(str.length())));
+                end = std::max<int64_t>(0, std::min<int64_t>(end, static_cast<int64_t>(str.length())));
+                
+                // Extract substring
+                return Value(str.substr(start, end - start));
+            }
         }
         
-        // Return the character at the specified index
-        return Value(str[i]);
+        // Fallback to single index access
+        if (std::dynamic_pointer_cast<IdentifierExpression>(index->getIndex()) == nullptr) {
+            Value indexValue = evaluate(index->getIndex());
+            
+            if (!indexValue.isInteger()) {
+                throw InterpreterError("String index must be an integer");
+            }
+            
+            int64_t i = indexValue.as<int64_t>();
+            
+            if (i < 0 || i >= static_cast<int64_t>(str.length())) {
+                throw InterpreterError("String index out of bounds");
+            }
+            
+            // Return the character at the specified index
+            return Value(std::string(1, str[i]));
+        }
     }
     
-    // Check if it's an array
+    // For arrays
     if (arrayValue.isArray()) {
-        if (!indexValue.isInteger()) {
-            throw InterpreterError("Array index must be an integer");
+        if (std::dynamic_pointer_cast<IdentifierExpression>(index->getIndex()) == nullptr) {
+            Value indexValue = evaluate(index->getIndex());
+            
+            if (!indexValue.isInteger()) {
+                throw InterpreterError("Array index must be an integer");
+            }
+            
+            int64_t i = indexValue.as<int64_t>();
+            const auto& array = arrayValue.as<std::vector<Value>>();
+            
+            if (i < 0 || i >= static_cast<int64_t>(array.size())) {
+                throw InterpreterError("Array index out of bounds");
+            }
+            
+            // Return the element at the specified index
+            return array[i];
         }
-        
-        int64_t i = indexValue.as<int64_t>();
-        const auto& array = arrayValue.as<std::vector<Value>>();
-        
-        if (i < 0 || i >= static_cast<int64_t>(array.size())) {
-            throw InterpreterError("Array index out of bounds");
-        }
-        
-        // Return the element at the specified index
-        return array[i];
     }
     
     // Check if it's an object (for property access by string key)
     if (arrayValue.isObject()) {
-        if (indexValue.isString()) {
-            const std::string& key = indexValue.as<std::string>();
+        if (auto identExpr = std::dynamic_pointer_cast<IdentifierExpression>(index->getIndex())) {
+            const std::string& key = identExpr->getName();
             const auto& object = arrayValue.as<std::unordered_map<std::string, Value>>();
             
             auto it = object.find(key);
@@ -933,8 +979,6 @@ Value Interpreter::evaluateIndex(std::shared_ptr<Expression> expr) {
             
             throw InterpreterError("Object does not have property '" + key + "'");
         }
-        
-        throw InterpreterError("Object property access requires string key");
     }
     
     throw InterpreterError("Cannot use index operator on non-indexable value");
@@ -1291,54 +1335,41 @@ Value Interpreter::evaluateInjectableString(std::shared_ptr<Expression> expr) {
     // Create a result string
     std::string result;
     
-    // Track current position in the format string
+    // Track current position in the format string and argument position
     size_t pos = 0;
-    
+    size_t argIndex = 0;
+
+    // Evaluate all arguments first
+    std::vector<Value> evaluatedArgs;
+    for (const auto& arg : args) {
+        evaluatedArgs.push_back(evaluate(arg));
+    }
+
     // Iterate through the format string
     while (pos < format.length()) {
-        // Find the next '{' placeholder
-        size_t openBrace = format.find('{', pos);
+        // Find the next placeholder
+        size_t placeholderPos = format.find("{}", pos);
         
-        if (openBrace == std::string::npos) {
+        if (placeholderPos == std::string::npos) {
             // No more placeholders, append remaining string
             result += format.substr(pos);
             break;
         }
         
         // Append text before the placeholder
-        result += format.substr(pos, openBrace - pos);
+        result += format.substr(pos, placeholderPos - pos);
         
-        // Find closing '}'
-        size_t closeBrace = format.find('}', openBrace);
-        
-        if (closeBrace == std::string::npos) {
-            throw InterpreterError("Malformed injectable string: unmatched '{'");
-        }
-        
-        // Extract placeholder content
-        std::string placeholder = format.substr(openBrace + 1, closeBrace - openBrace - 1);
-        
-        // Try to find the corresponding argument
-        bool found = false;
-        for (size_t i = 0; i < args.size(); ++i) {
-            // Evaluate the argument
-            Value argValue = evaluate(args[i]);
-            
-            // Convert placeholder to match the expected evaluation
-            if (placeholder == "x") {
-                result += argValue.toString();
-                found = true;
-                break;
-            }
-        }
-        
-        // If no matching argument found, leave placeholder as-is
-        if (!found) {
-            result += "{" + placeholder + "}";
+        // Replace placeholder with evaluated argument
+        if (argIndex < evaluatedArgs.size()) {
+            result += evaluatedArgs[argIndex].toString();
+            argIndex++;
+        } else {
+            // If no more arguments, leave placeholder as-is
+            result += "{}";
         }
         
         // Move position to after the placeholder
-        pos = closeBrace + 1;
+        pos = placeholderPos + 2;
     }
     
     // Return as a string value
