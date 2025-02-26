@@ -348,4 +348,49 @@ std::shared_ptr<Type> InjectableStringExpression::getType() const {
     );
 }
 
+
+std::shared_ptr<Type> ScopeResolutionExpression::getType() const {
+    return std::make_shared<UserDefinedType>(
+        getLocation(), 
+        "scope_resolved_type"
+    );
+}
+
+std::shared_ptr<Type> BuiltinCallExpression::getType() const {
+    // Determine return type based on the builtin function
+    switch (builtinType) {
+        case BuiltinType::PRINT:
+            // print returns void
+            return std::make_shared<PrimitiveType>(
+                getLocation(),
+                PrimitiveTypeKind::VOID, 
+                BitWidth::DEFAULT, 
+                false
+            );
+            
+        case BuiltinType::INPUT:
+            // input returns string
+            return std::make_shared<UserDefinedType>(
+                getLocation(), 
+                "string"
+            );
+            
+        case BuiltinType::OPEN:
+        case BuiltinType::SOCKET:
+            // These would typically return a file or socket handle
+            return std::make_shared<UserDefinedType>(
+                getLocation(), 
+                builtinType == BuiltinType::OPEN ? "file" : "socket"
+            );
+            
+        default:
+            return std::make_shared<PrimitiveType>(
+                getLocation(),
+                PrimitiveTypeKind::VOID, 
+                BitWidth::DEFAULT, 
+                false
+            );
+    }
+}
+
 } // namespace flux

@@ -30,6 +30,7 @@ private:
     // Parsing methods for different language constructs
     std::shared_ptr<Declaration> parseDeclaration();
     std::shared_ptr<FunctionDeclaration> parseFunctionDeclaration();
+    std::shared_ptr<FunctionDeclaration> parseFunctionDeclarationDirect();
     std::shared_ptr<VariableDeclaration> parseVariableDeclaration();
     std::shared_ptr<StructDeclaration> parseStructDeclaration();
     std::shared_ptr<ClassDeclaration> parseClassDeclaration();
@@ -47,6 +48,9 @@ private:
     std::shared_ptr<BreakStatement> parseBreakStatement();
     std::shared_ptr<ContinueStatement> parseContinueStatement();
     std::shared_ptr<ExpressionStatement> parseExpressionStatement();
+    std::shared_ptr<ThrowStatement> parseThrowStatement();
+    std::shared_ptr<TryCatchStatement> parseTryCatchStatement();
+    std::shared_ptr<ASMStatement> parseASMStatement();
     
     // Expression parsing
     std::shared_ptr<Expression> parseExpression();
@@ -61,6 +65,9 @@ private:
     std::shared_ptr<Expression> parseUnaryExpression();
     std::shared_ptr<Expression> parsePostfixExpression();
     std::shared_ptr<Expression> parsePrimaryExpression();
+    std::shared_ptr<Expression> parseQualifiedIdentifier();
+    std::shared_ptr<Expression> parseInjectableString();
+    std::shared_ptr<ImportDeclaration> parseImportDeclaration();
     
     // Type parsing
     std::shared_ptr<Type> parseType();

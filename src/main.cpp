@@ -5,6 +5,7 @@
 #include <vector>
 #include "include/lexer.h"
 #include "include/parser.h"
+#include "include/interpreter.h"
 
 using namespace flux;
 
@@ -74,8 +75,20 @@ int main(int argc, char* argv[]) {
 	    std::cout << "Parsing completed successfully." << std::endl;
 	    std::cout << "Total declarations: " << declarationCount << std::endl;
 	    std::cout << "====================================================" << std::endl;
+	    
+	    // Interpret the program
+	    Interpreter interpreter;
+	    Value result = interpreter.execute(program);
+	    
+	    std::cout << "====================================================" << std::endl;
+	    std::cout << "Interpretation completed." << std::endl;
+	    std::cout << "Result: " << "\n\n" << result.toString() << std::endl;
+	    std::cout << "====================================================" << std::endl;
 	} catch (const ParseError& e) {
 	    std::cerr << "Parsing error: " << e.what() << std::endl;
+	    return 1;
+	} catch (const InterpreterError& e) {
+	    std::cerr << "Interpretation error: " << e.what() << std::endl;
 	    return 1;
 	}
     

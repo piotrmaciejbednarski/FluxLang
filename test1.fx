@@ -1,3 +1,11 @@
-string x = "Hello World!";
+void test(string x)
+{
+	print(i"{x}":{x;});
+	return;
+};
 
-print(x);
+string main()
+{
+	test("Hello World");
+	return 0;
+};

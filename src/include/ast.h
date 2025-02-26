@@ -194,6 +194,23 @@ private:
     std::shared_ptr<Type> type;
 };
 
+class ScopeResolutionExpression : public Expression {
+public:
+    ScopeResolutionExpression(SourceLocation loc, 
+                             std::shared_ptr<Expression> scope,
+                             std::string identifier)
+        : Expression(loc), scope(scope), identifier(std::move(identifier)) {}
+    
+    std::shared_ptr<Type> getType() const;
+    
+    std::shared_ptr<Expression> getScope() const { return scope; }
+    const std::string& getIdentifier() const { return identifier; }
+    
+private:
+    std::shared_ptr<Expression> scope;
+    std::string identifier;
+};
+
 class ArrayLiteralExpression : public Expression {
 public:
     ArrayLiteralExpression(SourceLocation loc, std::vector<std::shared_ptr<Expression>> elements)
@@ -522,6 +539,41 @@ public:
     
 private:
     std::string name;
+};
+
+class ImportDeclaration : public Declaration {
+public:
+    ImportDeclaration(SourceLocation loc, std::string path)
+        : Declaration(loc, "import"), path(std::move(path)) {}
+    
+    const std::string& getPath() const { return path; }
+    
+private:
+    std::string path;
+};
+
+class BuiltinCallExpression : public Expression {
+public:
+    enum class BuiltinType {
+        PRINT,
+        INPUT,
+        OPEN,
+        SOCKET
+    };
+    
+    BuiltinCallExpression(SourceLocation loc, 
+                         BuiltinType builtinType,
+                         std::vector<std::shared_ptr<Expression>> args)
+        : Expression(loc), builtinType(builtinType), args(std::move(args)) {}
+    
+    std::shared_ptr<Type> getType() const override;
+    
+    BuiltinType getBuiltinType() const { return builtinType; }
+    const std::vector<std::shared_ptr<Expression>>& getArgs() const { return args; }
+    
+private:
+    BuiltinType builtinType;
+    std::vector<std::shared_ptr<Expression>> args;
 };
 
 class VariableDeclaration : public Declaration {

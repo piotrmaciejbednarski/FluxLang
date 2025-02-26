@@ -26,7 +26,7 @@ set(SOURCES
     #src/typechecker.cpp
     #src/runtime.cpp
     #src/runtime_utils.cpp
-    #src/interpreter.cpp
+    src/interpreter.cpp
     # Add more source files here as they are created
 )
 
@@ -39,7 +39,7 @@ set(HEADERS
     #src/include/builtins.h
     #src/include/typechecker.h
     #src/include/runtime.h
-    #src/include/interpreter.h
+    src/include/interpreter.h
     # Add more header files here as they are created
 )
 

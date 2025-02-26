@@ -620,7 +620,7 @@ Token Lexer::scanToken() {
                 currentPos--;
                 column--;
                 return handleNumber();
-            }
+            } // Rest of the token handling is missing.
             
             // Unknown character
             return errorToken("Unexpected character");
@@ -833,7 +833,6 @@ Token Lexer::handleInjectableString() {
                 case 'n': format += '\n'; break;
                 case 't': format += '\t'; break;
                 case 'r': format += '\r'; break;
-                // Add more escape sequences as needed
                 default:
                     return errorToken("Invalid escape sequence");
             }
@@ -850,46 +849,10 @@ Token Lexer::handleInjectableString() {
     }
     advance(); // Consume closing quote
     
-    // Expect ':'
-    if (peek() != ':') {
-        return errorToken("Expected ':' after closing quote in injectable string");
-    }
-    advance(); // Consume ':'
-    
-    // Expect '{'
-    if (peek() != '{') {
-        return errorToken("Expected '{' after ':' in injectable string");
-    }
-    advance(); // Consume '{'
-    
-    // Skip parsing the argument list for now (would require parsing expressions)
-    // In a real implementation, you would tokenize the arguments here
-    
-    // Consume all characters until closing '}'
-    int braceDepth = 1;
-    while (braceDepth > 0 && peek() != '\0') {
-        if (peek() == '{') {
-            braceDepth++;
-        } else if (peek() == '}') {
-            braceDepth--;
-        }
-        
-        advance();
-    }
-    
-    if (braceDepth > 0) {
-        return errorToken("Unterminated injectable string argument list");
-    }
-    
-    // Expect ';'
-    if (peek() != ';') {
-        return errorToken("Expected ';' after '}' in injectable string");
-    }
-    advance(); // Consume ';'
-    
-    // Extract the full lexeme
+    // Extract the full lexeme including quotes and following parts
     std::string_view lexeme = source.substr(startPos, currentPos - startPos);
     
+    // Return the format string as the token value
     return Token(TokenType::INJECTABLE_STRING, TokenValue(format), lexeme, line, startColumn, lexeme.length());
 }
 
