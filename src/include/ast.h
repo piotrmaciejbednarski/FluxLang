@@ -576,6 +576,25 @@ private:
     std::vector<std::shared_ptr<Expression>> args;
 };
 
+class ObjectInstantiationExpression : public Expression {
+public:
+    ObjectInstantiationExpression(SourceLocation loc,
+                                 std::string objectType,
+                                 std::string objectName)
+        : Expression(loc), objectType(std::move(objectType)), objectName(std::move(objectName)) {}
+    
+    std::shared_ptr<Type> getType() const override {
+        return std::make_shared<UserDefinedType>(getLocation(), objectType);
+    }
+    
+    const std::string& getObjectType() const { return objectType; }
+    const std::string& getObjectName() const { return objectName; }
+    
+private:
+    std::string objectType;
+    std::string objectName;
+};
+
 class VariableDeclaration : public Declaration {
 public:
     VariableDeclaration(SourceLocation loc,

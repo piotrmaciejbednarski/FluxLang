@@ -17,6 +17,10 @@ class Program;
 class Expression;
 class Statement;
 class Declaration;
+class NamespaceDeclaration;
+class ClassDeclaration;
+class StructDeclaration;
+class ObjectDeclaration;
 class FunctionDeclaration;
 class VariableDeclaration;
 class CallExpression;
@@ -56,10 +60,15 @@ public:
     template<typename T>
     Value(T val) : value(val) {}
     
-    template<typename T>
-    T as() const {
-        return std::get<T>(value);
-    }
+	template<typename T>
+	const T& as() const {
+	    return std::get<T>(value);
+	}
+
+	template<typename T>
+	T& as() {
+	    return std::get<T>(value);
+	}
     
     template<typename T>
     bool is() const {
@@ -192,6 +201,8 @@ private:
     Value evaluateMemberAccess(std::shared_ptr<Expression> expr);
     Value evaluateIndex(std::shared_ptr<Expression> expr);
     Value evaluateInjectableString(std::shared_ptr<Expression> expr);
+    Value evaluateScopeResolution(std::shared_ptr<Expression> expr);
+    Value evaluateObjectInstantiation(std::shared_ptr<Expression> expr);
     
     // Statement handlers
     void executeExpression(std::shared_ptr<Statement> stmt);
@@ -201,6 +212,10 @@ private:
     void executeReturn(std::shared_ptr<Statement> stmt);
     void executeVariableDeclaration(std::shared_ptr<Statement> stmt);
     void executeFunctionDeclaration(std::shared_ptr<Statement> stmt);
+    void executeNamespaceDeclaration(std::shared_ptr<NamespaceDeclaration> decl);
+    void executeClassDeclaration(std::shared_ptr<ClassDeclaration> decl);
+    void executeStructDeclaration(std::shared_ptr<StructDeclaration> decl);
+    void executeObjectDeclaration(std::shared_ptr<ObjectDeclaration> decl);
     
     // Environment management
     std::shared_ptr<Environment> globals;

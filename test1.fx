@@ -1,11 +1,15 @@
-void test(string x)
-{
-	print(i"{x}":{x;});
-	return;
+object test {
+	int x = 5;
+	
+	void foo()
+	{
+		return "Hello World!";
+	};
 };
 
-string main()
+int main()
 {
-	test("Hello World");
-	return 0;
+	test{} a;
+	
+	return a.foo();
 };

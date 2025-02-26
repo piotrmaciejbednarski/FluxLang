@@ -847,22 +847,12 @@ std::shared_ptr<Expression> Parser::parsePrimaryExpression() {
             std::vector<std::shared_ptr<Expression>>{}
         );
     }
-
-    // If no primary expression is found, throw an error
-    std::cout << "Error: Expected expression, found " 
-              << tokenTypeToString(peek().type) 
-              << ", Lexeme: " << std::string(peek().lexeme) 
-              << std::endl;
+    
     throw error(peek(), "Expected expression");
 }
 
 std::shared_ptr<Declaration> Parser::parseDeclaration() {
     total_decs++;
-
-    std::cout << "Parsing declaration. Current token: " 
-              << tokenTypeToString(peek().type) 
-              << ", Lexeme: " << std::string(peek().lexeme) 
-              << std::endl;
 
     // Skip any stray semicolons
     while (match({TokenType::SEMICOLON})) {
@@ -1081,8 +1071,9 @@ std::shared_ptr<NamespaceDeclaration> Parser::parseNamespaceDeclaration() {
         }
     }
     
-    consume(TokenType::RBRACE, "Expected: '}'");
-    consume(TokenType::RBRACE, "Expect: ';'");
+    consume(TokenType::RBRACE, "Expect '}' after namespace body");
+    consume(TokenType::RBRACE, "Expected: ';'");
+    
     
     SourceLocation loc;
     loc.filename = std::string(namespaceToken.lexeme);
@@ -1235,12 +1226,61 @@ std::shared_ptr<ClassDeclaration> Parser::parseClassDeclaration() {
         } else if (match({TokenType::KW_STRUCT})) {
             total_structs++;
             members.push_back(parseStructDeclaration());
+        } else if (check(TokenType::IDENTIFIER)) {
+            // This might be an object instantiation in the class
+            Token objectTypeToken = peek();
+            
+            // Look ahead to see if there's a { after the identifier
+            if (current + 1 < tokens.size() && 
+                tokens[current + 1].type == TokenType::LBRACE) {
+                
+                advance(); // Consume object type
+                consume(TokenType::LBRACE, "Expect '{' after object type");
+                consume(TokenType::RBRACE, "Expect '}' after object instantiation");
+                
+                // Get the instance name
+                Token objectNameToken = consume(TokenType::IDENTIFIER, "Expect object instance name");
+                consume(TokenType::SEMICOLON, "Expect ';' after object instantiation");
+                
+                // Create source location
+                SourceLocation loc;
+                loc.filename = std::string(objectTypeToken.lexeme);
+                loc.line = static_cast<int>(objectTypeToken.line);
+                loc.column = static_cast<int>(objectTypeToken.column);
+                loc.length = static_cast<int>(objectNameToken.length);
+                
+                // Create an ObjectInstantiationExpression
+                auto objInstExpr = std::make_shared<ObjectInstantiationExpression>(
+                    loc,
+                    std::string(objectTypeToken.getValueString()),
+                    std::string(objectNameToken.getValueString())
+                );
+                
+                // Create a statement for it (needed for the class member list)
+                auto stmtExpr = std::make_shared<ExpressionStatement>(loc, objInstExpr);
+                
+                // We need to convert this to a declaration-like object
+                // (This is a bit of a hack, but it works for now)
+                members.push_back(std::make_shared<VariableDeclaration>(
+                    loc,
+                    std::string(objectNameToken.getValueString()),
+                    std::make_shared<UserDefinedType>(loc, objectTypeToken.getValueString()),
+                    nullptr
+                ));
+                
+                std::cout << "Added object instantiation to class: " 
+                          << objectTypeToken.getValueString() << " " 
+                          << objectNameToken.getValueString() << std::endl;
+            } else {
+                throw error(peek(), "Unexpected identifier in class");
+            }
         } else {
             throw error(peek(), "Classes can only contain objects and structs");
         }
     }
     
     consume(TokenType::RBRACE, "Expect '}' after class body");
+    consume(TokenType::RBRACE, "Expected: ';'");
     
     SourceLocation loc;
     loc.filename = std::string(classToken.lexeme);
@@ -1316,38 +1356,65 @@ std::shared_ptr<ObjectDeclaration> Parser::parseObjectDeclaration() {
         } else if (match({TokenType::KW_OPERATOR})) {
             members.push_back(parseOperatorDeclaration());
         } else {
-            // Attempt to parse function or variable declaration
-            Token typeToken = peek();
-            std::shared_ptr<Type> type = parseType();
-            
             // Check if this could be a function declaration
-            if (check(TokenType::IDENTIFIER) && peek().type == TokenType::LPAREN) {
-            	total_funcs++;
-                members.push_back(parseFunctionDeclaration());
-            } else {
-                // If not a function, treat as variable declaration
-                Token nameToken = consume(TokenType::IDENTIFIER, "Expect variable name");
+            size_t startPos = current;
+            try {
+                // Try to parse as a function
+                std::shared_ptr<Type> returnType = parseType();
                 
-                SourceLocation loc;
-                loc.filename = std::string(typeToken.lexeme);
-                loc.line = static_cast<int>(typeToken.line);
-                loc.column = static_cast<int>(typeToken.column);
-                loc.length = static_cast<int>(nameToken.length);
-                
-                std::shared_ptr<Expression> initializer = nullptr;
-                if (match({TokenType::OP_EQUAL})) {
-                    initializer = parseExpression();
+                if (check(TokenType::IDENTIFIER)) {
+                    Token fnNameToken = peek();
+                    
+                    // Check if the next token after the name is an opening parenthesis
+                    if (current + 1 < tokens.size() && tokens[current + 1].type == TokenType::LPAREN) {
+                        total_funcs++;
+                        members.push_back(parseFunctionDeclaration());
+                        continue;
+                    }
                 }
                 
-                consume(TokenType::SEMICOLON, "Expect ';' after variable declaration");
-                
-                members.push_back(std::make_shared<VariableDeclaration>(
-                    loc, 
-                    std::string(nameToken.getValueString()), 
-                    type, 
-                    initializer
-                ));
+                // Not a function, revert position
+                current = startPos;
+            } catch (...) {
+                // Not a valid type, revert position
+                current = startPos;
             }
+            
+            // Try as variable declaration
+            try {
+                std::shared_ptr<Type> type = parseType();
+                
+                if (check(TokenType::IDENTIFIER)) {
+                    Token nameToken = advance();
+                    
+                    SourceLocation loc;
+                    loc.filename = std::string(nameToken.lexeme);
+                    loc.line = static_cast<int>(nameToken.line);
+                    loc.column = static_cast<int>(nameToken.column);
+                    loc.length = static_cast<int>(nameToken.length);
+                    
+                    std::shared_ptr<Expression> initializer = nullptr;
+                    if (match({TokenType::OP_EQUAL})) {
+                        initializer = parseExpression();
+                    }
+                    
+                    consume(TokenType::SEMICOLON, "Expect ';' after variable declaration");
+                    
+                    members.push_back(std::make_shared<VariableDeclaration>(
+                        loc, 
+                        std::string(nameToken.getValueString()), 
+                        type, 
+                        initializer
+                    ));
+                    
+                    continue;
+                }
+            } catch (...) {
+                // Not a variable declaration either
+                current = startPos;
+            }
+            
+            throw error(peek(), "Expected member declaration in object");
         }
     }
     
@@ -2389,7 +2456,47 @@ std::shared_ptr<ExpressionStatement> Parser::parseExpressionStatement() {
               << ", Lexeme: " << std::string(startToken.lexeme) 
               << std::endl;
     
-    // Parse the expression
+    // Check for object instantiation pattern: [identifier] [{}] [identifier] [;]
+    if (check(TokenType::IDENTIFIER)) {
+        size_t currentPos = current;
+        Token objectTypeToken = advance(); // Consume object type
+        
+        // Check for {} after the type name
+        if (match({TokenType::LBRACE}) && match({TokenType::RBRACE})) {
+            // Check if next token is an identifier (the object name)
+            if (check(TokenType::IDENTIFIER)) {
+                Token objectNameToken = advance(); // Consume object name
+                
+                // Create source location
+                SourceLocation loc;
+                loc.filename = std::string(startToken.lexeme);
+                loc.line = static_cast<int>(startToken.line);
+                loc.column = static_cast<int>(startToken.column);
+                loc.length = static_cast<int>(objectNameToken.length);
+                
+                // Create an ObjectInstantiationExpression (we'll need to add this to AST)
+                auto expr = std::make_shared<ObjectInstantiationExpression>(
+                    loc,
+                    std::string(objectTypeToken.getValueString()),
+                    std::string(objectNameToken.getValueString())
+                );
+                
+                // Expect a semicolon
+                consume(TokenType::SEMICOLON, "Expect ';' after object instantiation");
+                
+                std::cout << "Created object instantiation expression: " 
+                          << objectTypeToken.getValueString() << " {} " 
+                          << objectNameToken.getValueString() << std::endl;
+                          
+                return std::make_shared<ExpressionStatement>(loc, expr);
+            }
+        }
+        
+        // If it wasn't an object instantiation, rewind and parse normally
+        current = currentPos;
+    }
+    
+    // Continue with normal expression parsing
     std::shared_ptr<Expression> expr = parseExpression();
     
     // Expect a semicolon after the expression

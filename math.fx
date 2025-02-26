@@ -471,7 +471,7 @@ namespace std
 };
 
 // Main function (required by Flux)
-int{32} main() 
+int main() 
 {
     // Example usage of the math library
     float{64} pi = std::Math::Constants.PI;

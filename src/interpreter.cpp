@@ -269,21 +269,35 @@ Value Interpreter::execute(std::shared_ptr<Program> program) {
                 std::cout << "  Return Type: " << funcDecl->getReturnType()->toString() << std::endl;
                 std::cout << "  Parameters: " << funcDecl->getParams().size() << std::endl;
                 std::cout << "  Has Body: " << (funcDecl->getBody() != nullptr) << std::endl;
+            } else if (auto classDecl = std::dynamic_pointer_cast<ClassDeclaration>(decl)) {
+                std::cout << "Class Declaration Found:" << std::endl;
+                std::cout << "  Name: " << classDecl->getName() << std::endl;
+                std::cout << "  Members: " << classDecl->getMembers().size() << std::endl;
             } else {
-                std::cout << "Non-Function Declaration: " << decl->getName() << std::endl;
+                std::cout << "Other Declaration: " << decl->getName() << std::endl;
             }
         }
         
-        // First pass: Register all function declarations in the global scope
+        // First pass: Process namespace, class and function declarations
         for (const auto& decl : declarations) {
-            if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(decl)) {
+            if (auto namespaceDecl = std::dynamic_pointer_cast<NamespaceDeclaration>(decl)) {
+                // Register namespace in globals
+                executeNamespaceDeclaration(namespaceDecl);
+            } else if (auto classDecl = std::dynamic_pointer_cast<ClassDeclaration>(decl)) {
+                // Register class in globals
+                executeClassDeclaration(classDecl);
+            } else if (auto objDecl = std::dynamic_pointer_cast<ObjectDeclaration>(decl)) {
+                // Register object in globals
+                executeObjectDeclaration(objDecl);
+            } else if (auto structDecl = std::dynamic_pointer_cast<StructDeclaration>(decl)) {
+                // Register struct in globals
+                executeStructDeclaration(structDecl);
+            } else if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(decl)) {
                 // Create function object
                 auto function = std::make_shared<Function>(funcDecl, environment);
-                environment->printSymbols();
                 
                 // Register function in global scope
                 globals->define(funcDecl->getName(), Value(function));
-                environment->printSymbols();
             }
         }
         
@@ -304,8 +318,8 @@ Value Interpreter::execute(std::shared_ptr<Program> program) {
                 try {
                     Value result = mainFunc.as<std::shared_ptr<Callable>>()->call(*this, args);
                     if (result.toString() != "0") {
-                    	std::cout << "\nMain function returned error: " << result.toString() << std::endl;
-                    	return result;
+                        std::cout << "\nMain function returned error: " << result.toString() << std::endl;
+                        return result;
                     }
                     std::cout << "\nMain function returned success: " << result.toString() << std::endl;
                     return result;
@@ -351,21 +365,45 @@ void Interpreter::execute(std::shared_ptr<Statement> stmt) {
 }
 
 void Interpreter::executeDeclaration(std::shared_ptr<Declaration> decl) {
-    // Try to convert the declaration to a function declaration
+    // Handle function declarations
     if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(decl)) {
-        // Convert function declaration to a statement
-        auto funcStmt = std::dynamic_pointer_cast<Statement>(funcDecl);
-        if (funcStmt) {
-            executeFunctionDeclaration(funcStmt);
-        }
+        // Create function object
+        auto function = std::make_shared<Function>(funcDecl, environment);
+        
+        // Define function in current environment
+        environment->define(funcDecl->getName(), Value(function));
     }
-    // Try to convert the declaration to a variable declaration
+    // Handle variable declarations
     else if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(decl)) {
-        // Convert variable declaration to a statement
-        auto varStmt = std::dynamic_pointer_cast<Statement>(varDecl);
-        if (varStmt) {
-            executeVariableDeclaration(varStmt);
+        // Evaluate initializer if present
+        Value value;
+        if (varDecl->getInitializer()) {
+            value = evaluate(varDecl->getInitializer());
         }
+        
+        // Define variable in current environment
+        environment->define(varDecl->getName(), value);
+    }
+    // Handle namespace declarations
+    else if (auto namespaceDecl = std::dynamic_pointer_cast<NamespaceDeclaration>(decl)) {
+        executeNamespaceDeclaration(namespaceDecl);
+    }
+    // Handle class declarations
+    else if (auto classDecl = std::dynamic_pointer_cast<ClassDeclaration>(decl)) {
+        executeClassDeclaration(classDecl);
+    }
+    // Handle struct declarations
+    else if (auto structDecl = std::dynamic_pointer_cast<StructDeclaration>(decl)) {
+        executeStructDeclaration(structDecl);
+    }
+    // Handle object declarations
+    else if (auto objDecl = std::dynamic_pointer_cast<ObjectDeclaration>(decl)) {
+        executeObjectDeclaration(objDecl);
+    }
+    // Handle import declarations
+    else if (auto importDecl = std::dynamic_pointer_cast<ImportDeclaration>(decl)) {
+        // TODO: Implement import handling
+        std::cout << "Import of " << importDecl->getPath() << " not yet implemented" << std::endl;
     }
 }
 
@@ -533,9 +571,19 @@ Value Interpreter::evaluate(std::shared_ptr<Expression> expr) {
         return evaluateIdentifier(expr);
     }
     
+    // Object instantiation expressions
+    if (auto objInst = std::dynamic_pointer_cast<ObjectInstantiationExpression>(expr)) {
+        return evaluateObjectInstantiation(expr);
+    }
+    
     // Array literal expressions
     if (auto arrayLiteral = std::dynamic_pointer_cast<ArrayLiteralExpression>(expr)) {
         return evaluateArray(expr);
+    }
+    
+    // Scope resolution expressions
+    if (auto scopeResolution = std::dynamic_pointer_cast<ScopeResolutionExpression>(expr)) {
+        return evaluateScopeResolution(expr);
     }
     
     // Unary expressions
@@ -568,36 +616,36 @@ Value Interpreter::evaluate(std::shared_ptr<Expression> expr) {
         return evaluateInjectableString(expr);
     }
     
-    // In your evaluate method, add this case:
-	if (auto builtinCall = std::dynamic_pointer_cast<BuiltinCallExpression>(expr)) {
-	    // Evaluate all arguments
-	    std::vector<Value> args;
-	    for (const auto& arg : builtinCall->getArgs()) {
-		args.push_back(evaluate(arg));
-	    }
-	    
-	    // Handle specific builtin functions
-	    switch (builtinCall->getBuiltinType()) {
-		case BuiltinCallExpression::BuiltinType::PRINT:
-		    return print(args);
-		
-		case BuiltinCallExpression::BuiltinType::INPUT:
-		    return input(args);
-		    
-		case BuiltinCallExpression::BuiltinType::OPEN:
-		    // Placeholder implementation
-		    std::cout << "File opening not implemented yet" << std::endl;
-		    return Value();
-		    
-		case BuiltinCallExpression::BuiltinType::SOCKET:
-		    // Placeholder implementation
-		    std::cout << "Socket operations not implemented yet" << std::endl;
-		    return Value();
-		    
-		default:
-		    throw InterpreterError("Unknown builtin function");
-	    }
-	}
+    // Builtin call expressions
+    if (auto builtinCall = std::dynamic_pointer_cast<BuiltinCallExpression>(expr)) {
+        // Evaluate all arguments
+        std::vector<Value> args;
+        for (const auto& arg : builtinCall->getArgs()) {
+            args.push_back(evaluate(arg));
+        }
+        
+        // Handle specific builtin functions
+        switch (builtinCall->getBuiltinType()) {
+            case BuiltinCallExpression::BuiltinType::PRINT:
+                return print(args);
+            
+            case BuiltinCallExpression::BuiltinType::INPUT:
+                return input(args);
+                
+            case BuiltinCallExpression::BuiltinType::OPEN:
+                // Placeholder implementation
+                std::cout << "File opening not implemented yet" << std::endl;
+                return Value();
+                
+            case BuiltinCallExpression::BuiltinType::SOCKET:
+                // Placeholder implementation
+                std::cout << "Socket operations not implemented yet" << std::endl;
+                return Value();
+                
+            default:
+                throw InterpreterError("Unknown builtin function");
+        }
+    }
     
     // Throw an error for unknown expression types
     throw InterpreterError("Unknown expression type");
@@ -736,7 +784,40 @@ Value Interpreter::evaluateCall(std::shared_ptr<Expression> expr) {
     auto call = std::dynamic_pointer_cast<CallExpression>(expr);
     if (!call) return Value();
 
-    // Evaluate the function being called
+    // Special handling for method calls (object.method())
+    if (auto memberAccess = std::dynamic_pointer_cast<MemberAccessExpression>(call->getCallee())) {
+        // Evaluate the object
+        Value objectValue = evaluate(memberAccess->getObject());
+        
+        // Get the method name
+        const std::string& methodName = memberAccess->getMember();
+        
+        // If it's an object, look for the method
+        if (objectValue.isObject()) {
+            const auto& objectMap = objectValue.as<std::unordered_map<std::string, Value>>();
+            auto it = objectMap.find(methodName);
+            
+            if (it != objectMap.end() && it->second.isCallable()) {
+                // Evaluate arguments
+                std::vector<Value> arguments;
+                for (const auto& arg : call->getArgs()) {
+                    arguments.push_back(evaluate(arg));
+                }
+                
+                // Get the method
+                auto method = it->second.as<std::shared_ptr<Callable>>();
+                
+                // Call the method with the arguments
+                return method->call(*this, arguments);
+            }
+            
+            throw InterpreterError("Object has no method '" + methodName + "'");
+        }
+        
+        throw InterpreterError("Cannot call method on non-object value");
+    }
+    
+    // Normal function call handling
     Value callee = evaluate(call->getCallee());
     
     // Check if it's a callable object
@@ -769,16 +850,432 @@ Value Interpreter::evaluateMemberAccess(std::shared_ptr<Expression> expr) {
     auto memberAccess = std::dynamic_pointer_cast<MemberAccessExpression>(expr);
     if (!memberAccess) return Value();
 
-    // Placeholder implementation
-    throw InterpreterError("Member access not yet implemented");
+    // Evaluate the object expression
+    Value object = evaluate(memberAccess->getObject());
+    
+    // Get the member name
+    const std::string& memberName = memberAccess->getMember();
+    
+    // Check if the object is an actual object (map of key/values)
+    if (object.isObject()) {
+        // Access the member from the object
+        const auto& objectMap = object.as<std::unordered_map<std::string, Value>>();
+        auto it = objectMap.find(memberName);
+        
+        if (it != objectMap.end()) {
+            return it->second;
+        }
+        
+        throw InterpreterError("Undefined member '" + memberName + "'");
+    }
+    
+    // For arrow operator (pointer dereferencing)
+    if (memberAccess->getIsArrow()) {
+        // For pointers, we would dereference first
+        throw InterpreterError("Pointer dereferencing not implemented");
+    }
+    
+    throw InterpreterError("Cannot access member '" + memberName + "' on non-object value");
 }
 
 Value Interpreter::evaluateIndex(std::shared_ptr<Expression> expr) {
     auto index = std::dynamic_pointer_cast<IndexExpression>(expr);
     if (!index) return Value();
 
-    // Placeholder implementation
-    throw InterpreterError("Index access not yet implemented");
+    // Evaluate the array and index expressions
+    Value arrayValue = evaluate(index->getArray());
+    Value indexValue = evaluate(index->getIndex());
+    
+    // Check if it's a string (for character access)
+    if (arrayValue.isString()) {
+        if (!indexValue.isInteger()) {
+            throw InterpreterError("String index must be an integer");
+        }
+        
+        int64_t i = indexValue.as<int64_t>();
+        const std::string& str = arrayValue.as<std::string>();
+        
+        if (i < 0 || i >= static_cast<int64_t>(str.length())) {
+            throw InterpreterError("String index out of bounds");
+        }
+        
+        // Return the character at the specified index
+        return Value(str[i]);
+    }
+    
+    // Check if it's an array
+    if (arrayValue.isArray()) {
+        if (!indexValue.isInteger()) {
+            throw InterpreterError("Array index must be an integer");
+        }
+        
+        int64_t i = indexValue.as<int64_t>();
+        const auto& array = arrayValue.as<std::vector<Value>>();
+        
+        if (i < 0 || i >= static_cast<int64_t>(array.size())) {
+            throw InterpreterError("Array index out of bounds");
+        }
+        
+        // Return the element at the specified index
+        return array[i];
+    }
+    
+    // Check if it's an object (for property access by string key)
+    if (arrayValue.isObject()) {
+        if (indexValue.isString()) {
+            const std::string& key = indexValue.as<std::string>();
+            const auto& object = arrayValue.as<std::unordered_map<std::string, Value>>();
+            
+            auto it = object.find(key);
+            if (it != object.end()) {
+                return it->second;
+            }
+            
+            throw InterpreterError("Object does not have property '" + key + "'");
+        }
+        
+        throw InterpreterError("Object property access requires string key");
+    }
+    
+    throw InterpreterError("Cannot use index operator on non-indexable value");
+}
+
+Value Interpreter::evaluateScopeResolution(std::shared_ptr<Expression> expr) {
+    auto scopeResolution = std::dynamic_pointer_cast<ScopeResolutionExpression>(expr);
+    if (!scopeResolution) return Value();
+
+    // Get scope and identifier
+    std::shared_ptr<Expression> scopeExpr = scopeResolution->getScope();
+    const std::string& identifier = scopeResolution->getIdentifier();
+    
+    // First, handle simple namespace::identifier case
+    if (auto identExpr = std::dynamic_pointer_cast<IdentifierExpression>(scopeExpr)) {
+        const std::string& scope = identExpr->getName();
+        
+        // Look up the scope in the global environment
+        try {
+            Value scopeValue = globals->get(scope);
+            
+            if (scopeValue.isObject()) {
+                // Look for identifier in the object/namespace
+                const auto& scopeMap = scopeValue.as<std::unordered_map<std::string, Value>>();
+                auto it = scopeMap.find(identifier);
+                
+                if (it != scopeMap.end()) {
+                    return it->second;
+                }
+            }
+            
+            // Try direct qualified name lookup as fallback
+            std::string qualifiedName = scope + "::" + identifier;
+            try {
+                return globals->get(qualifiedName);
+            } catch (const InterpreterError& e) {
+                // Continue to nested scope resolution
+            }
+        } catch (const InterpreterError& e) {
+            // Continue to nested scope resolution
+        }
+    }
+    
+    // Handle nested scope resolution (A::B::C)
+    Value scopeValue = evaluate(scopeExpr);
+    
+    // If the scope expression itself is a scope resolution
+    if (auto nestedScopeExpr = std::dynamic_pointer_cast<ScopeResolutionExpression>(scopeExpr)) {
+        // Get the string representation of the scope path
+        std::string scopePath = "";
+        
+        // Build scope path by traversing nested scopes
+        std::shared_ptr<Expression> current = scopeExpr;
+        while (auto currentScope = std::dynamic_pointer_cast<ScopeResolutionExpression>(current)) {
+            if (auto rightIdent = std::dynamic_pointer_cast<IdentifierExpression>(currentScope->getScope())) {
+                if (!scopePath.empty()) {
+                    scopePath = rightIdent->getName() + "::" + scopePath;
+                } else {
+                    scopePath = rightIdent->getName() + "::" + currentScope->getIdentifier();
+                }
+                current = currentScope->getScope();
+            } else {
+                // Handle more complex scope expressions
+                break;
+            }
+        }
+        
+        if (auto baseIdent = std::dynamic_pointer_cast<IdentifierExpression>(current)) {
+            if (!scopePath.empty()) {
+                scopePath = baseIdent->getName() + "::" + scopePath;
+            } else {
+                scopePath = baseIdent->getName();
+            }
+        }
+        
+        // Try the combined qualified name
+        std::string fullQualifiedName = scopePath + "::" + identifier;
+        try {
+            return globals->get(fullQualifiedName);
+        } catch (const InterpreterError& e) {
+            // Fall through to next approach
+        }
+    }
+    
+    if (scopeValue.isObject()) {
+        // Look for identifier in the object
+        const auto& objectMap = scopeValue.as<std::unordered_map<std::string, Value>>();
+        auto it = objectMap.find(identifier);
+        
+        if (it != objectMap.end()) {
+            return it->second;
+        }
+    }
+    
+    throw InterpreterError("Cannot resolve '" + identifier + "' in scope");
+}
+
+void Interpreter::executeNamespaceDeclaration(std::shared_ptr<NamespaceDeclaration> decl) {
+    std::string namespaceName = decl->getName();
+    
+    // Create namespace environment
+    std::unordered_map<std::string, Value> namespaceEnv;
+    
+    // Process namespace members (classes)
+    for (const auto& classDecl : decl->getClasses()) {
+        std::string className = classDecl->getName();
+        std::string qualifiedName = namespaceName + "::" + className;
+        
+        // Create class environment
+        std::unordered_map<std::string, Value> classEnv;
+        
+        // Process class members
+        for (const auto& member : classDecl->getMembers()) {
+            if (auto objDecl = std::dynamic_pointer_cast<ObjectDeclaration>(member)) {
+                // Process object declaration
+                std::string objName = objDecl->getName();
+                std::string objQualifiedName = qualifiedName + "::" + objName;
+                
+                // Create object environment
+                std::unordered_map<std::string, Value> objEnv;
+                
+                // Process object members
+                for (const auto& objMember : objDecl->getMembers()) {
+                    if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(objMember)) {
+                        std::string varName = varDecl->getName();
+                        
+                        // Evaluate initializer if present
+                        Value varValue;
+                        if (varDecl->getInitializer()) {
+                            varValue = evaluate(varDecl->getInitializer());
+                        }
+                        
+                        // Add to object environment
+                        objEnv[varName] = varValue;
+                    }
+                    else if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(objMember)) {
+                        std::string funcName = funcDecl->getName();
+                        
+                        // Create function object
+                        auto function = std::make_shared<Function>(funcDecl, environment);
+                        
+                        // Add to object environment
+                        objEnv[funcName] = Value(function);
+                    }
+                }
+                
+                // Add object to class environment
+                classEnv[objName] = Value(objEnv);
+                
+                // IMPORTANT: Register the object in the global environment with its qualified name
+                // This allows direct access via scope resolution operator (::)
+                globals->define(objQualifiedName, Value(objEnv));
+            }
+            else if (auto structDecl = std::dynamic_pointer_cast<StructDeclaration>(member)) {
+                std::string structName = structDecl->getName();
+                std::string structQualifiedName = qualifiedName + "::" + structName;
+                
+                // Create struct template
+                std::unordered_map<std::string, Value> structEnv;
+                
+                // Process fields
+                for (const auto& field : structDecl->getFields()) {
+                    // Default field value
+                    Value defaultValue;
+                    
+                    // Add field to struct environment
+                    structEnv[field.getName()] = defaultValue;
+                }
+                
+                // Add to class environment
+                classEnv[structName] = Value(structEnv);
+                
+                // Also register with qualified name
+                globals->define(structQualifiedName, Value(structEnv));
+            }
+            else if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(member)) {
+                // This could be an object instance in the class
+                std::string varName = varDecl->getName();
+                std::string varQualifiedName = qualifiedName + "::" + varName;
+                
+                // Try to find the object type
+                try {
+                    auto typePtr = varDecl->getType();
+                    std::string typeName = typePtr->toString();
+                    
+                    Value objectValue;
+                    try {
+                        objectValue = globals->get(typeName);
+                        if (objectValue.isObject()) {
+                            // Clone the object for the class instance
+                            auto objectInstance = objectValue.as<std::unordered_map<std::string, Value>>();
+                            
+                            // Add to class environment
+                            classEnv[varName] = Value(objectInstance);
+                            
+                            // Register with qualified name
+                            globals->define(varQualifiedName, Value(objectInstance));
+                        }
+                    } catch (const InterpreterError& e) {
+                        // Type not found, create an empty object
+                        std::unordered_map<std::string, Value> emptyObj;
+                        classEnv[varName] = Value(emptyObj);
+                        globals->define(varQualifiedName, Value(emptyObj));
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Error getting type name: " << e.what() << std::endl;
+                }
+            }
+        }
+        
+        // Register class in global environment with qualified name
+        globals->define(qualifiedName, Value(classEnv));
+        
+        // Add to namespace environment
+        namespaceEnv[className] = Value(classEnv);
+    }
+    
+    // Register namespace in global environment
+    globals->define(namespaceName, Value(namespaceEnv));
+    
+    std::cout << "Registered namespace '" << namespaceName << "' with " 
+              << decl->getClasses().size() << " classes" << std::endl;
+}
+
+void Interpreter::executeClassDeclaration(std::shared_ptr<ClassDeclaration> decl) {
+    std::string className = decl->getName();
+    
+    // Create class environment
+    std::unordered_map<std::string, Value> classEnv;
+    
+    // Process class members
+    for (const auto& member : decl->getMembers()) {
+        if (auto objDecl = std::dynamic_pointer_cast<ObjectDeclaration>(member)) {
+            // Process object members
+            std::string objName = objDecl->getName();
+            std::string qualifiedName = className + "_" + objName;
+            
+            // Create object value
+            std::unordered_map<std::string, Value> objEnv;
+            
+            // Process object members
+            for (const auto& objMember : objDecl->getMembers()) {
+                if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(objMember)) {
+                    std::string varName = varDecl->getName();
+                    std::string fullyQualifiedName = qualifiedName + "_" + varName;
+                    
+                    // Evaluate initializer if present
+                    Value varValue;
+                    if (varDecl->getInitializer()) {
+                        varValue = evaluate(varDecl->getInitializer());
+                    }
+                    
+                    // Register in global environment
+                    globals->define(fullyQualifiedName, varValue);
+                    
+                    // Add to object environment
+                    objEnv[varName] = varValue;
+                }
+                else if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(objMember)) {
+                    std::string funcName = funcDecl->getName();
+                    std::string fullyQualifiedName = qualifiedName + "_" + funcName;
+                    
+                    // Create function object
+                    auto function = std::make_shared<Function>(funcDecl, environment);
+                    
+                    // Register in global environment with qualified name
+                    globals->define(fullyQualifiedName, Value(function));
+                    
+                    // Add to object environment
+                    objEnv[funcName] = Value(function);
+                }
+            }
+            
+            // Register object in global environment
+            globals->define(qualifiedName, Value(objEnv));
+            
+            // Add to class environment
+            classEnv[objName] = Value(objEnv);
+        }
+        else if (auto structDecl = std::dynamic_pointer_cast<StructDeclaration>(member)) {
+            // Process struct declaration
+            executeStructDeclaration(structDecl);
+        }
+    }
+    
+    // Register class in global environment
+    globals->define(className, Value(classEnv));
+}
+
+void Interpreter::executeStructDeclaration(std::shared_ptr<StructDeclaration> decl) {
+    std::string structName = decl->getName();
+    
+    // Create struct template (fields without values)
+    std::unordered_map<std::string, Value> structTemplate;
+    
+    // Process fields
+    for (const auto& field : decl->getFields()) {
+        // Default field value
+        Value defaultValue;
+        
+        // Add field to struct template
+        structTemplate[field.getName()] = defaultValue;
+    }
+    
+    // Register struct template in global environment
+    globals->define(structName, Value(structTemplate));
+}
+
+void Interpreter::executeObjectDeclaration(std::shared_ptr<ObjectDeclaration> decl) {
+    std::string objName = decl->getName();
+    
+    // Create object environment
+    std::unordered_map<std::string, Value> objEnv;
+    
+    // Process object members
+    for (const auto& member : decl->getMembers()) {
+        if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(member)) {
+            std::string varName = varDecl->getName();
+            
+            // Evaluate initializer if present
+            Value varValue;
+            if (varDecl->getInitializer()) {
+                varValue = evaluate(varDecl->getInitializer());
+            }
+            
+            // Add to object environment
+            objEnv[varName] = varValue;
+        }
+        else if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(member)) {
+            std::string funcName = funcDecl->getName();
+            
+            // Create function object
+            auto function = std::make_shared<Function>(funcDecl, environment);
+            
+            // Add to object environment
+            objEnv[funcName] = Value(function);
+        }
+    }
+    
+    // Register object in environment
+    environment->define(objName, Value(objEnv));
 }
 
 Value Interpreter::evaluateInjectableString(std::shared_ptr<Expression> expr) {
@@ -855,6 +1352,40 @@ Value Interpreter::evaluateInjectableString(std::shared_ptr<Expression> expr) {
     
     // Return as a string value
     return Value(result);
+}
+
+Value Interpreter::evaluateObjectInstantiation(std::shared_ptr<Expression> expr) {
+    auto objInst = std::dynamic_pointer_cast<ObjectInstantiationExpression>(expr);
+    if (!objInst) return Value();
+    
+    std::string objectType = objInst->getObjectType();
+    std::string objectName = objInst->getObjectName();
+    
+    // Look up the object type in the environment
+    Value objectTypeValue;
+    try {
+        objectTypeValue = environment->get(objectType);
+    } catch (const InterpreterError& e) {
+        throw InterpreterError("Unknown object type '" + objectType + "'");
+    }
+    
+    // Clone the object (if it's an object)
+    if (objectTypeValue.isObject()) {
+        auto objectTemplate = objectTypeValue.as<std::unordered_map<std::string, Value>>();
+        
+        // Create a new instance of the object by copying the template
+        auto objectInstance = objectTemplate;
+        
+        // Define the new object in the environment
+        environment->define(objectName, Value(objectInstance));
+        
+        std::cout << "Created instance of '" << objectType << "' named '" << objectName << "'" << std::endl;
+        
+        // Return the object instance
+        return Value(objectInstance);
+    }
+    
+    throw InterpreterError("Cannot create instance of non-object type '" + objectType + "'");
 }
 
 } // namespace flux

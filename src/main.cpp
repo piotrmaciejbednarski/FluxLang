@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
 	    
 	    std::cout << "====================================================" << std::endl;
 	    std::cout << "Interpretation completed." << std::endl;
-	    std::cout << "Result: " << "\n\n" << result.toString() << std::endl;
+	    std::cout << "Main result: " << "\n\n" << result.toString() << std::endl;
 	    std::cout << "====================================================" << std::endl;
 	} catch (const ParseError& e) {
 	    std::cerr << "Parsing error: " << e.what() << std::endl;
