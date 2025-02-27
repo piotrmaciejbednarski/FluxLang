@@ -22,13 +22,14 @@ namespace myNS
 		object  test4
 		{
 			char o = "TEST STRING #3";
+			int x = 4;
 		};
 	};
 };
 
 char foo()
 {
-	print(input("Print before return: "));
+	print(input("Print before return: "), "\n");
 	return "The^Fifth.";
 };
 
@@ -37,10 +38,11 @@ int main()
 	test{} a;
 	MyNS::test::test2{} obj;
 	MyNS::test3::test4{} obj2;
-	print(obj.o);
-	print(obj2.o);
+	print(obj.o, "\n");
+	print(obj2.o, "\n");
+	print(obj2.x, "\n");
 	
-	print(i"{}\n{}\n{}\n{}":{a.y + " Second!";
+	print(i"{}\n{}\n{}\n{}\n":{a.y + " Second!";
 				 a.y + " Third!";
 				 "Fourth!";
 				 foo()[3];
