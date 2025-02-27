@@ -581,7 +581,7 @@ public:
     ObjectInstantiationExpression(SourceLocation loc,
                                  std::string objectType,
                                  std::string objectName)
-        : Expression(loc), objectType(std::move(objectType)), objectName(std::move(objectName)) {}
+        : Expression(loc), objectType(std::move(objectType)), objectName(std::move(objectName)), typeExpr(nullptr) {}
     
     std::shared_ptr<Type> getType() const override {
         return std::make_shared<UserDefinedType>(getLocation(), objectType);
@@ -590,9 +590,15 @@ public:
     const std::string& getObjectType() const { return objectType; }
     const std::string& getObjectName() const { return objectName; }
     
+    // For qualified types (A::B::C)
+    std::shared_ptr<Expression> getTypeExpr() const { return typeExpr; }
+    void setTypeExpr(std::shared_ptr<Expression> expr) { typeExpr = expr; }
+    bool hasQualifiedType() const { return typeExpr != nullptr; }
+    
 private:
     std::string objectType;
     std::string objectName;
+    std::shared_ptr<Expression> typeExpr; // For qualified types
 };
 
 class VariableDeclaration : public Declaration {

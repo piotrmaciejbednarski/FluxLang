@@ -9,6 +9,7 @@
 #include <functional>
 #include <iostream>
 #include <stdexcept>
+#include "ast.h" // Include ast.h to get access to ScopeResolutionExpression
 
 namespace flux {
 
@@ -29,6 +30,7 @@ class IndexExpression;
 class InjectableStringExpression;
 class UnaryExpression;
 class BinaryExpression;
+class ScopeResolutionExpression; // Forward declaration
 
 class Environment;
 
@@ -60,15 +62,15 @@ public:
     template<typename T>
     Value(T val) : value(val) {}
     
-	template<typename T>
-	const T& as() const {
-	    return std::get<T>(value);
-	}
+    template<typename T>
+    const T& as() const {
+        return std::get<T>(value);
+    }
 
-	template<typename T>
-	T& as() {
-	    return std::get<T>(value);
-	}
+    template<typename T>
+    T& as() {
+        return std::get<T>(value);
+    }
     
     template<typename T>
     bool is() const {
@@ -143,6 +145,9 @@ public:
     
     std::shared_ptr<Environment> getEnclosing() const { return enclosing; }
     
+    // Add this method to support case-insensitive lookups
+    std::unordered_map<std::string, Value> getAllSymbols() const;
+    
 private:
     std::unordered_map<std::string, Value> values;
     std::shared_ptr<Environment> enclosing;
@@ -216,6 +221,10 @@ private:
     void executeClassDeclaration(std::shared_ptr<ClassDeclaration> decl);
     void executeStructDeclaration(std::shared_ptr<StructDeclaration> decl);
     void executeObjectDeclaration(std::shared_ptr<ObjectDeclaration> decl);
+    
+    // Helper methods
+    std::string buildQualifiedName(std::shared_ptr<ScopeResolutionExpression> scopeExpr);
+    std::string extractQualifiedName(std::shared_ptr<ScopeResolutionExpression> expr);
     
     // Environment management
     std::shared_ptr<Environment> globals;

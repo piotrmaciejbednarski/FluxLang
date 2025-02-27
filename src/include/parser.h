@@ -36,6 +36,7 @@ private:
     std::shared_ptr<ClassDeclaration> parseClassDeclaration();
     std::shared_ptr<NamespaceDeclaration> parseNamespaceDeclaration();
     std::shared_ptr<OperatorDeclaration> parseOperatorDeclaration();
+    std::shared_ptr<Declaration> parseObjectMemberDeclaration();
     std::shared_ptr<ObjectDeclaration> parseObjectDeclaration();
     
     // Statement parsing
