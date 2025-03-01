@@ -47,7 +47,6 @@ std::pair<std::shared_ptr<Program>, size_t> Parser::parse() {
                 
                 // Determine if this is a function declaration
                 size_t lookAhead = current + 2;
-                bool isFunctionDeclaration = false;
                 
                 // Look ahead to check for function parameter list
                 if (lookAhead < tokens.size() && 
@@ -578,6 +577,45 @@ std::shared_ptr<Expression> Parser::parsePostfixExpression() {
     }
 
     return expr;
+}
+
+std::shared_ptr<Type> Parser::parseQualifiedType() {
+    // Save start position
+    size_t startPos = current;
+    Token startToken = peek();
+    
+    std::string fullTypeName = "";
+    
+    // Parse first identifier
+    if (!check(TokenType::IDENTIFIER)) {
+        return nullptr;
+    }
+    
+    fullTypeName += std::string(peek().lexeme);
+    advance(); // Consume the identifier
+    
+    // Parse any scope resolution operators and identifiers
+    while (match({TokenType::OP_DOUBLE_COLON})) {
+        if (!check(TokenType::IDENTIFIER)) {
+            // Rewind to start and fail
+            current = startPos;
+            return nullptr;
+        }
+        
+        fullTypeName += "::";
+        fullTypeName += std::string(peek().lexeme);
+        advance(); // Consume the identifier
+    }
+    
+    // Create source location
+    SourceLocation loc;
+    loc.filename = std::string(startToken.lexeme);
+    loc.line = static_cast<int>(startToken.line);
+    loc.column = static_cast<int>(startToken.column);
+    loc.length = static_cast<int>(fullTypeName.length());
+    
+    // Create and return the type
+    return std::make_shared<UserDefinedType>(loc, fullTypeName);
 }
 
 std::shared_ptr<Expression> Parser::parseQualifiedIdentifier() {
@@ -1127,78 +1165,28 @@ ParseError Parser::error(const Token& token, const std::string& message) {
 }
 
 void Parser::synchronize() {
-    std::cout << "Synchronizing parser state..." << std::endl;
-    
-    // Skip the current token that caused the error
-    advance();
+    advance(); // Skip the token that caused the error
     
     while (!isAtEnd()) {
-        // Look for statement or declaration boundaries
-        if (previous().type == TokenType::SEMICOLON) {
-            std::cout << "Synchronized at semicolon" << std::endl;
-            return;
-        }
+        // Stop at statement boundaries
+        if (previous().type == TokenType::SEMICOLON) return;
+        if (previous().type == TokenType::RBRACE) return;
         
-        if (previous().type == TokenType::RBRACE) {
-            std::cout << "Synchronized at right brace" << std::endl;
-            return;
-        }
-        
-        // Look for function declarations
-        if ((peek().type == TokenType::KW_INT || 
-             peek().type == TokenType::KW_VOID ||
-             peek().type == TokenType::KW_FLOAT ||
-             peek().type == TokenType::KW_CHAR) && 
-            current + 1 < tokens.size() && 
-            tokens[current + 1].type == TokenType::IDENTIFIER &&
-            current + 2 < tokens.size() && 
-            tokens[current + 2].type == TokenType::LPAREN) {
-                
-            std::cout << "Synchronized at function declaration" << std::endl;
-            return;
-        }
-        
-        // Look for potential declaration starts
+        // Or at the start of a new declaration or statement
         switch (peek().type) {
-            case TokenType::KW_CLASS:
-            case TokenType::KW_STRUCT:
-            case TokenType::KW_OBJECT:
-            case TokenType::KW_NAMESPACE:
             case TokenType::KW_INT:
             case TokenType::KW_FLOAT:
             case TokenType::KW_CHAR:
             case TokenType::KW_VOID:
-                std::cout << "Synchronized at keyword: " << tokenTypeToString(peek().type) << std::endl;
-                return;
-                
-            case TokenType::KW_FOR:
-            case TokenType::KW_IF:
-            case TokenType::KW_WHILE:
             case TokenType::KW_RETURN:
-            case TokenType::KW_IMPORT:
-                // Only synchronize at these if we're inside a function body
-                if (peek().type == TokenType::KW_RETURN) {
-                    std::cout << "Synchronized at return statement" << std::endl;
-                    return;
-                }
-                break;
-                
+            case TokenType::LBRACE:
+                return;
             default:
                 break;
         }
         
-        // Check for function declarations by looking ahead
-        if (peek().type == TokenType::IDENTIFIER && 
-            current + 1 < tokens.size() && 
-            tokens[current + 1].type == TokenType::LPAREN) {
-            std::cout << "Synchronized at function call or declaration" << std::endl;
-            return;
-        }
-        
         advance();
     }
-    
-    std::cout << "Synchronized at end of file" << std::endl;
 }
 
 std::shared_ptr<ClassDeclaration> Parser::parseClassDeclaration() {
@@ -1557,7 +1545,13 @@ std::shared_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 throw error(peek(), "Cannot have more than 255 parameters");
             }
             
-            std::shared_ptr<Type> paramType = parseType();
+            // Try to parse a qualified type first
+            std::shared_ptr<Type> paramType = parseQualifiedType();
+            
+            // If not a qualified type, parse a regular type
+            if (!paramType) {
+                paramType = parseType();
+            }
             
             bool isPointer = false;
             if (match({TokenType::OP_STAR})) {
@@ -1595,122 +1589,18 @@ std::shared_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     std::shared_ptr<BlockStatement> body = nullptr;
     if (match({TokenType::LBRACE})) {
         // Parse function body
-        std::vector<std::shared_ptr<Statement>> statements;
-        
-        while (!check(TokenType::RBRACE) && !isAtEnd()) {
-            try {
-                if (check(TokenType::IDENTIFIER)) {
-                    std::string identName = std::string(peek().getValueString());
-                    size_t peekPos = current;
-                    
-                    // Handle known builtin functions or function calls
-                    if ((identName == "print" || identName == "input" || 
-                         identName == "open" || identName == "socket" || 
-                         identName == "test") &&  // Add test function too
-                        current + 1 < tokens.size() && 
-                        tokens[current + 1].type == TokenType::LPAREN) {
-                        
-                        Token identToken = advance();
-                        
-                        if (match({TokenType::LPAREN})) {
-                            // Parse function call arguments
-                            std::vector<std::shared_ptr<Expression>> args;
-                            
-                            if (!check(TokenType::RPAREN)) {
-                                do {
-                                    args.push_back(parseExpression());
-                                } while (match({TokenType::COMMA}));
-                            }
-                            
-                            consume(TokenType::RPAREN, "Expect ')' after arguments");
-                            consume(TokenType::SEMICOLON, "Expect ';' after statement");
-                            
-                            // Create source location
-                            SourceLocation callLoc;
-                            callLoc.filename = std::string(identToken.lexeme);
-                            callLoc.line = static_cast<int>(identToken.line);
-                            callLoc.column = static_cast<int>(identToken.column);
-                            callLoc.length = static_cast<int>(identToken.length);
-                            
-                            // Create appropriate expression
-                            std::shared_ptr<Expression> expr;
-                            if (identName == "print" || identName == "input" || 
-                                identName == "open" || identName == "socket") {
-                                // Create builtin call expression
-                                expr = std::make_shared<BuiltinCallExpression>(
-                                    callLoc, 
-                                    identName == "print" ? BuiltinCallExpression::BuiltinType::PRINT :
-                                    identName == "input" ? BuiltinCallExpression::BuiltinType::INPUT :
-                                    identName == "open" ? BuiltinCallExpression::BuiltinType::OPEN :
-                                    BuiltinCallExpression::BuiltinType::SOCKET,
-                                    args
-                                );
-                            } else {
-                                // Create regular function call expression
-                                auto identExpr = std::make_shared<IdentifierExpression>(callLoc, identName);
-                                expr = std::make_shared<CallExpression>(callLoc, identExpr, args);
-                            }
-                            
-                            // Add expression statement to the body
-                            statements.push_back(std::make_shared<ExpressionStatement>(callLoc, expr));
-                            std::cout << "Added function call statement for: " << identName << std::endl;
-                            continue;
-                        } else {
-                            current = peekPos; // Rewind if not a function call
-                        }
-                    }
-                }
-                
-                // Handle return statements
-                if (match({TokenType::KW_RETURN})) {
-                    Token returnToken = previous();
-                    
-                    std::shared_ptr<Expression> returnValue = nullptr;
-                    if (!check(TokenType::SEMICOLON)) {
-                        returnValue = parseExpression();
-                    }
-                    
-                    consume(TokenType::SEMICOLON, "Expect ';' after return value");
-                    
-                    SourceLocation returnLoc;
-                    returnLoc.filename = std::string(returnToken.lexeme);
-                    returnLoc.line = static_cast<int>(returnToken.line);
-                    returnLoc.column = static_cast<int>(returnToken.column);
-                    returnLoc.length = static_cast<int>(returnToken.length);
-                    
-                    statements.push_back(std::make_shared<ReturnStatement>(returnLoc, returnValue));
-                    std::cout << "Added return statement" << std::endl;
-                    continue;
-                }
-                
-                // Fall back to regular statement parsing
-                statements.push_back(parseStatement());
-            } catch (const ParseError& err) {
-                std::cerr << "Error parsing statement in function body: " << err.what() << std::endl;
-                synchronize();
-            }
-        }
-        
-        consume(TokenType::RBRACE, "Expect '}' after function body");
-        
-        // Create block statement for the function body
-        body = std::make_shared<BlockStatement>(loc, statements);
-    } else {
-        consume(TokenType::SEMICOLON, "Expect ';' after function declaration");
+        body = parseBlock();
     }
     
-    // Consume the semicolon after the function declaration
+    // Optional semicolon after function
     if (check(TokenType::SEMICOLON)) {
-        std::cout << "Consuming trailing semicolon after function declaration" << std::endl;
-        advance(); // Consume the semicolon
+        advance();
     }
     
     // Debug print
-    std::cout << "Parsed Function: " 
-              << std::string(nameToken.getValueString()) 
+    std::cout << "Successfully parsed function: " << nameToken.getValueString() 
               << ", Return Type: " << returnType->toString() 
-              << ", Params: " << params.size() 
-              << ", Has Body: " << (body != nullptr) 
+              << ", Parameters: " << params.size() 
               << std::endl;
     
     return std::make_shared<FunctionDeclaration>(
@@ -1898,6 +1788,84 @@ std::shared_ptr<BlockStatement> Parser::parseBlock() {
     
     while (!check(TokenType::RBRACE) && !isAtEnd()) {
         try {
+            // Check for if statements first
+            if (match({TokenType::KW_IF})) {
+                std::cout << "Found if statement in block" << std::endl;
+                statements.push_back(parseIfStatement());
+                continue;
+            }
+            
+            // Check for while statements
+            if (match({TokenType::KW_WHILE})) {
+                std::cout << "Found while statement in block" << std::endl;
+                statements.push_back(parseWhileStatement());
+                continue;
+            }
+            
+            // Check for for statements
+            if (match({TokenType::KW_FOR})) {
+                std::cout << "Found for statement in block" << std::endl;
+                statements.push_back(parseForStatement());
+                continue;
+            }
+            
+            // Check for return statements
+            if (match({TokenType::KW_RETURN})) {
+                std::cout << "Found return statement in block" << std::endl;
+                statements.push_back(parseReturnStatement());
+                continue;
+            }
+            
+            // Check for variable declarations
+            if (check(TokenType::KW_INT) || check(TokenType::KW_FLOAT) || 
+                check(TokenType::KW_CHAR) || check(TokenType::KW_BOOL) ||
+                check(TokenType::KW_VOID)) {
+                
+                // Try to parse as a variable declaration
+                try {
+                    auto type = parseType();
+                    
+                    if (check(TokenType::IDENTIFIER)) {
+                        Token nameToken = advance();
+                        std::string name = std::string(nameToken.getValueString());
+                        
+                        // Handle variable declaration
+                        if (!check(TokenType::LPAREN)) {  // Not a function
+                            std::shared_ptr<Expression> initializer = nullptr;
+                            
+                            // Check for initializer
+                            if (match({TokenType::OP_EQUAL})) {
+                                initializer = parseExpression();
+                            }
+                            
+                            consume(TokenType::SEMICOLON, "Expect ';' after variable declaration");
+                            
+                            // Create source location
+                            SourceLocation loc;
+                            loc.filename = std::string(nameToken.lexeme);
+                            loc.line = static_cast<int>(nameToken.line);
+                            loc.column = static_cast<int>(nameToken.column);
+                            loc.length = static_cast<int>(nameToken.length);
+                            
+                            // Create a variable declaration node
+                            auto varDecl = std::make_shared<VariableDeclaration>(
+                                loc, name, type, initializer
+                            );
+                            
+                            std::cout << "Added variable declaration: " << name << std::endl;
+                            statements.push_back(varDecl);
+                            continue;
+                        }
+                        
+                        // Rewind - might be a function declaration
+                        current--; // Only decrement current pointer, not column
+                    }
+                } catch (const ParseError& err) {
+                    // Not a valid type or variable declaration, continue to expression statement
+                    std::cerr << "Error parsing variable declaration: " << err.what() << std::endl;
+                }
+            }
+            
             // Check for builtin function calls or other function calls
             if (check(TokenType::IDENTIFIER)) {
                 std::string identName = std::string(peek().getValueString());
@@ -1960,36 +1928,6 @@ std::shared_ptr<BlockStatement> Parser::parseBlock() {
                 }
             }
             
-            // Handle return statements
-            if (match({TokenType::KW_RETURN})) {
-                Token returnToken = previous();
-                
-                std::shared_ptr<Expression> returnValue = nullptr;
-                if (!check(TokenType::SEMICOLON)) {
-                    try {
-                        returnValue = parseExpression();
-                        std::cout << "Return statement has expression value" << std::endl;
-                    } catch (const ParseError& e) {
-                        std::cerr << "Error parsing return expression: " << e.what() << std::endl;
-                        synchronize();
-                    }
-                } else {
-                    std::cout << "Return statement has no expression (void return)" << std::endl;
-                }
-                
-                consume(TokenType::SEMICOLON, "Expect ';' after return value");
-                
-                SourceLocation returnLoc;
-                returnLoc.filename = std::string(returnToken.lexeme);
-                returnLoc.line = static_cast<int>(returnToken.line);
-                returnLoc.column = static_cast<int>(returnToken.column);
-                returnLoc.length = static_cast<int>(returnToken.length);
-                
-                statements.push_back(std::make_shared<ReturnStatement>(returnLoc, returnValue));
-                std::cout << "Added return statement" << std::endl;
-                continue;
-            }
-            
             // Handle other statement types
             std::shared_ptr<Statement> stmt = parseStatement();
             if (stmt) {
@@ -2001,21 +1939,6 @@ std::shared_ptr<BlockStatement> Parser::parseBlock() {
         } catch (const ParseError& err) {
             std::cerr << "Error parsing statement in block: " << err.what() << std::endl;
             synchronize();
-            
-            // If we're synchronized at a token that suggests we're outside 
-            // the current function, break out of the loop
-            if ((peek().type == TokenType::KW_INT || 
-                 peek().type == TokenType::KW_VOID || 
-                 peek().type == TokenType::KW_FLOAT || 
-                 peek().type == TokenType::KW_CHAR) &&
-                current + 1 < tokens.size() && 
-                tokens[current + 1].type == TokenType::IDENTIFIER &&
-                current + 2 < tokens.size() && 
-                tokens[current + 2].type == TokenType::LPAREN) {
-                
-                std::cout << "Detected start of a new function declaration, ending current block" << std::endl;
-                break;
-            }
         }
     }
     
@@ -2038,45 +1961,9 @@ std::shared_ptr<BlockStatement> Parser::parseBlock() {
 }
 
 std::shared_ptr<Type> Parser::parseType() {
-    // Track the starting token for source location
     Token typeToken = peek();
     
-    // Updated to use correct token types from TokenType enum
-    if (match({TokenType::KW_INT, TokenType::KW_FLOAT, 
-               TokenType::KW_CHAR, TokenType::KW_VOID})) {
-        PrimitiveTypeKind kind;
-        BitWidth width = BitWidth::DEFAULT;
-        bool isUnsigned = false;
-        
-        // Determine primitive type kind
-        switch (previous().type) {
-            case TokenType::KW_INT: kind = PrimitiveTypeKind::INT; break;
-            case TokenType::KW_FLOAT: kind = PrimitiveTypeKind::FLOAT; break;
-            case TokenType::KW_CHAR: kind = PrimitiveTypeKind::CHAR; break;
-            case TokenType::KW_VOID: kind = PrimitiveTypeKind::VOID; break;
-            default: throw error(typeToken, "Invalid primitive type");
-        }
-        
-        // Check for bit width specifier
-        if (match({TokenType::BIT_WIDTH_SPECIFIER})) {
-            Token bitWidthToken = previous();
-            
-            // Extract bit width from the token
-            if (bitWidthToken.value.bitWidth) {
-                switch (*bitWidthToken.value.bitWidth) {
-                    case 8: width = BitWidth::_8; break;
-                    case 16: width = BitWidth::_16; break;
-                    case 32: width = BitWidth::_32; break;
-                    case 64: width = BitWidth::_64; break;
-                    case 128: width = BitWidth::_128; break;
-                    default: 
-                        throw error(bitWidthToken, 
-                            "Unsupported bit width: " + 
-                            std::to_string(*bitWidthToken.value.bitWidth));
-                }
-            }
-        }
-        
+    if (match({TokenType::KW_INT})) {
         // Create source location
         SourceLocation loc;
         loc.filename = std::string(typeToken.lexeme);
@@ -2084,33 +1971,58 @@ std::shared_ptr<Type> Parser::parseType() {
         loc.column = static_cast<int>(typeToken.column);
         loc.length = static_cast<int>(typeToken.length);
         
-        // Create primitive type
-        auto primitiveType = std::make_shared<PrimitiveType>(loc, kind, width, isUnsigned);
-        
-        // Check for array or pointer type modifiers
-        return parseTypeModifiers(primitiveType);
+        return std::make_shared<PrimitiveType>(loc, PrimitiveTypeKind::INT, BitWidth::_32, false);
     }
-    
-    // User-defined type handling
-    if (check(TokenType::IDENTIFIER)) {
+    else if (match({TokenType::KW_FLOAT})) {
+        SourceLocation loc;
+        loc.filename = std::string(typeToken.lexeme);
+        loc.line = static_cast<int>(typeToken.line);
+        loc.column = static_cast<int>(typeToken.column);
+        loc.length = static_cast<int>(typeToken.length);
+        
+        return std::make_shared<PrimitiveType>(loc, PrimitiveTypeKind::FLOAT, BitWidth::_64, false);
+    }
+    else if (match({TokenType::KW_CHAR})) {
+        SourceLocation loc;
+        loc.filename = std::string(typeToken.lexeme);
+        loc.line = static_cast<int>(typeToken.line);
+        loc.column = static_cast<int>(typeToken.column);
+        loc.length = static_cast<int>(typeToken.length);
+        
+        return std::make_shared<PrimitiveType>(loc, PrimitiveTypeKind::CHAR, BitWidth::DEFAULT, false);
+    }
+    else if (match({TokenType::KW_VOID})) {
+        SourceLocation loc;
+        loc.filename = std::string(typeToken.lexeme);
+        loc.line = static_cast<int>(typeToken.line);
+        loc.column = static_cast<int>(typeToken.column);
+        loc.length = static_cast<int>(typeToken.length);
+        
+        return std::make_shared<PrimitiveType>(loc, PrimitiveTypeKind::VOID, BitWidth::DEFAULT, false);
+    }
+    else if (match({TokenType::KW_BOOL})) {
+        SourceLocation loc;
+        loc.filename = std::string(typeToken.lexeme);
+        loc.line = static_cast<int>(typeToken.line);
+        loc.column = static_cast<int>(typeToken.column);
+        loc.length = static_cast<int>(typeToken.length);
+        
+        return std::make_shared<PrimitiveType>(loc, PrimitiveTypeKind::BOOL, BitWidth::DEFAULT, false);
+    }
+    else if (check(TokenType::IDENTIFIER)) {
+        // User-defined type
         Token nameToken = advance();
         
-        // Create source location
         SourceLocation loc;
         loc.filename = std::string(nameToken.lexeme);
         loc.line = static_cast<int>(nameToken.line);
         loc.column = static_cast<int>(nameToken.column);
         loc.length = static_cast<int>(nameToken.length);
         
-        auto userType = std::make_shared<UserDefinedType>(loc, 
-            std::string(nameToken.getValueString()));
-        
-        // Check for array or pointer type modifiers
-        return parseTypeModifiers(userType);
+        return std::make_shared<UserDefinedType>(loc, std::string(nameToken.getValueString()));
     }
     
-    // If no type is found, throw an error
-    throw error(typeToken, "Expected a type");
+    throw error(peek(), "Expected type");
 }
 
 std::shared_ptr<Type> Parser::parseTypeModifiers(std::shared_ptr<Type> baseType) {
@@ -2196,6 +2108,51 @@ std::shared_ptr<Statement> Parser::parseStatement() {
     
     if (match({TokenType::LBRACE})) {
         return parseBlock();
+    }
+    
+    // Check for variable declarations
+    if (check(TokenType::KW_INT) || check(TokenType::KW_FLOAT) ||
+        check(TokenType::KW_CHAR) || check(TokenType::KW_BOOL) ||
+        check(TokenType::KW_VOID)) {
+        
+        // Try to parse as a variable declaration
+        try {
+            auto type = parseType();
+            
+            if (check(TokenType::IDENTIFIER)) {
+                Token nameToken = advance();
+                std::string name = std::string(nameToken.getValueString());
+                
+                // Handle variable declaration
+                if (!check(TokenType::LPAREN)) {  // Not a function
+                    std::shared_ptr<Expression> initializer = nullptr;
+                    
+                    // Check for initializer
+                    if (match({TokenType::OP_EQUAL})) {
+                        initializer = parseExpression();
+                    }
+                    
+                    consume(TokenType::SEMICOLON, "Expect ';' after variable declaration");
+                    
+                    // Create source location
+                    SourceLocation loc;
+                    loc.filename = std::string(nameToken.lexeme);
+                    loc.line = static_cast<int>(nameToken.line);
+                    loc.column = static_cast<int>(nameToken.column);
+                    loc.length = static_cast<int>(nameToken.length);
+                    
+                    // Return a variable declaration node
+                    return std::make_shared<VariableDeclaration>(
+                        loc, name, type, initializer
+                    );
+                }
+                
+                // Rewind - might be a function declaration
+                current--;
+            }
+        } catch (const ParseError& err) {
+            // Not a valid type or variable declaration, continue to expression statement
+        }
     }
     
     // Check for qualified object instantiation: A::B::C{} d;
@@ -2312,19 +2269,37 @@ std::shared_ptr<Statement> Parser::parseStatement() {
 }
 
 std::shared_ptr<IfStatement> Parser::parseIfStatement() {
-    Token ifToken = previous();
+    Token ifToken = previous(); // 'if' token was just consumed
     
+    // Parse the condition inside parentheses
     consume(TokenType::LPAREN, "Expect '(' after 'if'");
     std::shared_ptr<Expression> condition = parseExpression();
     consume(TokenType::RPAREN, "Expect ')' after if condition");
     
-    std::shared_ptr<Statement> thenBranch = parseStatement();
-    std::shared_ptr<Statement> elseBranch = nullptr;
-    
-    if (match({TokenType::KW_ELSE})) {
-        elseBranch = parseStatement();
+    // Parse the 'then' branch
+    std::shared_ptr<Statement> thenBranch;
+    if (check(TokenType::LBRACE)) {
+        thenBranch = parseBlock();
+    } else {
+        // Allow single statement without braces
+        thenBranch = parseStatement();
     }
     
+    // Check for optional 'else' branch
+    std::shared_ptr<Statement> elseBranch = nullptr;
+    if (match({TokenType::KW_ELSE})) {
+        if (check(TokenType::LBRACE)) {
+            elseBranch = parseBlock();
+        } else if (check(TokenType::KW_IF)) {
+            // Handle 'else if' by recursively parsing the if statement
+            elseBranch = parseIfStatement();
+        } else {
+            // Allow single statement without braces
+            elseBranch = parseStatement();
+        }
+    }
+    
+    // Create the IfStatement node
     SourceLocation loc;
     loc.filename = std::string(ifToken.lexeme);
     loc.line = static_cast<int>(ifToken.line);
@@ -2332,6 +2307,23 @@ std::shared_ptr<IfStatement> Parser::parseIfStatement() {
     loc.length = static_cast<int>(ifToken.length);
     
     return std::make_shared<IfStatement>(loc, condition, thenBranch, elseBranch);
+}
+
+std::shared_ptr<BreakStatement> Parser::parseBreakStatement() {
+    Token breakToken = previous(); // 'break' token was just consumed
+    
+    // Expect a semicolon after the 'break' keyword
+    consume(TokenType::SEMICOLON, "Expect ';' after 'break'");
+    
+    // Create source location
+    SourceLocation loc;
+    loc.filename = std::string(breakToken.lexeme);
+    loc.line = static_cast<int>(breakToken.line);
+    loc.column = static_cast<int>(breakToken.column);
+    loc.length = static_cast<int>(breakToken.length);
+    
+    // Create and return the break statement
+    return std::make_shared<BreakStatement>(loc);
 }
 
 std::shared_ptr<WhileStatement> Parser::parseWhileStatement() {
@@ -2396,25 +2388,16 @@ std::shared_ptr<ForStatement> Parser::parseForStatement() {
 
 std::shared_ptr<ReturnStatement> Parser::parseReturnStatement() {
     Token returnToken = previous();
-    std::cout << "Parsing return statement at line " << returnToken.line << std::endl;
     
+    // Parse optional return value
     std::shared_ptr<Expression> value = nullptr;
-    
-    // Check if there's an expression after return
     if (!check(TokenType::SEMICOLON)) {
-        try {
-            value = parseExpression();
-            std::cout << "Return statement has expression value" << std::endl;
-        } catch (const ParseError& e) {
-            std::cerr << "Error parsing return expression: " << e.what() << std::endl;
-        }
-    } else {
-        std::cout << "Return statement has no expression (void return)" << std::endl;
+        value = parseExpression();
     }
     
-    // Consume the semicolon
-    consume(TokenType::SEMICOLON, "Expect ';' after return value");
+    consume(TokenType::SEMICOLON, "Expect ';' after return statement");
     
+    // Create source location
     SourceLocation loc;
     loc.filename = std::string(returnToken.lexeme);
     loc.line = static_cast<int>(returnToken.line);
@@ -2422,19 +2405,6 @@ std::shared_ptr<ReturnStatement> Parser::parseReturnStatement() {
     loc.length = static_cast<int>(returnToken.length);
     
     return std::make_shared<ReturnStatement>(loc, value);
-}
-
-std::shared_ptr<BreakStatement> Parser::parseBreakStatement() {
-    Token breakToken = previous();
-    consume(TokenType::SEMICOLON, "Expect ';' after 'break'");
-    
-    SourceLocation loc;
-    loc.filename = std::string(breakToken.lexeme);
-    loc.line = static_cast<int>(breakToken.line);
-    loc.column = static_cast<int>(breakToken.column);
-    loc.length = static_cast<int>(breakToken.length);
-    
-    return std::make_shared<BreakStatement>(loc);
 }
 
 std::shared_ptr<ContinueStatement> Parser::parseContinueStatement() {
@@ -2529,65 +2499,17 @@ std::shared_ptr<ASMStatement> Parser::parseASMStatement() {
 
 std::shared_ptr<ExpressionStatement> Parser::parseExpressionStatement() {
     Token startToken = peek();
-    std::cout << "Parsing expression statement starting with: " 
-              << tokenTypeToString(startToken.type) 
-              << ", Lexeme: " << std::string(startToken.lexeme) 
-              << std::endl;
     
-    // Check for object instantiation pattern: [identifier] [{}] [identifier] [;]
-    if (check(TokenType::IDENTIFIER)) {
-        size_t currentPos = current;
-        Token objectTypeToken = advance(); // Consume object type
-        
-        // Check for {} after the type name
-        if (match({TokenType::LBRACE}) && match({TokenType::RBRACE})) {
-            // Check if next token is an identifier (the object name)
-            if (check(TokenType::IDENTIFIER)) {
-                Token objectNameToken = advance(); // Consume object name
-                
-                // Create source location
-                SourceLocation loc;
-                loc.filename = std::string(startToken.lexeme);
-                loc.line = static_cast<int>(startToken.line);
-                loc.column = static_cast<int>(startToken.column);
-                loc.length = static_cast<int>(objectNameToken.length);
-                
-                // Create an ObjectInstantiationExpression (we'll need to add this to AST)
-                auto expr = std::make_shared<ObjectInstantiationExpression>(
-                    loc,
-                    std::string(objectTypeToken.getValueString()),
-                    std::string(objectNameToken.getValueString())
-                );
-                
-                // Expect a semicolon
-                consume(TokenType::SEMICOLON, "Expect ';' after object instantiation");
-                
-                std::cout << "Created object instantiation expression: " 
-                          << objectTypeToken.getValueString() << " {} " 
-                          << objectNameToken.getValueString() << std::endl;
-                          
-                return std::make_shared<ExpressionStatement>(loc, expr);
-            }
-        }
-        
-        // If it wasn't an object instantiation, rewind and parse normally
-        current = currentPos;
-    }
-    
-    // Continue with normal expression parsing
     std::shared_ptr<Expression> expr = parseExpression();
     
-    // Expect a semicolon after the expression
     consume(TokenType::SEMICOLON, "Expect ';' after expression");
     
-    // Create source location
     SourceLocation loc;
     loc.filename = std::string(startToken.lexeme);
     loc.line = static_cast<int>(startToken.line);
     loc.column = static_cast<int>(startToken.column);
     loc.length = static_cast<int>(startToken.length);
     
-    std::cout << "Created expression statement" << std::endl;
     return std::make_shared<ExpressionStatement>(loc, expr);
 }
 
@@ -2616,18 +2538,75 @@ std::shared_ptr<Expression> Parser::parseInjectableString() {
     // Parse arguments
     while (!check(TokenType::RBRACE) && !isAtEnd()) {
         try {
-            // Parse each argument (could be an identifier or other expression)
+            // Parse expression
             std::shared_ptr<Expression> arg = parseExpression();
+            
+            // Check for array indexing
+            if (match({TokenType::LBRACKET})) {
+                // Parse index expression
+                std::shared_ptr<Expression> indexExpr = parseExpression();
+                consume(TokenType::RBRACKET, "Expect ']' after index");
+                
+                // Create index expression
+                SourceLocation indexLoc;
+                indexLoc.filename = loc.filename;
+                indexLoc.line = loc.line;
+                indexLoc.column = loc.column;
+                indexLoc.length = 1;
+                
+                arg = std::make_shared<IndexExpression>(indexLoc, arg, indexExpr);
+                std::cout << "Created index expression in injectable string" << std::endl;
+            }
+            
             args.push_back(arg);
             
-            // Expect semicolon between arguments, or '}' to end
+            // Skip any comments before the semicolon
+            // Look ahead for '//' which indicates a comment
+            if (current + 1 < tokens.size() && 
+                tokens[current].type == TokenType::OP_SLASH && 
+                tokens[current + 1].type == TokenType::OP_SLASH) {
+                
+                std::cout << "Detected comment in injectable string" << std::endl;
+                
+                // Skip tokens until we find a newline or the next argument
+                while (current < tokens.size() && 
+                       tokens[current].line == tokens[current - 1].line) {
+                    advance();
+                }
+                
+                // Skip any whitespace tokens after the comment
+                while (current < tokens.size() && 
+                       (tokens[current].type == TokenType::SEMICOLON ||
+                        tokens[current].lexeme.find_first_not_of(" \t\r\n") == std::string::npos)) {
+                    advance();
+                }
+                
+                continue;
+            }
+            
+            // Check for semicolon
             if (!match({TokenType::SEMICOLON})) {
+                if (!check(TokenType::RBRACE)) {
+                    throw error(peek(), "Expect ';' after expression in injectable string");
+                }
                 break;
             }
         } catch (const ParseError& e) {
             std::cerr << "Error parsing injectable string argument: " << e.what() << std::endl;
-            synchronize();
-            break;
+            
+            // Skip to next semicolon or closing brace
+            while (!check(TokenType::SEMICOLON) && 
+                   !check(TokenType::RBRACE) && 
+                   !isAtEnd()) {
+                advance();
+            }
+            
+            if (check(TokenType::SEMICOLON)) {
+                advance(); // Consume the semicolon
+                continue;  // Continue to next argument
+            } else if (check(TokenType::RBRACE)) {
+                break;     // End the argument list
+            }
         }
     }
     
@@ -2665,131 +2644,28 @@ std::shared_ptr<ImportDeclaration> Parser::parseImportDeclaration() {
 }
 
 std::shared_ptr<Expression> Parser::parseIndex(std::shared_ptr<Expression> array) {
-    Token startToken = previous();
+    Token startToken = previous(); // Should be '['
     
     // Expect an index inside the brackets
     std::shared_ptr<Expression> indexExpr;
     
-    // Check for slice notation with missing start index
-    if (match({TokenType::COLON})) {
-        if (match({TokenType::INTEGER_LITERAL})) {
-            Token endIndexToken = previous();
-            int64_t endIndex = std::get<int64_t>(endIndexToken.value.value);
-            
-            // Create custom binary expression for slicing
-            SourceLocation loc;
-            loc.filename = std::string(startToken.lexeme);
-            loc.line = static_cast<int>(startToken.line);
-            loc.column = static_cast<int>(startToken.column);
-            loc.length = static_cast<int>(endIndexToken.length);
-            
-            indexExpr = std::make_shared<BinaryExpression>(
-                loc, 
-                BinaryExpression::Operator::CUSTOM, 
-                std::make_shared<LiteralExpression>(
-                    loc, 
-                    static_cast<int64_t>(-1), // Use -1 to indicate missing start index
-                    std::make_shared<PrimitiveType>(
-                        loc, 
-                        PrimitiveTypeKind::INT, 
-                        BitWidth::_32, 
-                        false
-                    )
-                ),
-                std::make_shared<LiteralExpression>(
-                    loc, 
-                    endIndex, 
-                    std::make_shared<PrimitiveType>(
-                        loc, 
-                        PrimitiveTypeKind::INT, 
-                        BitWidth::_32, 
-                        false
-                    )
-                ),
-                ":"
-            );
-        } else {
-            // Partial slice like a[:] - not implemented
-            throw error(peek(), "Expected end index after ':'");
-        }
-    } else if (match({TokenType::INTEGER_LITERAL})) {
-        Token startIndexToken = previous();
-        int64_t startIndex = std::get<int64_t>(startIndexToken.value.value);
-        
-        // Check for colon-based slice
-        if (match({TokenType::COLON})) {
-            // Parse end index
-            if (match({TokenType::INTEGER_LITERAL})) {
-                Token endIndexToken = previous();
-                int64_t endIndex = std::get<int64_t>(endIndexToken.value.value);
-                
-                // Create custom binary expression for slicing
-                SourceLocation loc;
-                loc.filename = std::string(startToken.lexeme);
-                loc.line = static_cast<int>(startToken.line);
-                loc.column = static_cast<int>(startToken.column);
-                loc.length = static_cast<int>(endIndexToken.length);
-                
-                indexExpr = std::make_shared<BinaryExpression>(
-                    loc, 
-                    BinaryExpression::Operator::CUSTOM, 
-                    std::make_shared<LiteralExpression>(
-                        loc, 
-                        startIndex, 
-                        std::make_shared<PrimitiveType>(
-                            loc, 
-                            PrimitiveTypeKind::INT, 
-                            BitWidth::_32, 
-                            false
-                        )
-                    ),
-                    std::make_shared<LiteralExpression>(
-                        loc, 
-                        endIndex, 
-                        std::make_shared<PrimitiveType>(
-                            loc, 
-                            PrimitiveTypeKind::INT, 
-                            BitWidth::_32, 
-                            false
-                        )
-                    ),
-                    ":"
-                );
-            } else {
-                // Partial slice like a[start:]
-                throw error(peek(), "Expected end index after ':'");
-            }
-        } else {
-            // Regular index
-            indexExpr = std::make_shared<LiteralExpression>(
-                SourceLocation{
-                    std::string(startToken.lexeme), 
-                    static_cast<int>(startToken.line), 
-                    static_cast<int>(startToken.column), 
-                    static_cast<int>(startToken.length)
-                }, 
-                startIndex, 
-                std::make_shared<PrimitiveType>(
-                    SourceLocation{}, 
-                    PrimitiveTypeKind::INT, 
-                    BitWidth::_32, 
-                    false
-                )
-            );
-        }
+    // Parse the index expression
+    if (!check(TokenType::RBRACKET)) {
+        indexExpr = parseExpression();
     } else {
-        throw error(peek(), "Expected index or slice");
+        // Empty index is an error
+        throw error(peek(), "Expected index expression");
     }
     
     // Consume closing bracket
     consume(TokenType::RBRACKET, "Expect ']' after index");
     
-    // Create index expression
+    // Create source location
     SourceLocation loc;
     loc.filename = std::string(startToken.lexeme);
     loc.line = static_cast<int>(startToken.line);
     loc.column = static_cast<int>(startToken.column);
-    loc.length = 1; // Bracket length
+    loc.length = static_cast<int>(startToken.length);
     
     return std::make_shared<IndexExpression>(loc, array, indexExpr);
 }

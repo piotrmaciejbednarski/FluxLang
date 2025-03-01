@@ -601,13 +601,13 @@ private:
     std::shared_ptr<Expression> typeExpr; // For qualified types
 };
 
-class VariableDeclaration : public Declaration {
+class VariableDeclaration : public Declaration, public Statement {
 public:
     VariableDeclaration(SourceLocation loc,
                        std::string name,
                        std::shared_ptr<Type> type,
                        std::shared_ptr<Expression> initializer = nullptr)
-        : Declaration(loc, std::move(name)), type(type), initializer(initializer) {}
+        : Declaration(loc, std::move(name)), Statement(loc), type(type), initializer(initializer) {}
     
     std::shared_ptr<Type> getType() const { return type; }
     std::shared_ptr<Expression> getInitializer() const { return initializer; }

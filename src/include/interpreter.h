@@ -144,6 +144,8 @@ public:
     void printSymbols();
     
     std::shared_ptr<Environment> getEnclosing() const { return enclosing; }
+    void setEnclosing(std::shared_ptr<Environment>);
+    void updateEnclosing(std::shared_ptr<Environment>);
     
     // Add this method to support case-insensitive lookups
     std::unordered_map<std::string, Value> getAllSymbols() const;
@@ -187,6 +189,8 @@ public:
     // Environment access
     std::shared_ptr<Environment> getGlobalEnvironment() const { return globals; }
     std::shared_ptr<Environment> getCurrentEnvironment() const { return environment; }
+    void pushEnvironment(std::shared_ptr<Environment> newEnv);
+    void popEnvironment();
     
     // Built-in function implementations
     Value print(const std::vector<Value>& args);

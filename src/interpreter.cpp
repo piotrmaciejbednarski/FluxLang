@@ -56,21 +56,42 @@ Function::Function(std::shared_ptr<FunctionDeclaration> declaration, std::shared
 
 Value Function::call(Interpreter& interpreter, const std::vector<Value>& args) {    
     // Create a new environment for function execution
-    auto environment = std::make_shared<Environment>(closure);
+    auto functionEnv = std::make_shared<Environment>(closure);
     
     // Bind parameters to arguments
     const auto& params = declaration->getParams();
     for (size_t i = 0; i < params.size(); ++i) {
-        environment->define(params[i].getName(), args[i]);
+        functionEnv->define(params[i].getName(), 
+            i < args.size() ? args[i] : Value());
     }
     
+    // Save the previous environment
+    auto previousEnv = interpreter.getCurrentEnvironment();
+    
     try {
+        // Set current environment to function environment
+        interpreter.getCurrentEnvironment() = functionEnv;
+        
         // Execute function body
-        interpreter.executeBlock(declaration->getBody(), environment);
-        return Value(); // Return void by default
+        if (declaration->getBody()) {
+            interpreter.executeBlock(declaration->getBody(), functionEnv);
+        }
+        
+        // Restore previous environment
+        interpreter.getCurrentEnvironment() = previousEnv;
+        
+        // Return void by default
+        return Value();
     } catch (const Interpreter::ReturnValue& returnValue) {
-        // Handle return statement
+        // Handle return statements
+        interpreter.getCurrentEnvironment() = previousEnv;
         return returnValue.value;
+    } catch (const std::exception& e) {
+        // Restore environment even on error
+        interpreter.getCurrentEnvironment() = previousEnv;
+        std::cerr << "Error executing function " << declaration->getName() 
+                  << ": " << e.what() << std::endl;
+        throw;
     }
 }
 
@@ -214,7 +235,9 @@ bool Interpreter::isTruthy(const Value& value) {
     if (value.isFloat()) return value.as<double>() != 0.0;
     if (value.isString()) return !value.as<std::string>().empty();
     if (value.isArray()) return !value.as<std::vector<Value>>().empty();
-    return true;
+    if (value.isObject()) return true; // Objects are always truthy
+    if (value.isCallable()) return true; // Functions are always truthy
+    return false;
 }
 
 bool Interpreter::isEqual(const Value& a, const Value& b) {
@@ -256,100 +279,57 @@ bool Interpreter::isEqual(const Value& a, const Value& b) {
 
 Value Interpreter::execute(std::shared_ptr<Program> program) {
     try {
+        // Process all declarations first
         const auto& declarations = program->getDeclarations();
         
-        std::cout << "Total Declarations: " << declarations.size() << std::endl;
+        std::cout << "Processing " << declarations.size() << " declarations" << std::endl;
         
-        // Extensive logging for declarations
-        std::cout << "=== Detailed Declaration Logging ===" << std::endl;
+        // Register functions and process other declarations
         for (const auto& decl : declarations) {
-            if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(decl)) {
-                std::cout << "Function Declaration Found:" << std::endl;
-                std::cout << "  Name: " << funcDecl->getName() << std::endl;
-                std::cout << "  Return Type: " << funcDecl->getReturnType()->toString() << std::endl;
-                std::cout << "  Parameters: " << funcDecl->getParams().size() << std::endl;
-                std::cout << "  Has Body: " << (funcDecl->getBody() != nullptr) << std::endl;
-            } else if (auto classDecl = std::dynamic_pointer_cast<ClassDeclaration>(decl)) {
-                std::cout << "Class Declaration Found:" << std::endl;
-                std::cout << "  Name: " << classDecl->getName() << std::endl;
-                std::cout << "  Members: " << classDecl->getMembers().size() << std::endl;
-            } else {
-                std::cout << "Other Declaration: " << decl->getName() << "\n\n";
-            }
-        }
-        
-        // First pass: Process namespace, class and function declarations
-        for (const auto& decl : declarations) {
-            if (auto namespaceDecl = std::dynamic_pointer_cast<NamespaceDeclaration>(decl)) {
-                // Register namespace in globals
-                executeNamespaceDeclaration(namespaceDecl);
-            } else if (auto classDecl = std::dynamic_pointer_cast<ClassDeclaration>(decl)) {
-                // Register class in globals
-                executeClassDeclaration(classDecl);
-            } else if (auto objDecl = std::dynamic_pointer_cast<ObjectDeclaration>(decl)) {
-                // Register object in globals
-                executeObjectDeclaration(objDecl);
-            } else if (auto structDecl = std::dynamic_pointer_cast<StructDeclaration>(decl)) {
-                // Register struct in globals
-                executeStructDeclaration(structDecl);
-            } else if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(decl)) {
-                // Create function object
-                auto function = std::make_shared<Function>(funcDecl, environment);
-                
-                // Register function in global scope
-                globals->define(funcDecl->getName(), Value(function));
-            }
-        }
-        
-        // Look for main function and execute it
-        try {
-            // Print all global symbols for comprehensive debugging
-            //std::cout << "\n=== Global Symbols Before Execution ===" << std::endl;
-            //printGlobalSymbols();
-            //std::cout << "=====================================" << "\n\n";
+            if (!decl) continue;
             
-            // Try to get the main function
+            if (auto funcDecl = std::dynamic_pointer_cast<FunctionDeclaration>(decl)) {
+                auto function = std::make_shared<Function>(funcDecl, globals);
+                globals->define(funcDecl->getName(), Value(function));
+                std::cout << "Registered function: " << funcDecl->getName() << std::endl;
+            } else {
+                executeDeclaration(decl);
+            }
+        }
+        
+        // Look for main function (case sensitive)
+        try {
             Value mainFunc = globals->get("main");
             
-            if (mainFunc.isCallable()) {                
-                // Empty vector for main() arguments
-                std::vector<Value> args;
+            if (mainFunc.isCallable()) {
+                std::cout << "Executing main function..." << std::endl;
                 
-                try {
-                    std::cout << "[Result]\n\n";
-                    Value result = mainFunc.as<std::shared_ptr<Callable>>()->call(*this, args);
-                    if (result.toString() != "0") {
-                        std::cout << "\nMain function returned error: " << result.toString() << std::endl;
-                        return result;
-                    }
-                    std::cout << "Main function returned success: " << result.toString() << std::endl;
-                    return result;
-                }
-                catch (const ReturnValue& returnValue) {
-                    std::cout << "\nMain function executed with return value: " << returnValue.value.toString() << std::endl;
-                    return returnValue.value;
-                }
-                catch (const std::exception& e) {
-                    std::cerr << "\nException while executing main function: " << e.what() << std::endl;
-                    return Value(-1);
-                }
+                // Create a clean environment for main with access to globals
+                environment = std::make_shared<Environment>(globals);
+                
+                // Call main with empty arguments
+                std::vector<Value> args;
+                return mainFunc.as<std::shared_ptr<Callable>>()->call(*this, args);
             } else {
-                std::cout << "\nMain function is NOT callable" << std::endl;
-                return Value(-1); // Return -1 if main is not callable
+                throw InterpreterError("Main function is not callable");
             }
         } catch (const InterpreterError& e) {
-            std::cerr << "Error locating main function: " << e.what() << std::endl;
-            std::cerr << "Available global symbols:" << std::endl;
-            printGlobalSymbols();
-            return Value(-1); // Return error code
+            std::cerr << "Error executing main: " << e.what() << std::endl;
+            return Value("error: " + std::string(e.what()));
         }
-    } catch (const InterpreterError& error) {
+    } catch (const std::exception& error) {
         std::cerr << "Runtime Error: " << error.what() << std::endl;
-        return Value(-1); // Return error code
+        return Value("error: " + std::string(error.what()));
     }
 }
 
 void Interpreter::execute(std::shared_ptr<Statement> stmt) {
+    if (!stmt) {
+        std::cerr << "Error: Null statement passed to execute" << std::endl;
+        return;
+    }
+
+    // Handle expression statements
     if (auto exprStmt = std::dynamic_pointer_cast<ExpressionStatement>(stmt)) {
         auto expr = exprStmt->getExpr();
         
@@ -370,40 +350,66 @@ void Interpreter::execute(std::shared_ptr<Statement> stmt) {
         return;
     }
     
+    // Handle blocks
     if (auto blockStmt = std::dynamic_pointer_cast<BlockStatement>(stmt)) {
         executeBlock(stmt, std::make_shared<Environment>(environment));
         return;
     }
     
+    // Handle if statements
     if (auto ifStmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
         executeIf(stmt);
         return;
     }
     
+    // Handle while statements
     if (auto whileStmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
         executeWhile(stmt);
         return;
     }
     
+    // Handle for statements
     if (auto forStmt = std::dynamic_pointer_cast<ForStatement>(stmt)) {
         executeFor(stmt);
         return;
     }
     
+    // Handle return statements
     if (auto returnStmt = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
         executeReturn(stmt);
         return;
     }
     
+    // Handle variable declarations
     if (auto varDeclStmt = std::dynamic_pointer_cast<VariableDeclaration>(stmt)) {
         executeVariableDeclaration(stmt);
         return;
     }
     
+    // Handle struct declarations
     if (auto structDeclStmt = std::dynamic_pointer_cast<StructDeclaration>(stmt)) {
         executeStructDeclaration(structDeclStmt);
         return;
     }
+    
+    // Handle break statements
+    if (auto breakStmt = std::dynamic_pointer_cast<BreakStatement>(stmt)) {
+        // This would typically throw a special "break" exception that's caught by the loop
+        // But for now, we'll just log that it's not yet fully implemented
+        std::cerr << "Break statement encountered but not fully implemented" << std::endl;
+        return;
+    }
+    
+    // Handle continue statements
+    if (auto continueStmt = std::dynamic_pointer_cast<ContinueStatement>(stmt)) {
+        // This would typically throw a special "continue" exception that's caught by the loop
+        // But for now, we'll just log that it's not yet fully implemented
+        std::cerr << "Continue statement encountered but not fully implemented" << std::endl;
+        return;
+    }
+    
+    // Log unknown statement types
+    std::cerr << "Unknown statement type encountered in execute()" << std::endl;
 }
 
 void Interpreter::executeDeclaration(std::shared_ptr<Declaration> decl) {
@@ -467,8 +473,21 @@ void Interpreter::executeBlock(std::shared_ptr<Statement> blockStmt, std::shared
                 continue;
             }
             
-            // Explicit handling for variable declarations
-            if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(statement)) {
+            // Special handling for if statements and other control structures
+            if (auto ifStmt = std::dynamic_pointer_cast<IfStatement>(statement)) {
+                executeIf(statement);
+            } 
+            else if (auto whileStmt = std::dynamic_pointer_cast<WhileStatement>(statement)) {
+                executeWhile(statement);
+            }
+            else if (auto forStmt = std::dynamic_pointer_cast<ForStatement>(statement)) {
+                executeFor(statement);
+            }
+            else if (auto returnStmt = std::dynamic_pointer_cast<ReturnStatement>(statement)) {
+                executeReturn(statement);
+            }
+            else if (auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(statement)) {
+                // Evaluate variable declaration
                 std::string varName = varDecl->getName();
                 Value value;
                 
@@ -478,31 +497,11 @@ void Interpreter::executeBlock(std::shared_ptr<Statement> blockStmt, std::shared
                 
                 environment->define(varName, value);
             } 
-            // Explicit handling for struct declarations within functions
-            else if (auto structDecl = std::dynamic_pointer_cast<StructDeclaration>(statement)) {
-                std::string structName = structDecl->getName();
-                
-                std::unordered_map<std::string, Value> structTemplate;
-                
-                for (const auto& field : structDecl->getFields()) {
-                    Value fieldValue;
-                    if (field.getInitializer()) {
-                        fieldValue = evaluate(field.getInitializer());
-                    }
-                    
-                    structTemplate[field.getName()] = fieldValue;
-                }
-                
-                // Define the struct in the current environment
-                environment->define(structName, Value(structTemplate));
-            } 
             else {
+                // Execute other statement types
                 execute(statement);
             }
         }
-    } catch (const ReturnValue& returnValue) {
-        environment = previous;
-        throw;
     } catch (const std::exception& e) {
         std::cerr << "Exception during block execution: " << e.what() << std::endl;
         environment = previous;
@@ -521,13 +520,20 @@ void Interpreter::executeExpression(std::shared_ptr<Statement> stmt) {
 
 void Interpreter::executeIf(std::shared_ptr<Statement> stmt) {
     auto ifStmt = std::dynamic_pointer_cast<IfStatement>(stmt);
-    if (!ifStmt) return;
+    if (!ifStmt) {
+        std::cerr << "Error: Expected IfStatement in executeIf" << std::endl;
+        return;
+    }
 
+    // Evaluate the condition expression
     Value condition = evaluate(ifStmt->getCondition());
     
+    // Determine which branch to execute based on the condition's truthiness
     if (isTruthy(condition)) {
+        // Execute the 'then' branch
         execute(ifStmt->getThenBranch());
     } else if (ifStmt->getElseBranch()) {
+        // Execute the 'else' branch if it exists
         execute(ifStmt->getElseBranch());
     }
 }
@@ -602,14 +608,25 @@ void Interpreter::executeReturn(std::shared_ptr<Statement> stmt) {
 
 void Interpreter::executeVariableDeclaration(std::shared_ptr<Statement> stmt) {
     auto varDecl = std::dynamic_pointer_cast<VariableDeclaration>(stmt);
-    if (!varDecl) return;
+    if (!varDecl) {
+        throw InterpreterError("Expected VariableDeclaration in executeVariableDeclaration");
+    }
 
     std::string varName = varDecl->getName();
-    Value value;
-
+    
     // Evaluate initializer if present
+    Value value;
     if (varDecl->getInitializer()) {
-        value = evaluate(varDecl->getInitializer());
+        try {
+            value = evaluate(varDecl->getInitializer());
+            std::cout << "Defined variable: " << varName << " = " << value.toString() << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Error evaluating initializer for variable " << varName 
+                      << ": " << e.what() << std::endl;
+            throw;
+        }
+    } else {
+        std::cout << "Defined uninitialized variable: " << varName << std::endl;
     }
     
     // Define the variable in the current environment
@@ -626,6 +643,10 @@ void Interpreter::executeFunctionDeclaration(std::shared_ptr<Statement> stmt) {
 }
 
 Value Interpreter::evaluate(std::shared_ptr<Expression> expr) {
+    if (!expr) {
+        throw InterpreterError("Null expression encountered in evaluate()");
+    }
+
     // Literal expressions
     if (auto literal = std::dynamic_pointer_cast<LiteralExpression>(expr)) {
         return evaluateLiteral(expr);
@@ -713,7 +734,7 @@ Value Interpreter::evaluate(std::shared_ptr<Expression> expr) {
     }
     
     // Throw an error for unknown expression types
-    throw InterpreterError("Unknown expression type");
+    throw InterpreterError("Unknown expression type in evaluate()");
 }
 
 Value Interpreter::evaluateLiteral(std::shared_ptr<Expression> expr) {
@@ -737,6 +758,239 @@ Value Interpreter::evaluateLiteral(std::shared_ptr<Expression> expr) {
     }
     
     throw InterpreterError("Unsupported literal type");
+}
+
+Value Interpreter::evaluateBinary(std::shared_ptr<Expression> expr) {
+    auto binary = std::dynamic_pointer_cast<BinaryExpression>(expr);
+    if (!binary) return Value();
+
+    // Handle assignment separately
+    if (binary->getOperator() == BinaryExpression::Operator::ASSIGN) {
+        // For assignment, the left side should be an identifier
+        auto identifier = std::dynamic_pointer_cast<IdentifierExpression>(binary->getLeft());
+        if (!identifier) {
+            throw InterpreterError("Invalid assignment target");
+        }
+        
+        // Evaluate the right side
+        Value value = evaluate(binary->getRight());
+        
+        // Assign the value to the variable
+        environment->assign(identifier->getName(), value);
+        
+        return value;
+    }
+
+    // For non-assignment operators, evaluate both sides
+    Value left = evaluate(binary->getLeft());
+    Value right = evaluate(binary->getRight());
+    
+    switch (binary->getOperator()) {
+        case BinaryExpression::Operator::ADD:
+            // String concatenation
+            if (left.isString() && right.isString()) {
+                return Value(left.as<std::string>() + right.as<std::string>());
+            }
+            // Numeric addition
+            if (left.isNumber() && right.isNumber()) {
+                if (left.isFloat() || right.isFloat()) {
+                    double leftVal = left.isFloat() ? left.as<double>() : 
+                                     static_cast<double>(left.as<int64_t>());
+                    double rightVal = right.isFloat() ? right.as<double>() : 
+                                      static_cast<double>(right.as<int64_t>());
+                    return Value(leftVal + rightVal);
+                }
+                // Both are integers
+                return Value(left.as<int64_t>() + right.as<int64_t>());
+            }
+            throw InterpreterError("Invalid operands for addition");
+            
+        case BinaryExpression::Operator::SUB:
+            // Numeric subtraction
+            if (left.isNumber() && right.isNumber()) {
+                if (left.isFloat() || right.isFloat()) {
+                    double leftVal = left.isFloat() ? left.as<double>() : 
+                                     static_cast<double>(left.as<int64_t>());
+                    double rightVal = right.isFloat() ? right.as<double>() : 
+                                      static_cast<double>(right.as<int64_t>());
+                    return Value(leftVal - rightVal);
+                }
+                // Both are integers
+                return Value(left.as<int64_t>() - right.as<int64_t>());
+            }
+            throw InterpreterError("Invalid operands for subtraction");
+            
+        case BinaryExpression::Operator::MUL:
+            // Numeric multiplication
+            if (left.isNumber() && right.isNumber()) {
+                if (left.isFloat() || right.isFloat()) {
+                    double leftVal = left.isFloat() ? left.as<double>() : 
+                                     static_cast<double>(left.as<int64_t>());
+                    double rightVal = right.isFloat() ? right.as<double>() : 
+                                      static_cast<double>(right.as<int64_t>());
+                    return Value(leftVal * rightVal);
+                }
+                // Both are integers
+                return Value(left.as<int64_t>() * right.as<int64_t>());
+            }
+            throw InterpreterError("Invalid operands for multiplication");
+            
+        case BinaryExpression::Operator::DIV:
+            // Numeric division
+            if (left.isNumber() && right.isNumber()) {
+                // Check for division by zero
+                if ((right.isInteger() && right.as<int64_t>() == 0) ||
+                    (right.isFloat() && right.as<double>() == 0.0)) {
+                    throw InterpreterError("Division by zero");
+                }
+                
+                if (left.isFloat() || right.isFloat()) {
+                    double leftVal = left.isFloat() ? left.as<double>() : 
+                                     static_cast<double>(left.as<int64_t>());
+                    double rightVal = right.isFloat() ? right.as<double>() : 
+                                      static_cast<double>(right.as<int64_t>());
+                    return Value(leftVal / rightVal);
+                }
+                // Both are integers
+                return Value(left.as<int64_t>() / right.as<int64_t>());
+            }
+            throw InterpreterError("Invalid operands for division");
+            
+        case BinaryExpression::Operator::MOD:
+            // Integer modulo
+            if (left.isInteger() && right.isInteger()) {
+                // Check for modulo by zero
+                if (right.as<int64_t>() == 0) {
+                    throw InterpreterError("Modulo by zero");
+                }
+                
+                return Value(left.as<int64_t>() % right.as<int64_t>());
+            }
+            throw InterpreterError("Modulo requires integer operands");
+            
+        case BinaryExpression::Operator::EQ:
+            return Value(isEqual(left, right));
+            
+        case BinaryExpression::Operator::NE:
+            return Value(!isEqual(left, right));
+            
+        case BinaryExpression::Operator::LT:
+            // Comparison operators
+            if (left.isNumber() && right.isNumber()) {
+                if (left.isFloat() || right.isFloat()) {
+                    double leftVal = left.isFloat() ? left.as<double>() : 
+                                     static_cast<double>(left.as<int64_t>());
+                    double rightVal = right.isFloat() ? right.as<double>() : 
+                                      static_cast<double>(right.as<int64_t>());
+                    return Value(leftVal < rightVal);
+                }
+                return Value(left.as<int64_t>() < right.as<int64_t>());
+            } else if (left.isString() && right.isString()) {
+                return Value(left.as<std::string>() < right.as<std::string>());
+            }
+            throw InterpreterError("Invalid operands for less than");
+            
+        case BinaryExpression::Operator::LE:
+            if (left.isNumber() && right.isNumber()) {
+                if (left.isFloat() || right.isFloat()) {
+                    double leftVal = left.isFloat() ? left.as<double>() : 
+                                     static_cast<double>(left.as<int64_t>());
+                    double rightVal = right.isFloat() ? right.as<double>() : 
+                                      static_cast<double>(right.as<int64_t>());
+                    return Value(leftVal <= rightVal);
+                }
+                return Value(left.as<int64_t>() <= right.as<int64_t>());
+            } else if (left.isString() && right.isString()) {
+                return Value(left.as<std::string>() <= right.as<std::string>());
+            }
+            throw InterpreterError("Invalid operands for less than or equal");
+            
+        case BinaryExpression::Operator::GT:
+            if (left.isNumber() && right.isNumber()) {
+                if (left.isFloat() || right.isFloat()) {
+                    double leftVal = left.isFloat() ? left.as<double>() : 
+                                     static_cast<double>(left.as<int64_t>());
+                    double rightVal = right.isFloat() ? right.as<double>() : 
+                                      static_cast<double>(right.as<int64_t>());
+                    return Value(leftVal > rightVal);
+                }
+                return Value(left.as<int64_t>() > right.as<int64_t>());
+            } else if (left.isString() && right.isString()) {
+                return Value(left.as<std::string>() > right.as<std::string>());
+            }
+            throw InterpreterError("Invalid operands for greater than");
+            
+        case BinaryExpression::Operator::GE:
+            if (left.isNumber() && right.isNumber()) {
+                if (left.isFloat() || right.isFloat()) {
+                    double leftVal = left.isFloat() ? left.as<double>() : 
+                                     static_cast<double>(left.as<int64_t>());
+                    double rightVal = right.isFloat() ? right.as<double>() : 
+                                      static_cast<double>(right.as<int64_t>());
+                    return Value(leftVal >= rightVal);
+                }
+                return Value(left.as<int64_t>() >= right.as<int64_t>());
+            } else if (left.isString() && right.isString()) {
+                return Value(left.as<std::string>() >= right.as<std::string>());
+            }
+            throw InterpreterError("Invalid operands for greater than or equal");
+            
+        case BinaryExpression::Operator::AND:
+            return Value(isTruthy(left) && isTruthy(right));
+            
+        case BinaryExpression::Operator::OR:
+            return Value(isTruthy(left) || isTruthy(right));
+            
+        case BinaryExpression::Operator::BIT_AND:
+            if (left.isInteger() && right.isInteger()) {
+                return Value(left.as<int64_t>() & right.as<int64_t>());
+            }
+            throw InterpreterError("Bitwise AND requires integer operands");
+            
+        case BinaryExpression::Operator::BIT_OR:
+            if (left.isInteger() && right.isInteger()) {
+                return Value(left.as<int64_t>() | right.as<int64_t>());
+            }
+            throw InterpreterError("Bitwise OR requires integer operands");
+            
+        case BinaryExpression::Operator::BIT_XOR:
+            if (left.isInteger() && right.isInteger()) {
+                return Value(left.as<int64_t>() ^ right.as<int64_t>());
+            }
+            throw InterpreterError("Bitwise XOR requires integer operands");
+            
+        case BinaryExpression::Operator::BIT_SHL:
+            if (left.isInteger() && right.isInteger()) {
+                return Value(left.as<int64_t>() << right.as<int64_t>());
+            }
+            throw InterpreterError("Bitwise shift left requires integer operands");
+            
+        case BinaryExpression::Operator::BIT_SHR:
+            if (left.isInteger() && right.isInteger()) {
+                return Value(left.as<int64_t>() >> right.as<int64_t>());
+            }
+            throw InterpreterError("Bitwise shift right requires integer operands");
+            
+        case BinaryExpression::Operator::ADD_ASSIGN:
+        case BinaryExpression::Operator::SUB_ASSIGN:
+        case BinaryExpression::Operator::MUL_ASSIGN:
+        case BinaryExpression::Operator::DIV_ASSIGN:
+        case BinaryExpression::Operator::MOD_ASSIGN:
+        case BinaryExpression::Operator::BIT_AND_ASSIGN:
+        case BinaryExpression::Operator::BIT_OR_ASSIGN:
+        case BinaryExpression::Operator::BIT_XOR_ASSIGN:
+        case BinaryExpression::Operator::BIT_SHL_ASSIGN:
+        case BinaryExpression::Operator::BIT_SHR_ASSIGN:
+            // Compound assignment operators are not fully implemented yet
+            throw InterpreterError("Compound assignment operators not implemented yet");
+            
+        case BinaryExpression::Operator::CUSTOM:
+            // Custom operators defined by the user
+            throw InterpreterError("Custom operators not implemented yet");
+            
+        default:
+            throw InterpreterError("Unsupported binary operator");
+    }
 }
 
 Value Interpreter::evaluateIdentifier(std::shared_ptr<Expression> expr) {
@@ -804,60 +1058,6 @@ Value Interpreter::evaluateUnary(std::shared_ptr<Expression> expr) {
             
         default:
             throw InterpreterError("Unknown unary operator");
-    }
-}
-
-Value Interpreter::evaluateBinary(std::shared_ptr<Expression> expr) {
-    auto binary = std::dynamic_pointer_cast<BinaryExpression>(expr);
-    if (!binary) return Value();
-
-    // Handle assignment separately
-    if (binary->getOperator() == BinaryExpression::Operator::ASSIGN) {
-        // For assignment, the left side should be an identifier
-        auto identifier = std::dynamic_pointer_cast<IdentifierExpression>(binary->getLeft());
-        if (!identifier) {
-            throw InterpreterError("Invalid assignment target");
-        }
-        
-        // Evaluate the right side
-        Value value = evaluate(binary->getRight());
-        
-        // Assign the value to the variable
-        environment->assign(identifier->getName(), value);
-        
-        return value;
-    }
-
-    Value left = evaluate(binary->getLeft());
-    Value right = evaluate(binary->getRight());
-    
-    switch (binary->getOperator()) {
-        case BinaryExpression::Operator::ADD:
-            // String concatenation
-            if (left.isString() && right.isString()) {
-                return Value(left.as<std::string>() + right.as<std::string>());
-            }
-            // Numeric addition
-            if (left.isNumber() && right.isNumber()) {
-                if (left.isFloat() || right.isFloat()) {
-                    double leftVal = left.isFloat() ? left.as<double>() : 
-                                     static_cast<double>(left.as<int64_t>());
-                    double rightVal = right.isFloat() ? right.as<double>() : 
-                                      static_cast<double>(right.as<int64_t>());
-                    return Value(leftVal + rightVal);
-                }
-                // Both are integers
-                return Value(left.as<int64_t>() + right.as<int64_t>());
-            }
-            throw InterpreterError("Invalid operands for addition");
-            
-        case BinaryExpression::Operator::EQ:
-            return Value(isEqual(left, right));
-            
-        // Add more cases for other binary operators as needed
-        
-        default:
-            throw InterpreterError("Unsupported binary operator");
     }
 }
 
@@ -937,26 +1137,18 @@ Value Interpreter::evaluateMemberAccess(std::shared_ptr<Expression> expr) {
     // Get the member name
     const std::string& memberName = memberAccess->getMember();
     
-    //std::cout << "Accessing member: " << memberName << std::endl;
-    
     // Check if the object is an actual object (map of key/values)
     if (object.isObject()) {
         // Access the member from the object
         const auto& objectMap = object.as<std::unordered_map<std::string, Value>>();
         
-        // Print object contents for debugging
-        /*std::cout << "  Object contains keys:" << std::endl;
-        for (const auto& [key, value] : objectMap) {
-            std::cout << "    - " << key << ": " << value.toString() << std::endl;
-        }*/
-        
         auto it = objectMap.find(memberName);
         
         if (it != objectMap.end()) {
-            //std::cout << "  Found member: " << memberName << " = " << it->second.toString() << std::endl;
             return it->second;
         }
         
+        // If member not found, throw an error
         throw InterpreterError("Object does not have member '" + memberName + "'");
     }
     
@@ -966,7 +1158,13 @@ Value Interpreter::evaluateMemberAccess(std::shared_ptr<Expression> expr) {
         throw InterpreterError("Pointer dereferencing not implemented");
     }
     
-    throw InterpreterError("Cannot access member '" + memberName + "' on non-object value");
+    // If the object is not an actual object, throw an error
+    throw InterpreterError("Cannot access member '" + memberName + "' on non-object value of type: " + 
+                          (object.isString() ? "string" :
+                           object.isInteger() ? "integer" :
+                           object.isFloat() ? "float" :
+                           object.isBoolean() ? "boolean" :
+                           object.isArray() ? "array" : "unknown"));
 }
 
 Value Interpreter::evaluateIndex(std::shared_ptr<Expression> expr) {
@@ -1266,7 +1464,7 @@ void Interpreter::executeNamespaceDeclaration(std::shared_ptr<NamespaceDeclarati
     // Create namespace environment
     std::unordered_map<std::string, Value> namespaceEnv;
     
-    // Process namespace members (classes)
+    // Process classes
     for (const auto& classDecl : decl->getClasses()) {
         std::string className = classDecl->getName();
         std::string qualifiedName = namespaceName + "::" + className;
@@ -1278,7 +1476,7 @@ void Interpreter::executeNamespaceDeclaration(std::shared_ptr<NamespaceDeclarati
         // Process class members
         for (const auto& member : classDecl->getMembers()) {
             if (auto objDecl = std::dynamic_pointer_cast<ObjectDeclaration>(member)) {
-                // Process object declaration
+                // Process object
                 std::string objName = objDecl->getName();
                 std::string objQualifiedName = qualifiedName + "::" + objName;
                 std::cout << "    Processing object: " << objName << " (qualified: " << objQualifiedName << ")" << std::endl;
@@ -1346,7 +1544,7 @@ void Interpreter::executeNamespaceDeclaration(std::shared_ptr<NamespaceDeclarati
                 // Add object to class environment
                 classEnv[objName] = Value(objEnv);
                 
-                // Register the object in the global environment with its qualified name
+                // Register the fully qualified object path in the global environment
                 globals->define(objQualifiedName, Value(objEnv));
                 std::cout << "    Registered qualified object: " << objQualifiedName << std::endl;
                 std::cout << "    Object contents: ";
@@ -1367,6 +1565,41 @@ void Interpreter::executeNamespaceDeclaration(std::shared_ptr<NamespaceDeclarati
     // Register namespace in global environment
     globals->define(namespaceName, Value(namespaceEnv));
     std::cout << "Registered namespace: " << namespaceName << std::endl;
+    
+    // Since we now need to deal with potentially casing variations in instantiation,
+    // register aliases for qualified paths with case variation
+    for (const auto& classDecl : decl->getClasses()) {
+        std::string className = classDecl->getName();
+        std::string qualifiedName = namespaceName + "::" + className;
+        
+        // For each class, register an alias with first letter capitalized
+        std::string altNamespace = namespaceName;
+        if (!altNamespace.empty()) {
+            altNamespace[0] = std::toupper(altNamespace[0]);
+            std::string altQualifiedName = altNamespace + "::" + className;
+            
+            // Only register if it differs and doesn't conflict
+            if (altQualifiedName != qualifiedName) {
+                try {
+                    globals->get(altQualifiedName);
+                } catch (const InterpreterError&) {
+                    // No conflict, safe to define
+                    globals->define(altQualifiedName, globals->get(qualifiedName));
+                    
+                    // Register objects too
+                    for (const auto& member : classDecl->getMembers()) {
+                        if (auto objDecl = std::dynamic_pointer_cast<ObjectDeclaration>(member)) {
+                            std::string objName = objDecl->getName();
+                            std::string objQualifiedName = qualifiedName + "::" + objName;
+                            std::string altObjQualifiedName = altNamespace + "::" + className + "::" + objName;
+                            
+                            globals->define(altObjQualifiedName, globals->get(objQualifiedName));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 void Interpreter::executeClassDeclaration(std::shared_ptr<ClassDeclaration> decl) {
@@ -1542,8 +1775,18 @@ Value Interpreter::evaluateInjectableString(std::shared_ptr<Expression> expr) {
     // Evaluate all arguments first
     std::vector<Value> evaluatedArgs;
     for (const auto& arg : args) {
-        evaluatedArgs.push_back(evaluate(arg));
+        try {
+            Value argValue = evaluate(arg);
+            evaluatedArgs.push_back(argValue);
+        } catch (const std::exception& e) {
+            std::cerr << "Error evaluating injectable string argument " << argIndex << ": " << e.what() << std::endl;
+            evaluatedArgs.push_back(Value("<error>"));
+        }
+        argIndex++;
     }
+
+    // Reset argIndex for format string processing
+    argIndex = 0;
 
     // Iterate through the format string
     while (pos < format.length()) {
@@ -1572,6 +1815,8 @@ Value Interpreter::evaluateInjectableString(std::shared_ptr<Expression> expr) {
         pos = placeholderPos + 2;
     }
     
+    std::cout << "Injectable string result: " << result << std::endl;
+    
     // Return as a string value
     return Value(result);
 }
@@ -1581,29 +1826,23 @@ Value Interpreter::evaluateObjectInstantiation(std::shared_ptr<Expression> expr)
     if (!objInst) return Value();
     
     std::string objectName = objInst->getObjectName();
-
+    std::cout << "Instantiating object: " << objectName << " of type: ";
     
     // Handle qualified types (A::B::C)
     if (objInst->hasQualifiedType()) {
-
-        
-        // Extract the qualified name directly from the type expression
         std::string qualifiedName;
         
         if (auto scopeExpr = std::dynamic_pointer_cast<ScopeResolutionExpression>(objInst->getTypeExpr())) {
             qualifiedName = extractQualifiedName(scopeExpr);
-
+            std::cout << qualifiedName << std::endl;
         } else if (auto identExpr = std::dynamic_pointer_cast<IdentifierExpression>(objInst->getTypeExpr())) {
             qualifiedName = identExpr->getName();
-
+            std::cout << qualifiedName << std::endl;
         }
         
         if (qualifiedName.empty()) {
             throw InterpreterError("Failed to extract qualified name from type expression");
         }
-        
-        // Try case-insensitive match for the qualified name
-
         
         // Try direct lookup first
         Value templateValue;
@@ -1612,53 +1851,90 @@ Value Interpreter::evaluateObjectInstantiation(std::shared_ptr<Expression> expr)
         try {
             templateValue = globals->get(qualifiedName);
             found = true;
+            std::cout << "Found template for: " << qualifiedName << std::endl;
         } catch (const InterpreterError&) {
-            // Try case-insensitive lookup
+            // Try case-insensitive lookup for the namespace/class part
+            std::cout << "Template not found with direct lookup, trying case-insensitive match..." << std::endl;
             
-            // Try with lowercase first part (myns instead of MyNS)
-            size_t pos = qualifiedName.find("::");
-            if (pos != std::string::npos) {
-                std::string firstPart = qualifiedName.substr(0, pos);
-                std::string restPart = qualifiedName.substr(pos);
-                
-                std::string lowerFirstPart = firstPart;
-                std::transform(lowerFirstPart.begin(), lowerFirstPart.end(), 
-                              lowerFirstPart.begin(), ::tolower);
-                
-                std::string alternateName = lowerFirstPart + restPart;
+            // Try uppercase first letter of namespace
+            std::string firstPart = qualifiedName.substr(0, qualifiedName.find("::"));
+            if (!firstPart.empty()) {
+                firstPart[0] = std::toupper(firstPart[0]);
+                std::string restPart = qualifiedName.substr(qualifiedName.find("::"));
+                std::string titleCaseName = firstPart + restPart;
                 
                 try {
-                    templateValue = globals->get(alternateName);
+                    templateValue = globals->get(titleCaseName);
                     found = true;
+                    std::cout << "Found template with title case: " << titleCaseName << std::endl;
                 } catch (const InterpreterError&) {
-                    // Continue with full case-insensitive search
+                    // Continue with alternatives
                 }
             }
             
-            // Full case-insensitive search
+            // Try all uppercase for namespace
+            if (!found && !firstPart.empty()) {
+                std::string upperFirstPart = firstPart;
+                std::transform(upperFirstPart.begin(), upperFirstPart.end(), 
+                              upperFirstPart.begin(), ::toupper);
+                std::string restPart = qualifiedName.substr(qualifiedName.find("::"));
+                std::string upperCaseName = upperFirstPart + restPart;
+                
+                try {
+                    templateValue = globals->get(upperCaseName);
+                    found = true;
+                    std::cout << "Found template with upper case: " << upperCaseName << std::endl;
+                } catch (const InterpreterError&) {
+                    // Continue with full search
+                }
+            }
+            
+            // Full case-insensitive search as last resort
             if (!found) {
+                std::cout << "Performing full case-insensitive search for: " << qualifiedName << std::endl;
+                
                 std::unordered_map<std::string, Value> globalMap = globals->getAllSymbols();
                 std::string lowerQualifiedName = qualifiedName;
                 std::transform(lowerQualifiedName.begin(), lowerQualifiedName.end(), 
                               lowerQualifiedName.begin(), ::tolower);
                 
-                for (const auto& [key, value] : globalMap) {
-                    std::string lowerKey = key;
-                    std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(), ::tolower);
+                // Print all available global symbols for debugging
+                std::cout << "Available global symbols:" << std::endl;
+                for (const auto& [key, _] : globalMap) {
+                    std::cout << "  - " << key << std::endl;
                     
-                    if (lowerKey == lowerQualifiedName || 
-                        key.find("::") != std::string::npos && 
-                        lowerKey.substr(lowerKey.find("::")) == lowerQualifiedName.substr(lowerQualifiedName.find("::"))) {
-                        templateValue = value;
-                        found = true;
-                        break;
+                    // Check if this key contains the namespace we're looking for
+                    std::string keyLower = key;
+                    std::transform(keyLower.begin(), keyLower.end(), keyLower.begin(), ::tolower);
+                    
+                    // Check for partial matches in qualified names
+                    if (keyLower.find("::") != std::string::npos) {
+                        if (keyLower.find(lowerQualifiedName) != std::string::npos ||
+                            lowerQualifiedName.find(keyLower) != std::string::npos) {
+                            templateValue = globalMap[key];
+                            found = true;
+                            std::cout << "Found partial match: " << key << std::endl;
+                            break;
+                        }
                     }
                 }
             }
         }
         
         if (!found) {
-            throw InterpreterError("Cannot find object template for: " + qualifiedName);
+            // Last attempt - try looking for the object name directly
+            try {
+                // Extract the last part of the qualified name (the object type)
+                std::string objectType = qualifiedName.substr(qualifiedName.rfind("::") + 2);
+                std::cout << "Trying to find object type directly: " << objectType << std::endl;
+                
+                templateValue = globals->get(objectType);
+                found = true;
+                std::cout << "Found template by object type: " << objectType << std::endl;
+            } catch (const InterpreterError&) {
+                std::cout << "Type not found: " << qualifiedName << std::endl;
+                throw InterpreterError("Cannot find object template for: " + qualifiedName);
+            }
         }
         
         // Clone the template
@@ -1670,26 +1946,66 @@ Value Interpreter::evaluateObjectInstantiation(std::shared_ptr<Expression> expr)
             
             // Register in the current environment
             environment->define(objectName, Value(objectInstance));
-            
-
+            std::cout << "Created instance of: " << qualifiedName << " named: " << objectName << std::endl;
             
             return Value(objectInstance);
         }
         
+        std::cout << "Template exists but is not an object: " << qualifiedName << std::endl;
         throw InterpreterError("Template is not an object: " + qualifiedName);
     }
     
     // Handle simple unqualified types
     std::string objectType = objInst->getObjectType();
+    std::cout << objectType << std::endl;
     
     // Look up the object type in the environment
     Value objectTypeValue;
+    bool found = false;
+    
     try {
+        // First try current environment
         objectTypeValue = environment->get(objectType);
+        found = true;
+        std::cout << "Found object type in current environment: " << objectType << std::endl;
     } catch (const InterpreterError&) {
         try {
+            // Then try globals
             objectTypeValue = globals->get(objectType);
+            found = true;
+            std::cout << "Found object type in globals: " << objectType << std::endl;
         } catch (const InterpreterError&) {
+            // Try case-insensitive search in globals
+            std::cout << "Object type not found, trying case-insensitive search: " << objectType << std::endl;
+            
+            auto globalSymbols = globals->getAllSymbols();
+            std::string lowerObjectType = objectType;
+            std::transform(lowerObjectType.begin(), lowerObjectType.end(), 
+                          lowerObjectType.begin(), ::tolower);
+            
+            for (const auto& [key, value] : globalSymbols) {
+                std::string lowerKey = key;
+                std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(), ::tolower);
+                
+                if (lowerKey == lowerObjectType) {
+                    objectTypeValue = value;
+                    found = true;
+                    std::cout << "Found object type with case-insensitive match: " << key << std::endl;
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (!found) {
+        // If still not found, check for struct
+        try {
+            Value structValue = environment->get("__anonymous_struct");
+            found = true;
+            objectTypeValue = structValue;
+            std::cout << "Using anonymous struct as template" << std::endl;
+        } catch (const InterpreterError&) {
+            std::cout << "Unknown object type: '" << objectType << "'" << std::endl;
             throw InterpreterError("Unknown object type '" + objectType + "'");
         }
     }
@@ -1703,11 +2019,13 @@ Value Interpreter::evaluateObjectInstantiation(std::shared_ptr<Expression> expr)
         
         // Define the new object in the environment
         environment->define(objectName, Value(objectInstance));
+        std::cout << "Created object instance of: " << objectType << " named: " << objectName << std::endl;
         
         // Return the object instance
         return Value(objectInstance);
     }
     
+    std::cout << "Type is not an object: " << objectType << std::endl;
     throw InterpreterError("Cannot create instance of non-object type '" + objectType + "'");
 }
 

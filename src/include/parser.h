@@ -66,6 +66,7 @@ private:
     std::shared_ptr<Expression> parseUnaryExpression();
     std::shared_ptr<Expression> parsePostfixExpression();
     std::shared_ptr<Expression> parsePrimaryExpression();
+    std::shared_ptr<Type> parseQualifiedType();
     std::shared_ptr<Expression> parseQualifiedIdentifier();
     std::shared_ptr<Expression> parseInjectableString();
     std::shared_ptr<Expression> parseIndex(std::shared_ptr<Expression>);
