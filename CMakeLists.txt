@@ -1,50 +1,48 @@
-cmake_minimum_required(VERSION 3.10)
-project(flux)
+cmake_minimum_required(VERSION 3.14)
+project(Flux VERSION 1.0 LANGUAGES CXX)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Enable warnings
-if (MSVC)
-    add_compile_options(/W4)
-else()
-    add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
+# Include directories
+include_directories(${CMAKE_SOURCE_DIR}/include)
 
-# Add include directories
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-
-# Add source files
 set(SOURCES
-    src/main.cpp
-    src/error.cpp
-    src/ast.cpp
-    src/lexer.cpp
-    src/parser.cpp
-    #src/builtins.cpp
-    #src/typechecker.cpp
-    #src/runtime.cpp
-    #src/runtime_utils.cpp
-    src/interpreter.cpp
-    # Add more source files here as they are created
+    src/output/writer.h
+    src/output/writer.cpp
+    src/common/error.h
+    src/common/error.cpp
+    src/common/arena.h
+    src/common/arena.cpp
+    src/common/source.h
+    src/common/source.cpp
+    src/lexer/tokenizer.cpp
+    src/lexer/tokenizer.h
+    src/lexer/token.cpp
+    src/lexer/token.h
+    src/parser/ast.h
+    src/parser/ast.cpp
+    src/parser/parser.h
+    src/parser/parser.cpp
 )
 
-# Add header files
-set(HEADERS
-    src/include/error.h
-    src/include/ast.h
-    src/include/lexer.h
-    src/include/parser.h
-    #src/include/builtins.h
-    #src/include/typechecker.h
-    #src/include/runtime.h
-    src/include/interpreter.h
-    # Add more header files here as they are created
+# Source files for the runtime
+set(RUNTIME_SOURCES
+    #src/runtime/fluxvalue.cpp
+    #src/runtime/fluxobject.cpp
+    #src/runtime/fluxclass.cpp
+    #src/runtime/interpreter.cpp
 )
 
-# Create executable
-add_executable(flux ${SOURCES} ${HEADERS})
+# Source files for utils
+set(UTILS_SOURCES
+    #src/utils/stringutils.cpp
+)
 
-# Install target
-install(TARGETS flux DESTINATION bin)
+# Main source file
+set(MAIN_SOURCE src/main.cpp)
+
+# Add the executable
+add_executable(Flux ${MAIN_SOURCE} ${SOURCES} ${PARSER_SOURCES} ${RUNTIME_SOURCES} ${UTILS_SOURCES})

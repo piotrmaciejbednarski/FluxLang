@@ -1,291 +1,571 @@
-Flux is a mix of C++ and Python, it can be both dynamically or statically typed, has a slightly more strict syntax than C++, and introduces a couple new things.
+Flux is a mix of C++, Zig, and Python, and has a slightly more strict syntax than C++ or Zig.
+
+The Flux code brace style is Allman style. There is no syntactic sugar.
 
 Flux goes the route of **object-oriented programming** by literally having an `object` keyword.
 
 **What's the difference between `object` and `class` types?**
 
-**Objects - `object myObj {};` :**
-> - More flexible containers that can have both data and behavior.
-> - Support runtime modification (mutable).
-> - Suitable for dynamic programming.
+**Objects:**
+Prototype / forward declaration: `object myObj;`
+Definition: `object myObj {};`
+Instance: `myObj{} newObj;`
+Member access: `newObj.x`
 
-**Classes - `class myClass {};` :**
-> - Strict container for methods and members.
-> - Compile-time checked.
-> - Suited for system-level programming.
-> - Contained within namespaces.
-
-A namespace can only contain classes.
-Classes can contain objects and structs, but not functions.
-Objects can contain functions, datatypes, and make instances of themselves.
-
-Flux allows defining custom operators with `operator` as follows:
-
+Example usage:
 ```
-operator(Type1, Type2)[op] {
-    // Implementation
+object myObj
+{
+	def __init(x, y) -> void
+	{
+		this.a = x;
+		this.b = y;
+		return;
+	};
+};
+
+myObj(data1, data2){} testObject;
+```
+
+Inheritance:
+```
+object anotherObj<myObj>
+{
+	def __init() -> void
+	{
+		return;
+	};
 };
 ```
 
-You can also use `asm` directly:
+Objects cannot be defined inside of a function, they must be within a namespace, class, or global scope.
+
+**Classes:**
+Prototype / forward declartion: `class myClass;`
+Definition: `class myClass {};`
+Instance: myClass{} newClass;
+Member access: `newClass.newObj.x`
+
+Example usage:
+```
+class myClass
+{
+	object myObj
+	{
+		def __init(w,k) -> void
+		{
+			return;
+		};
+	};
+};
+```
+
+Classes cannot be defined inside of a function or object, they must be within a namespace or global scope.
+Classes can only inherit from classes, and objects can only inherit from objects.
+Classes cannot contain functions.
+
+**Namespaces:**
+Prototype: Cannot be prototyped.
+Definition: `namespace myNamespace {};`
+Member access: `myNamespace.myClass`
+
+Namespace example:
+```
+namespace standard_library
+{
+	class myClass
+	{
+		def __init() -> void
+		{
+			return;
+		};
+	};
+};
+
+standard_library as std;
+
+namespace std
+{
+	class newClass<myClass>
+	{
+		def __init() -> void
+		{
+			return;
+		};
+	};
+};
+```
+
+Namespaces **MUST** be in global scope.
+Duplicate namespace definitions do not redefine the namespace, the members
+of both combine as if they were one namespace. This is so the standard
+library or any library can have a core namespace across multiple files.
+Namespaces are the only container that have this functionality.
+Namespaces can only directly contain classes at their root scope.
+
+The reason classes and objects cannot be defined inside of functions
+is to make functions cleanly written. You can define them globally,
+or organize them into a namespace, but not in functions.
+
+Structs can contain instances of objects because they are qualified types, like so:
+```
+object myObj
+{
+	def __init() -> void
+	{
+		return;
+	};
+};
+
+myObj{} newObj1, newObj2;
+
+struct myStruct
+{
+	newObj1;
+	newObj2;
+};
+```
+
+A Flux program must have a main() function defined somewhere.
+Anywhere is fine, but main will always be called first, and must be defined.
+
+**Function definition:**
+```
+def name (parameters) -> return_type
+{
+	return return_value;
+};
+```
+
+If a function's return type is void nothing will be returned, regardless of if a return value is given.
+
+Example of a Flux program with main() defined inside a namespace:
+```
+namespace Program
+{
+	class AnotherApp
+	{
+		bool myFlag = false;
+
+		def __init() -> void
+		{
+			this.myFlag = True;
+			return;
+		};
+	};
+};
+
+namespace Program
+{
+	class App<AnotherApp>
+	{
+		object Engine
+		{
+			def __init() -> void
+			{
+				if (super.myFlag == false)
+				{
+					print("Not instanced.");
+					return;
+				};
+			};
+
+			def state() -> bool
+			{
+				return super.myFlag;
+			};
+		};
+	};
+};
+
+Program.App.Engine{} myEngine;
+print(myEngine.state()); // 1
+```
+
+This is just an example, it is not Java-like with a verbose hard-coded entry point.
+Flux is a mix of C++ and Python.
+
+Class and object inheritance:
+```
+class First
+{
+	object obj1()
+	{
+		int x = 5;
+	};
+};
+
+class Second
+{
+	object obj2(y)
+	{
+		int x = y;
+	};
+};
+
+class Third<First,Second>
+{
+	object Program
+	{
+		def __init() -> void
+		{
+			this.main();
+			return;
+		};
+
+		def main() -> !void
+		{
+			obj1{} myObj;
+			print(myObj.x);
+			return 0;
+		};
+	};
+};
+```
+
+This is inheritance exclusion:
+```
+class First
+{
+	object firstObj
+	{
+		int x = 5;
+		def foo(x) -> int
+		{
+			return x;
+		};
+	};
+
+	object secondObj
+	{
+		int z = 2;
+		def foo(z) -> int
+		{
+			return z;
+		};
+	};
+
+	object thirdObj
+	{
+		int y = 3;
+	};
+};
+
+class Second<First{!firstObj}>
+{
+	object Program
+	{
+		def main() -> !void
+		{
+			print(foo()); // 2
+			return 0;
+		};
+	};
+};
+```
+
+Flux allows defining custom operators with `operator` as follows:
+```
+operator(int x, int y)[e+] -> int  // Or any return type
+{
+    // Implementation for e+ (x * 10 ^ +y) notation with int types
+};
+
+operator(int x, int y)[e-] -> int
+{
+    // Implementation for e- (x * 10 ^ -y) notation with int types
+};
+
+// To use an operator in code, you write:
+def main() -> !void
+{
+	print(op<1e+20>-1); // Result of 1 * 10^20 - 1
+	return 0;
+};
+```
+
+You can also use assembly directly:
 
 ```
 asm {
-    // Your ASM here
+// Inline ASM here
 };
 ```
 
 Input and output are input() and print() respectively.
 
-The syntax for Python-like f-strings in Flux would be i"{x}{y}{z}":{x;y;z;}
-An example of using a Flux i-string: print(i"{x} {y}":{x;y;});
+Python uses f-strings, C++ uses a complicated format.
+Flux uses injectable strings.
+The syntax in Flux would be: `i"{}{}{}":{x;y;z;};`
+The brackets are replaced with the results of the statements in order respective
+to the statement position in the statement list.
 
-**Namespaces are __strictly__ class containers** in Flux.
-This is to prevent naming conflicts, enforce modularity, and support hierarchical organization.
-
-A Flux program must have a main() function defined somewhere in the global scope.
-
-Here's two examples of the same Flux program, one statically typed, one dynamically typed.
-
-**Static:**
+**i-string Example:**
 ```
-char[] concat(char[] a, char[] b) {
-    return a+b;  // Character array addition is native
+def bar() -> char { return "World"; };
+print(i"Hello {} {}":
+              {bar() + "!";
+               "test";}; 		// Whitespace is ignored, this is just for positioning
+     );
+```
+
+This allows you to write clean injectable strings without strange formatting.
+Every code block must be ended with a semicolon. The only exception is within the i-string "quoted {} injected {} text"
+
+
+Example 2:
+```
+def concat(char a, char b) -> char
+{
+    return a+b;  // Character array addition is native so we really don't need this function
 };
 
-int{32} main() {
-    char[] h = ['H','e','l','l','o'];
-    char[] w = ['W','o','r','l','d'];
-    char[] x = ['o','f'];
-    char[] y = ['C','o','d','i','n','g'];
-    print(i"{} {}":{concat(h,w); concat(x,y);}); // injectable string   i"{1}{2}":{1;2;}
+def main() -> !void
+{
+    char h = "Hello";  // char is the Python equivalent to string
+    char w = "World";  // so  `w[3] == 'l'`
+    char x = "of";
+    char y = "Coding";
+    print(i"{} {}":{concat(h,w);concat(x,y);});
     return 0;
 };
 ```
+Result: HelloWorld ofCoding
+
+Pointers:
+```
+char a = "Test";
+char *a = &a;
+*a += "ing!";
+print(a);
+```
+Result: "Testing!"
+
+**Pointers to variables:**
+```
+int data = 0;
+int *p_data = &data;
+
+p_data += 3;
+print(data);  // 3
+```
+
+**Pointers to functions:**
+```
+def add(int x, int y) -> int
+{
+	return x + y;
+};
+
+def sub(int x, int y) -> int
+{
+	return x - y;
+};
+
+int *p_add(int,int) = add;  // Similar to C++ syntax but no syntactic sugar
+int *p_sub(int,int) = sub;
+
+print(p_add(0,3)); // 3
+print(p_sub(5,2)); // -3
+
+list func_list = [p_add,p_sub];
+
+```
+
+**Recursive function:**
+```
+def rsub(int x, int y) -> int
+{
+	if (x == 0 || y == 0) { return 0; };
+
+	rsub(--x,--y);
+	return 0;
+};
+```
+
+Import
+```
+import "std.fx" std;
+
+using std.io;				  // Only use `io` from std.fx (std.fx imports `input.fx` and `output.fx` which both have the `io` class)
+
+//import "math.fx";           // Direct import of all the contents of math.fx
+```
+
+
+Example of the `data` type and casting:
+```
+signed data{8} byte, short;
+byte[] string;
+
+byte someByte = {0, 1, 0, 0, 0, 0, 0, 1}; // 'A'
+// Example of casting to char:
+char A = (char)someByte;      // "A"
+A = (data)someCharacter;      // {0, 1, 0, 0, 0, 0, 0, 1}
+
+// This 0's out all the data and re-casts back to data from void.
+// The temporary void casted type is the same width as the original type.
+data v = (void)someCharacter; // {0, 0, 0, 0, 0, 0, 0, 0}
+```
+
+Casting anything to `void` is the functional equivalent of nulling the memory occupied by that thing.
+It is also freed from memory and cannot be accessed after being cast to void and will result in a compile-time error.
+
+Data is a variable bit width, raw binary data type. Anything can cast to it,
+and it can cast to any built-in Flux type like char, int, float.
+It is intended to allow Flux programmers to build complex custom types to
+fit their needs.
+
+
+All standard types are built from the data type.
+These types are defined in the standard library.
+
+int is defined as `signed data {32} int;`
+uint is defined as `unsigned data {32} uint;`
+bit is defined as `signed data {1} bit;`
+char is defined as `signed data {8} char;`
+float is defined as `signed data {64} float;`
+string is defined as `signed data{8}[] string;`
+
+
+**Templates:**
+```
+template <type T> T myMax(T x, T y) -> !void  // Must always be !void for templates.
+{
+    return (x > y) ? x : y;
+};
+```
+
+
+**Example Flux Program 1**
+```
+import "std.fx" std;
+using std.io, std.math, std.types;
+
+
+print = std.io.console_output.write;
+input = std.io.console_input.read;
+str = std.types.string;
+
+
+class myClass
+{
+	const str v_min = "0";
+	const str v_maj = "1";
+	const str v_ful = v_min + v_maj;
+
+	struct myStruct                    // The struct isn't const, so new members can be added
+	{
+		const str header = "!HXF";
+		const int magic = 10h;
+	};
+
+	object myObject
+	{
+		def __init(bool x_b) -> void
+		{
+			bool this.status = x_b;
+			str x = input("Enter 0 or 1: ");
+			bool b = false;
+
+			try
+			{
+				match ((bool)x)
+				{
+					case (true)
+					{
+						b = true;
+					};
+					case (false)
+					{
+						;;; // Do nothing, no semicolons are needed, but 3 makes the fact that nothing happens visible
+					};
+					case (default)
+					{
+						;;;
+					};
+				}
+
+				if (!b)
+				{
+					print("Zero entered.\n");
+				};
+			}
+			catch(match) // Triggers if the match statement failed
+			{
+				bool b = this.check_header("TEST");  // Returns false
+			}
+			catch(if)
+			{
+				print("Caught the if-statment.");
+				this.status = true;
+			}
+
+			if (this.status) {print("Initialized v{}":{super.v_ful;})};
+			return;
+		};
+
+		def check_header(str given) -> bool
+		{
+			if (given == super.myStruct.header)
+			{
+				print("Good header!");
+			}
+			else
+			{
+				print("Header check failed.");
+			};
+			return true;
+		};
+	};
+};
+
+
+def main(str arg_c, str[] arg_v) -> !void    // main must always return void or !void
+{
+	myClass{} someClass1, someClass2;
+
+	someClass1.myObject{} someObj1(true);
+	someClass2.myObject{} someObj2(false);
+
+	return 0;
+};
 ```
 Result:
-HelloWorld ofCoding
-```
-
-**Dynamic:**
-```
-string concat(string a, string b) {
-    return a+b;  // String addition is native
-};
-
-int main() {
-    string h = "Hello";
-    string w = "World";
-    string x = "of";
-    string y = "Coding";
-    print(i"{} {}":{concat(h,w); concat(x,y);});
-    return 0;
-};
-```
-```
-Result:
-HelloWorld ofCoding
-```
-
-Flux allows you to set the bit width of int and float.
-This means you must be acutely aware of your data structures.
-There is a `sizeof` helper built-in to view the default bit-widths of Flux types.
-
-**Static HelloWorld with pointers:**
-```
-char[] concat(char[] *a, char[] *b) {
-    return *a+*b;  // Character array addition is native
-};
-
-int{32} main() {
-    char[] h = ['H','e','l','l','o'];           // char[] internally translates to string, however
-    char[5] w;                                  // if you specify a length you can not initialize it.
-    w = ['W','o','r','l','d','!'];              // ! will be truncated
-    char[] x = ['o','f'];
-    char[] y = ['C','o','d','i','n','g'];
-    char[] *ph, *pw, *px, *py = @h, @w, @x, @y;  // Can declare multiple variables at once.
-    print(i"{} {}":{concat(h,w); concat(x,y);}); // injectable string   i"{1}{2}":{1;2;}
-    return 0;
-};
-```
-```
-Result:
-HelloWorld ofCoding
-```
-
-**Arrays and memory management:**
-```
-int{64} sum_array(int[] *arr, int len) {
-    int{64} sum = 0;
-    for (int i = 0; i < len; i = i + 1) {
-        sum = sum + arr[i];
-    };
-    return sum;
-};
-
-int main(string *argc, string[] *argv) {
-    int[5] numbers = [1, 2, 3, 4, 5];
-    int{8}[8] x;                    // 8-bit int array length 8
-    print(sum_array(&numbers, 5));  // Prints 15
-};
-```
-
-**Advanced types:**
-```
-struct {
-    int{32} x;
-    int{32} y;
-} Point;
-
-Point create_point(int{32} x, int{32} y) {
-    Point p;
-    p.x = x;
-    p.y = y;
-    return p;
-};
-
-float{64} distance(Point *p1, Point *p2) {
-    int{32} dx = p2->x - p1->x;
-    int{32} dy = p2->y - p1->y;
-    return sqrt(dx * dx + dy * dy);
-};
-
-int{32} main(char[] *argc, char[][] *argv) {
-    Point{} p1 = create_point(0, 0);
-    Point{} p2 = create_point(3, 4);
-    print(distance(&p1, &p2));  // Prints 5.0
-    return 0;
-};
-```
-
-
-**Complex number calculator:**
-```
-struct{
-    float{64} real;
-    float{64} imag;
-} Complex;
-
-// Constructor function for Complex numbers
-Complex create_complex(float{64} r, float{64} i) {
-    Complex {
-        real = r;
-        imag = i;
-    } c;
-    return c;
-};
-
-// Addition of complex numbers
-Complex add(Complex a, Complex b) {
-    return create_complex(
-        a.real + b.real,
-        a.imag + b.imag
-    );
-};
-
-// Multiplication of complex numbers
-Complex multiply(Complex a, Complex b) {
-    return create_complex(
-        a.real * b.real - a.imag * b.imag,
-        a.real * b.imag + a.imag * b.real
-    );
-};
-
-// Calculate magnitude of a complex number
-float{64} magnitude(Complex c) {
-    return sqrt(c.real * c.real + c.imag * c.imag);
-};
-
-// Power function for complex numbers using DeMoivre's formula
-Complex power(Complex base, int{32} exp) {
-    if (exp == 0) {
-        return create_complex(1.0, 0.0);
-    };
-
-    float{64} r = magnitude(base);
-    float{64} theta = atan2(base.imag, base.real);
-    float{64} new_r = pow(r, exp);
-    float{64} new_theta = theta * exp;
-
-    return create_complex(
-        new_r * cos(new_theta),
-        new_r * sin(new_theta)
-    );
-};
-
-// Calculate roots of a quadratic equation ax² + bx + c = 0
-void quadratic_solver(float{64} a, float{64} b, float{64} c) {
-    float{64} discriminant = b * b - 4.0 * a * c;
-    
-    if (discriminant > 0.0) {
-        float{64} root1 = (-b + sqrt(discriminant)) / (2.0 * a);
-        float{64} root2 = (-b - sqrt(discriminant)) / (2.0 * a);
-    } else {
-        float{64} real_part = -b / (2.0 * a);
-        float{64} imag_part = sqrt(-discriminant) / (2.0 * a);
-        Complex{} root1 = create_complex(real_part, imag_part);
-        Complex{} root2 = create_complex(real_part, -imag_part);
-    };
-};
-```
-
-**Input / output:**
-```
-filename = input("Enter a file name: ")
-
-open(filename, "r") [file] {
-        // Imagine it just like Python.
-        data = file.read();      // No need to .seek(0) - Can if uncomfortable.
-        header = data[0:3];      // First 4 bytes
-
-        if (header != "WoC!") {
-            throw("Bad file!") { /* Execute this when you throw. */ };  // Default behavior without trailing {} is print()-like
-        };
-
-        for (i = 0; i < len(data); i++) {
-            // Do file stuff
-        };
-};
-```
-
-**Pointer to a pointer:**
-```
-void data;
-void *p_data;
-void **pp_data; // Pointer to a pointer.
-```
 
 
 Keyword list:
-object, asm, and, assert, break, case, catch, char, class, const, continue,
-default, delete, do, else, enum, false, float, for, if, import, int, is, lambda,
-memalloc, namespace, new, not, nullptr, operator, or, require, return, signed,
-sizeof, struct, super, switch, this, throw, true, try, typedef, union, unsigned,
-using, void, while, xor, memalloc, sin, cos, tan, cot, sec, cosec, quad_eq, sqrt
+asm, and, break, case, cast, catch, class, const, continue, data, def, default,
+do, else, enum, false, for, if, import, is, namespace, not, object, op, operator,
+or, return, signed, sizeof, struct, super, switch, template, this, throw, true,
+try, type, typeof, unsigned, using, void, while, xor
 
-
-Builtins:
-print, input, open, socket
 
 Types:
-char, float, int, void
+data, list, dict, void, const
 
 
-## Operator Precedence (highest to lowest)
+Member access .
 Scope resolution ::
-Member access ., ->
 Function call (), array subscript []
-Increment, decrement ++, --
-Exponent **
-Unary +, -, !, ~
+Postfix increment/decrement ++, --
+Prefix increment/decrement ++, --
+Unary plus/minus +, -
+Logical NOT and bitwise NOT !, ~
+Address-of and dereference &, *
+Type casting (type)
+Exponentiation **
 Multiplication, division, modulo *, /, %
 Addition, subtraction +, -
-Bitwise shift <<, >>
+Bit shift <<, >>
 Relational <, <=, >, >=
-Equality ==, !=, is, not
+Equality, inequality ==, !=
+Identity is, not
 Bitwise AND &
 Bitwise XOR ^
 Bitwise OR |
 Logical AND and, &&
 Logical OR or, ||
-Assignment =, +=, -=, *=, /=, %=, &=, |=, ^=
+Conditional expression ? :
+Assignment =, +=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=, **=
+Comma operator ,

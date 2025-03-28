@@ -11,20 +11,10 @@ namespace myNS
 {
 	class test
 	{
-		object test2
-		{
-			char o = "TEST STRING #2";
-		};
 	};
 	
 	class test3
 	{
-		object  test4
-		{
-			char o = "TEST STRING #3";
-			int x = 4;
-			int y = 5;
-		};
 	};
 };
 
@@ -37,8 +27,8 @@ char foo()
 int main()
 {
 	test{} a;
-	MyNS::test::test2{} obj;
-	MyNS::test3::test4{} obj2;
+	MyNS.test.test2{} obj;
+	MyNS.test3.test4{} obj2;
 	print(obj.o, "\n");
 	print(obj2.o, "\n");
 	
