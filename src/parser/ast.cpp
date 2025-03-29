@@ -133,6 +133,15 @@ std::unique_ptr<Stmt> ContinueStmt::clone() const {
     return std::make_unique<ContinueStmt>(keyword, range);
 }
 
+std::unique_ptr<Stmt> ThrowStmt::clone() const {
+    return std::make_unique<ThrowStmt>(
+        keyword,
+        message ? message->clone() : nullptr,
+        body ? body->clone() : nullptr,
+        range
+    );
+}
+
 std::unique_ptr<Stmt> TryStmt::clone() const {
     std::unique_ptr<Stmt> clonedTryBlock = tryBlock->clone();
     std::vector<TryStmt::CatchClause> clonedCatchClauses;
@@ -148,15 +157,15 @@ std::unique_ptr<Stmt> TryStmt::clone() const {
         std::move(clonedTryBlock), std::move(clonedCatchClauses), range);
 }
 
-std::unique_ptr<Stmt> MatchStmt::clone() const {
+std::unique_ptr<Stmt> SwitchStmt::clone() const {
     std::unique_ptr<Expr> clonedValue = value->clone();
-    std::vector<MatchStmt::CaseClause> clonedCases;
+    std::vector<SwitchStmt::CaseClause> clonedCases;
     
     for (const auto& caseClause : cases) {
         clonedCases.emplace_back(caseClause.pattern->clone(), caseClause.body->clone());
     }
     
-    return std::make_unique<MatchStmt>(
+    return std::make_unique<SwitchStmt>(
         std::move(clonedValue), 
         std::move(clonedCases),
         defaultCase ? defaultCase->clone() : nullptr,
@@ -179,7 +188,9 @@ std::unique_ptr<Decl> FunctionDecl::clone() const {
         std::move(clonedParameters),
         returnType ? static_cast<std::unique_ptr<TypeExpr>>(returnType->clone()) : nullptr,
         body->clone(),
-        range);
+        range,
+        isPrototype
+    );
 }
 
 std::unique_ptr<Decl> VarDecl::clone() const {
@@ -205,7 +216,9 @@ std::unique_ptr<Decl> ClassDecl::clone() const {
         std::move(clonedBaseClasses),
         std::move(clonedExclusions),
         std::move(clonedMembers),
-        range);
+        range,
+        isForwardDeclaration  // Include the isForwardDeclaration flag
+    );
 }
 
 std::unique_ptr<Decl> ObjectDecl::clone() const {
@@ -220,7 +233,9 @@ std::unique_ptr<Decl> ObjectDecl::clone() const {
         name,
         std::move(clonedBaseObjects),
         std::move(clonedMembers),
-        range);
+        range,
+        isForwardDeclaration
+    );
 }
 
 std::unique_ptr<Decl> StructDecl::clone() const {
@@ -269,7 +284,9 @@ std::unique_ptr<Decl> OperatorDecl::clone() const {
         std::move(clonedParameters),
         static_cast<std::unique_ptr<TypeExpr>>(returnType->clone()),
         body->clone(),
-        range);
+        range,
+        isPrototype  // Include the isPrototype flag
+    );
 }
 
 std::unique_ptr<Decl> UsingDecl::clone() const {

@@ -747,6 +747,31 @@ public:
     std::unique_ptr<Stmt> clone() const override;
 };
 
+class ThrowStmt : public Stmt {
+public:
+    // Throw keyword token
+    lexer::Token keyword;
+    
+    // Exception message expression (optional)
+    std::unique_ptr<Expr> message;
+    
+    // Body block to execute after throwing (optional)
+    std::unique_ptr<Stmt> body;
+    
+    // Constructor
+    ThrowStmt(const lexer::Token& keyword, std::unique_ptr<Expr> message,
+             std::unique_ptr<Stmt> body, const common::SourceRange& range)
+        : Stmt(range), keyword(keyword), message(std::move(message)), body(std::move(body)) {}
+    
+    // Type-erased visitor implementation
+    void accept(void* visitor, void* result, void (*visit)(void*, const Stmt*, void*)) const override {
+        visit(visitor, this, result);
+    }
+    
+    // Clone method
+    std::unique_ptr<Stmt> clone() const override;
+};
+
 // Try-catch statement
 class TryStmt : public Stmt {
 public:
@@ -784,7 +809,7 @@ public:
 };
 
 // Match statement (similar to switch but more powerful)
-class MatchStmt : public Stmt {
+class SwitchStmt : public Stmt {
 public:
     // Match expression
     std::unique_ptr<Expr> value;
@@ -809,7 +834,7 @@ public:
     std::unique_ptr<Stmt> defaultCase;
     
     // Constructor
-    MatchStmt(std::unique_ptr<Expr> value, std::vector<CaseClause> cases,
+    SwitchStmt(std::unique_ptr<Expr> value, std::vector<CaseClause> cases,
              std::unique_ptr<Stmt> defaultCase, const common::SourceRange& range)
         : Stmt(range), value(std::move(value)), cases(std::move(cases)),
           defaultCase(std::move(defaultCase)) {}
@@ -850,12 +875,16 @@ public:
     // Function body
     std::unique_ptr<Stmt> body;
     
+    // Is this a function prototype (declaration without body)?
+    bool isPrototype;
+    
     // Constructor
     FunctionDecl(std::string_view name, std::vector<Parameter> parameters,
                 std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Stmt> body,
-                const common::SourceRange& range)
+                const common::SourceRange& range, bool isPrototype = false)
         : Decl(range, name), parameters(std::move(parameters)),
-          returnType(std::move(returnType)), body(std::move(body)) {}
+          returnType(std::move(returnType)), body(std::move(body)),
+          isPrototype(isPrototype) {}
     
     // Type-erased visitor implementation
     void accept(void* visitor, void* result, void (*visit)(void*, const Decl*, void*)) const override {
@@ -906,13 +935,18 @@ public:
     // Member declarations
     std::vector<std::unique_ptr<Decl>> members;
     
+    // Is this a forward declaration?
+    bool isForwardDeclaration;
+    
     // Constructor
     ClassDecl(std::string_view name, std::vector<std::string_view> baseClasses,
              std::vector<std::string_view> exclusions,
              std::vector<std::unique_ptr<Decl>> members,
-             const common::SourceRange& range)
+             const common::SourceRange& range,
+             bool isForwardDeclaration = false)
         : Decl(range, name), baseClasses(std::move(baseClasses)),
-          exclusions(std::move(exclusions)), members(std::move(members)) {}
+          exclusions(std::move(exclusions)), members(std::move(members)),
+          isForwardDeclaration(isForwardDeclaration) {}
     
     // Type-erased visitor implementation
     void accept(void* visitor, void* result, void (*visit)(void*, const Decl*, void*)) const override {
@@ -923,7 +957,6 @@ public:
     std::unique_ptr<Decl> clone() const override;
 };
 
-// Object declaration (continued)
 class ObjectDecl : public Decl {
 public:
     // Base objects (inheritance)
@@ -932,12 +965,16 @@ public:
     // Member declarations
     std::vector<std::unique_ptr<Decl>> members;
     
+    // Is this a forward declaration?
+    bool isForwardDeclaration;
+    
     // Constructor
     ObjectDecl(std::string_view name, std::vector<std::string_view> baseObjects,
               std::vector<std::unique_ptr<Decl>> members,
-              const common::SourceRange& range)
+              const common::SourceRange& range,
+              bool isForwardDeclaration = false)
         : Decl(range, name), baseObjects(std::move(baseObjects)),
-          members(std::move(members)) {}
+          members(std::move(members)), isForwardDeclaration(isForwardDeclaration) {}
     
     // Type-erased visitor implementation
     void accept(void* visitor, void* result, void (*visit)(void*, const Decl*, void*)) const override {
@@ -1052,12 +1089,16 @@ public:
     // Function body
     std::unique_ptr<Stmt> body;
     
+    // Is this a prototype declaration?
+    bool isPrototype;
+    
     // Constructor
     OperatorDecl(std::string_view op, std::vector<Parameter> parameters,
                 std::unique_ptr<TypeExpr> returnType, std::unique_ptr<Stmt> body,
-                const common::SourceRange& range)
+                const common::SourceRange& range, bool isPrototype = false)
         : Decl(range, op), op(op), parameters(std::move(parameters)),
-          returnType(std::move(returnType)), body(std::move(body)) {}
+          returnType(std::move(returnType)), body(std::move(body)),
+          isPrototype(isPrototype) {}
     
     // Type-erased visitor implementation
     void accept(void* visitor, void* result, void (*visit)(void*, const Decl*, void*)) const override {
@@ -1429,7 +1470,8 @@ public:
     virtual R visitBreakStmt(const BreakStmt& stmt) = 0;
     virtual R visitContinueStmt(const ContinueStmt& stmt) = 0;
     virtual R visitTryStmt(const TryStmt& stmt) = 0;
-    virtual R visitMatchStmt(const MatchStmt& stmt) = 0;
+    virtual R visitSwitchStmt(const SwitchStmt& stmt) = 0;
+    virtual R visitThrowStmt(const ThrowStmt& stmt) = 0;
     
 private:
     // Type-erased visitor dispatch function
@@ -1458,8 +1500,10 @@ private:
             *typed_result = typed_visitor->visitContinueStmt(*s);
         } else if (auto* s = dynamic_cast<const TryStmt*>(stmt)) {
             *typed_result = typed_visitor->visitTryStmt(*s);
-        } else if (auto* s = dynamic_cast<const MatchStmt*>(stmt)) {
-            *typed_result = typed_visitor->visitMatchStmt(*s);
+        } else if (auto* s = dynamic_cast<const SwitchStmt*>(stmt)) {
+            *typed_result = typed_visitor->visitSwitchStmt(*s);
+        } else if (auto* s = dynamic_cast<const ThrowStmt*>(stmt)) {
+            *typed_result = typed_visitor->visitThrowStmt(*s);
         }
     }
 };

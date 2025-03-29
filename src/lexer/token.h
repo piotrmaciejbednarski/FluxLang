@@ -43,7 +43,6 @@ enum class TokenType {
     KEYWORD_IF,           // if
     KEYWORD_IMPORT,       // import
     KEYWORD_IS,           // is
-    KEYWORD_MATCH,        // match
     KEYWORD_NAMESPACE,    // namespace
     KEYWORD_NOT,          // not
     KEYWORD_OBJECT,       // object

@@ -104,8 +104,9 @@ private:
     std::unique_ptr<Stmt> returnStatement();
     std::unique_ptr<Stmt> breakStatement();
     std::unique_ptr<Stmt> continueStatement();
+    std::unique_ptr<Stmt> throwStatement();
     std::unique_ptr<Stmt> tryStatement();
-    std::unique_ptr<Stmt> matchStatement();
+    std::unique_ptr<Stmt> switchStatement();
     std::unique_ptr<Stmt> variableStatement();
     
     // Parsing expressions

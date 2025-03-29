@@ -55,24 +55,16 @@ const std::unordered_map<std::string_view, TokenType> Token::keywords_ = {
 Token::Token(TokenType type, std::string_view lexeme, 
              const common::SourcePosition& start, const common::SourcePosition& end)
     : type_(type), lexeme_(lexeme), start_(start), end_(end), int_value_(0) {
-    // Initialize literal values based on token type
-    if (type == TokenType::INTEGER_LITERAL) {
-        // Handle hexadecimal numbers (10h format)
-        if (lexeme.size() > 1 && lexeme[lexeme.size() - 1] == 'h') {
-            std::string hex_str(lexeme.substr(0, lexeme.size() - 1));
-            int_value_ = std::stoll(hex_str, nullptr, 16);
-        } else {
-            int_value_ = std::stoll(std::string(lexeme));
-        }
-    } else if (type == TokenType::FLOAT_LITERAL) {
-        float_value_ = std::stod(std::string(lexeme));
-    } else if (type == TokenType::BOOLEAN_LITERAL) {
-        bool_value_ = (lexeme == "true");
-    } else if (type == TokenType::CHAR_LITERAL) {
+    if (type == TokenType::CHAR_LITERAL) {
         // In Flux, char is the equivalent of Python's string
         // Remove the quotes
         if (lexeme.size() >= 2) {
-            string_value_ = std::string(lexeme.substr(1, lexeme.size() - 2));
+            // Handle empty strings properly
+            if (lexeme.size() == 2 && lexeme[0] == '"' && lexeme[1] == '"') {
+                string_value_ = "";
+            } else {
+                string_value_ = std::string(lexeme.substr(1, lexeme.size() - 2));
+            }
         } else {
             string_value_ = "";
         }
@@ -121,6 +113,10 @@ double Token::floatValue() const {
 
 std::string_view Token::stringValue() const {
     if (type_ != TokenType::CHAR_LITERAL) {
+        return "";
+    }
+    // If the token is just two quotes, return an empty string
+    if (lexeme_.size() == 2 && lexeme_[0] == '"' && lexeme_[1] == '"') {
         return "";
     }
     return string_value_;

@@ -124,25 +124,9 @@ object Application
         {
             if (value < 0)
             {
-                throw "Negative value";
+                throw("Negative value");
             };
             
-            // Match statement
-            match (value % 3)
-            {
-                case (0)
-                {
-                    return value;
-                };
-                case (1)
-                {
-                    return value + 1;
-                };
-                default
-                {
-                    return value + 2;
-                };
-            };
         }
         catch(Error)
         {
@@ -190,7 +174,7 @@ object Application
             flags = flags >> 1;
             
             // Using xor keyword
-            Flag test = true xor false;
+            Flag test = xor(true,false);
             
             // Using not keyword
             test = not test;

@@ -67,7 +67,7 @@ Classes cannot contain functions.
 **Namespaces:**
 Prototype: Cannot be prototyped.
 Definition: `namespace myNamespace {};`
-Member access: `myNamespace.myClass`
+Member access: `myNamespace::myClass`
 
 Namespace example:
 ```
@@ -178,7 +178,7 @@ namespace Program
 	};
 };
 
-Program.App.Engine{} myEngine;
+Program::App.Engine{} myEngine;
 print(myEngine.state()); // 1
 ```
 
@@ -264,14 +264,16 @@ class Second<First{!firstObj}>
 };
 ```
 
-Flux allows defining custom operators with `operator` as follows:
+Flux allows defining custom operators with `operator`.
+You cannot redefine Flux built-in operators (+,-,*,/,&,==,+=,++,-=,-- etc)
+You define operators in the following manner:
 ```
-operator(int x, int y)[e+] -> int  // Or any return type
+operator(int x, int y)[e+] -> float  // Or any return type
 {
     // Implementation for e+ (x * 10 ^ +y) notation with int types
 };
 
-operator(int x, int y)[e-] -> int
+operator(int x, int y)[e-] -> float
 {
     // Implementation for e- (x * 10 ^ -y) notation with int types
 };
@@ -292,8 +294,6 @@ asm {
 };
 ```
 
-Input and output are input() and print() respectively.
-
 Python uses f-strings, C++ uses a complicated format.
 Flux uses injectable strings.
 The syntax in Flux would be: `i"{}{}{}":{x;y;z;};`
@@ -302,7 +302,7 @@ to the statement position in the statement list.
 
 **i-string Example:**
 ```
-def bar() -> char { return "World"; };
+def bar() -> !void { return "World"; };
 print(i"Hello {} {}":
               {bar() + "!";
                "test";}; 		// Whitespace is ignored, this is just for positioning
@@ -315,22 +315,22 @@ Every code block must be ended with a semicolon. The only exception is within th
 
 Example 2:
 ```
-def concat(char a, char b) -> char
+def concat(char a, char b) -> !void
 {
     return a+b;  // Character array addition is native so we really don't need this function
 };
 
 def main() -> !void
 {
-    char h = "Hello";  // char is the Python equivalent to string
+    char h = "Hello ";  // char is the Python equivalent to string
     char w = "World";  // so  `w[3] == 'l'`
-    char x = "of";
+    char x = "of ";
     char y = "Coding";
     print(i"{} {}":{concat(h,w);concat(x,y);});
     return 0;
 };
 ```
-Result: HelloWorld ofCoding
+Result: Hello World of Coding
 
 Pointers:
 ```
@@ -369,8 +369,21 @@ print(p_add(0,3)); // 3
 print(p_sub(5,2)); // -3
 
 list func_list = [p_add,p_sub];
-
 ```
+
+
+**Pointers to objects, classes, and structs:**
+```
+class myClass {};               // Definition
+class* p_myClass = &myClass;    // Pointer
+
+object myObj {};                // Definition
+object* p_myObj = &myObj;       // Pointer
+
+struct myStruct {};             // Definition
+struct* p_myStruct = &myStruct; // Pointer
+```
+
 
 **Recursive function:**
 ```
@@ -383,38 +396,60 @@ def rsub(int x, int y) -> int
 };
 ```
 
+
 Import
 ```
 import "std.fx" std;
-
-using std.io;				  // Only use `io` from std.fx (std.fx imports `input.fx` and `output.fx` which both have the `io` class)
-
+using std.io;				  // Only use `io` from std.fx (std.fx imports `input.fx` and `output.fx`, both use the `io` class)
 //import "math.fx";           // Direct import of all the contents of math.fx
 ```
 
 
+!void is merely a way of telling the compiler you don't know what type you'll return. You may have a function that is complex and returns various types. Flux does not support the Python-like syntax of specifying multiple return types, so we use !void instead. However, specifying your type does improve byte-code generation at compilation.
+
 Example of the `data` type and casting:
 ```
-signed data{8} byte, short;
-byte[] string;
+import "std.fx" std;
+using std.types;      // Standard types like int, uint, float, ufloat, byte, char, string, and so on.
 
-byte someByte = {0, 1, 0, 0, 0, 0, 0, 1}; // 'A'
+byte someByte = {0, 1, 0, 0, 0, 0, 0, 1}; // "A" but in binary
 // Example of casting to char:
-char A = (char)someByte;      // "A"
-A = (data)someCharacter;      // {0, 1, 0, 0, 0, 0, 0, 1}
+char someChar = "{s}":{someByte};         // "A" - This is the standard way to cast to string in Flux
+// Back to data
+someChar = data:someChar;                 // {0, 1, 0, 0, 0, 0, 0, 1}
+char anotherChar = "B";                   // {0, 1, 0, 0, 0, 0, 1, 0}
+
+someChar<<;                               // {1, 0, 0, 0, 0, 0, 1, 0}  // Bit-shift left (binary doubling)
+someChar>>;                               // {0, 1, 0, 0, 0, 0, 0, 1}  // Bit-shift right (binary halving)
+
+char newChar = xor(someChar);             // {1, 0, 1, 1, 1, 1, 1, 0}  // Bit-flip (binary XOR)
+newChar = xor(someChar,anotherChar);      // {0, 0, 0, 0, 0, 0, 1, 1}  // XOR two or more values ('A' XOR 'B' = 3)
 
 // This 0's out all the data and re-casts back to data from void.
 // The temporary void casted type is the same width as the original type.
-data v = (void)someCharacter; // {0, 0, 0, 0, 0, 0, 0, 0}
+data v = void:someCharacter;              // {0, 0, 0, 0, 0, 0, 0, 0}
+
+class someClass
+{
+	string x = "Hello World!";                 // 12 bytes long (96 bits)
+	data {3} some3bitDatatype;
+};
+
+data d_someClass = data:someClass              // 99 bits long with no alignment, aligns to class members if cast
+someClass{} c_newInst = someClass:d_someClass; // Cast back to someClass (only works if class definition has members to fill)
+
+someClass{} nulled = void:c_newInst;           // You can only void instances of classes, and objects, not the class or object itself.
+
+// The same casting behavior applies to objects and structs
 ```
 
 Casting anything to `void` is the functional equivalent of nulling the memory occupied by that thing.
 It is also freed from memory and cannot be accessed after being cast to void and will result in a compile-time error.
 
 Data is a variable bit width, raw binary data type. Anything can cast to it,
-and it can cast to any built-in Flux type like char, int, float.
+and it can cast to any standard Flux type like char, int, float.
 It is intended to allow Flux programmers to build complex custom types to
-fit their needs.
+fit their needs that are flexible.
 
 
 All standard types are built from the data type.
@@ -430,115 +465,22 @@ string is defined as `signed data{8}[] string;`
 
 **Templates:**
 ```
-template <type T> T myMax(T x, T y) -> !void  // Must always be !void for templates.
+template <T> myMax(T x, T y) -> !void  // Must always be !void for templates.
 {
     return (x > y) ? x : y;
 };
 ```
 
 
-**Example Flux Program 1**
-```
-import "std.fx" std;
-using std.io, std.math, std.types;
-
-
-print = std.io.console_output.write;
-input = std.io.console_input.read;
-str = std.types.string;
-
-
-class myClass
-{
-	const str v_min = "0";
-	const str v_maj = "1";
-	const str v_ful = v_min + v_maj;
-
-	struct myStruct                    // The struct isn't const, so new members can be added
-	{
-		const str header = "!HXF";
-		const int magic = 10h;
-	};
-
-	object myObject
-	{
-		def __init(bool x_b) -> void
-		{
-			bool this.status = x_b;
-			str x = input("Enter 0 or 1: ");
-			bool b = false;
-
-			try
-			{
-				match ((bool)x)
-				{
-					case (true)
-					{
-						b = true;
-					};
-					case (false)
-					{
-						;;; // Do nothing, no semicolons are needed, but 3 makes the fact that nothing happens visible
-					};
-					case (default)
-					{
-						;;;
-					};
-				}
-
-				if (!b)
-				{
-					print("Zero entered.\n");
-				};
-			}
-			catch(match) // Triggers if the match statement failed
-			{
-				bool b = this.check_header("TEST");  // Returns false
-			}
-			catch(if)
-			{
-				print("Caught the if-statment.");
-				this.status = true;
-			}
-
-			if (this.status) {print("Initialized v{}":{super.v_ful;})};
-			return;
-		};
-
-		def check_header(str given) -> bool
-		{
-			if (given == super.myStruct.header)
-			{
-				print("Good header!");
-			}
-			else
-			{
-				print("Header check failed.");
-			};
-			return true;
-		};
-	};
-};
-
-
-def main(str arg_c, str[] arg_v) -> !void    // main must always return void or !void
-{
-	myClass{} someClass1, someClass2;
-
-	someClass1.myObject{} someObj1(true);
-	someClass2.myObject{} someObj2(false);
-
-	return 0;
-};
-```
-Result:
-
-
 Keyword list:
-asm, and, break, case, cast, catch, class, const, continue, data, def, default,
-do, else, enum, false, for, if, import, is, namespace, not, object, op, operator,
+asm, and, break, case, catch, class, const, continue, data, def, default, do
+else, enum, false, for, if, import, is, namespace, not, object, op, operator,
 or, return, signed, sizeof, struct, super, switch, template, this, throw, true,
-try, type, typeof, unsigned, using, void, while, xor
+try, typeof, unsigned, using, void, while, xor
+
+
+Literal types:
+array, dictionary, integer, float, string
 
 
 Types:
@@ -548,8 +490,7 @@ data, list, dict, void, const
 Member access .
 Scope resolution ::
 Function call (), array subscript []
-Postfix increment/decrement ++, --
-Prefix increment/decrement ++, --
+Prefix/Postfix increment/decrement ++, --
 Unary plus/minus +, -
 Logical NOT and bitwise NOT !, ~
 Address-of and dereference &, *
