@@ -1,4 +1,4 @@
-def main() -> void
+def main() -> !void
 {
-	test = not test;
+	test = !test;
 };

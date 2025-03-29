@@ -123,9 +123,27 @@ bool Parser::match(std::initializer_list<lexer::TokenType> types) {
 
 // Consume the current token if it's of the expected type, otherwise throw an error
 lexer::Token Parser::consume(lexer::TokenType type, std::string_view message) {
-    if (check(type)) return advance();
+    if (check(type)) {
+        return advance();
+    }
     
-    error(current_, message);
+    // Special handling for specific error cases
+    if (type == lexer::TokenType::SEMICOLON && previous_.type() == lexer::TokenType::SEMICOLON) {
+        // We already consumed a semicolon but the parser lost track of it
+        return previous_;
+    }
+    
+    if (type == lexer::TokenType::RIGHT_BRACE && previous_.type() == lexer::TokenType::RIGHT_BRACE) {
+        // We already consumed a closing brace but the parser lost track of it
+        return previous_;
+    }
+    
+    // Regular error handling
+    if (!panicMode_) {
+        error(current_, message);
+        panicMode_ = true;  // Enter panic mode to suppress cascading errors
+    }
+    
     return errorToken(message);
 }
 
@@ -1813,150 +1831,21 @@ std::unique_ptr<Stmt> Parser::dataTypeStatement() {
 
 // Parse an expression statement
 std::unique_ptr<Stmt> Parser::expressionStatement() {
-    auto startToken = current_;
-    
-    // Handle variable assignment with 'not' operator
-    if (check(lexer::TokenType::IDENTIFIER)) {
-        auto identToken = current_;
-        advance(); // Consume identifier
-        
-        if (match(lexer::TokenType::EQUAL)) {
-            if (match(lexer::TokenType::KEYWORD_NOT)) {
-                auto notToken = previous_;
-                
-                // Parse the variable being negated
-                std::unique_ptr<Expr> operand;
-                if (check(lexer::TokenType::IDENTIFIER)) {
-                    auto varToken = current_;
-                    advance(); // Consume variable name
-                    operand = std::make_unique<VariableExpr>(varToken);
-                } else {
-                    // Try general expression parsing
-                    operand = expression();
-                    if (!operand) {
-                        error("Expected expression after 'not'");
-                        operand = std::make_unique<LiteralExpr>(
-                            lexer::Token(lexer::TokenType::KEYWORD_FALSE, "false", 
-                                       notToken.start(), notToken.end()),
-                            false
-                        );
-                    }
-                }
-                
-                // Create not expression
-                auto notExpr = std::make_unique<UnaryExpr>(
-                    notToken,
-                    std::move(operand),
-                    true, // prefix
-                    makeRange(notToken, previous_)
-                );
-                
-                // Create variable expression for left side
-                auto leftExpr = std::make_unique<VariableExpr>(identToken);
-                
-                // Create assignment expression
-                auto assignExpr = std::make_unique<AssignExpr>(
-                    std::move(leftExpr),
-                    lexer::Token(lexer::TokenType::EQUAL, "=", identToken.end(), notToken.start()),
-                    std::move(notExpr),
-                    makeRange(identToken, previous_)
-                );
-                
-                // Consume the semicolon
-                consume(lexer::TokenType::SEMICOLON, "Expected ';' after assignment");
-                
-                // Create and return expression statement
-                return std::make_unique<ExprStmt>(
-                    std::move(assignExpr),
-                    makeRange(identToken, previous_)
-                );
-            }
-            
-            // Handle regular assignment
-            auto expr = expression();
-            if (!expr) {
-                error("Expected expression after '='");
-                
-                // Create a default value for error recovery
-                expr = std::make_unique<LiteralExpr>(
-                    lexer::Token(lexer::TokenType::INTEGER_LITERAL, "0", 
-                               identToken.start(), identToken.end()),
-                    static_cast<int64_t>(0)
-                );
-            }
-            
-            // Create variable expression for left side
-            auto leftExpr = std::make_unique<VariableExpr>(identToken);
-            
-            // Create assignment expression
-            auto assignExpr = std::make_unique<AssignExpr>(
-                std::move(leftExpr),
-                lexer::Token(lexer::TokenType::EQUAL, "=", identToken.end(), previous_.start()),
-                std::move(expr),
-                makeRange(identToken, previous_)
-            );
-            
-            // Consume the semicolon
-            consume(lexer::TokenType::SEMICOLON, "Expected ';' after assignment");
-            
-            // Create and return expression statement
-            return std::make_unique<ExprStmt>(
-                std::move(assignExpr),
-                makeRange(identToken, previous_)
-            );
-        }
-        
-        // Rewind and try normal parsing
-        current_ = startToken;
-    }
-    
-    // Standard expression statement parsing
     auto expr = expression();
     if (!expr) {
         error("Expected expression");
-        // Skip to semicolon
-        while (!check(lexer::TokenType::SEMICOLON) && 
-               !check(lexer::TokenType::RIGHT_BRACE) && 
-               !check(lexer::TokenType::END_OF_FILE)) {
-            advance();
-        }
-        if (check(lexer::TokenType::SEMICOLON)) {
-            advance(); // Consume the semicolon
-        }
         return nullptr;
     }
     
-    // Ensure we consume the semicolon after the expression
-    auto end = previous_;
-    
-    // Only try to consume the semicolon if we're not already at the end of a block
-    // or end of file
-    if (!check(lexer::TokenType::RIGHT_BRACE) && 
-        !check(lexer::TokenType::END_OF_FILE)) {
-        // Attempt to consume the semicolon
-        if (match(lexer::TokenType::SEMICOLON)) {
-            end = previous_;
-        } else {
-            error("Expected ';' after expression");
-            // Skip problematic tokens until we reach a semicolon or block end
-            while (!check(lexer::TokenType::SEMICOLON) && 
-                   !check(lexer::TokenType::RIGHT_BRACE) && 
-                   !check(lexer::TokenType::END_OF_FILE)) {
-                advance();
-            }
-            
-            // If we found a semicolon, consume it
-            if (check(lexer::TokenType::SEMICOLON)) {
-                advance();
-                end = previous_;
-            }
-        }
+    // Don't report semicolon errors at the end of blocks
+    if (check(lexer::TokenType::SEMICOLON)) {
+        advance(); // Consume semicolon
+    } else if (!check(lexer::TokenType::RIGHT_BRACE) && 
+              !check(lexer::TokenType::END_OF_FILE)) {
+        error("Expected ';' after expression");
     }
     
-    return std::make_unique<ExprStmt>(
-        std::move(expr),
-        makeRange(startToken, end)
-    );
+    return std::make_unique<ExprStmt>(std::move(expr), expr->range);
 }
 
 std::unique_ptr<Stmt> Parser::blockStatement() {
@@ -3369,27 +3258,32 @@ std::unique_ptr<Expr> Parser::exponentiation() {
 std::unique_ptr<Expr> Parser::unary() {
     // Special handling for 'not' keyword as a unary operator
     if (match(lexer::TokenType::KEYWORD_NOT)) {
-        auto op = previous_;
-        auto right = unary();  // Parse the operand
+        auto notToken = previous_;
+        auto startPos = notToken.start();
         
-        if (!right) {
+        // Parse the operand
+        auto operand = primary();  // Use primary() instead of unary() to avoid recursive issues
+        if (!operand) {
             error("Expected expression after 'not'");
-            // Create a default expression for error recovery
-            right = std::make_unique<LiteralExpr>(
-                lexer::Token(lexer::TokenType::KEYWORD_FALSE, "false", op.start(), op.end()),
+            // Create a default value for error recovery
+            operand = std::make_unique<LiteralExpr>(
+                lexer::Token(lexer::TokenType::KEYWORD_FALSE, "false", 
+                            notToken.start(), notToken.end()),
                 false
             );
         }
         
+        // Create the NOT expression with careful range tracking
+        auto endPos = previous_.end();
         return std::make_unique<UnaryExpr>(
-            op,
-            std::move(right),
+            notToken,
+            std::move(operand),
             true,  // prefix
-            makeRange(op, previous_)
+            makeRange(startPos, endPos)
         );
     }
     
-    // Handle other unary operators
+    // Handle other unary operators (no changes to this part)
     if (match({
         lexer::TokenType::EXCLAMATION,
         lexer::TokenType::MINUS,
