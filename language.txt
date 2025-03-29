@@ -33,6 +33,7 @@ object anotherObj<myObj>
 {
 	def __init() -> void
 	{
+		super(myObj).__init();
 		return;
 	};
 };
@@ -163,7 +164,7 @@ namespace Program
 		{
 			def __init() -> void
 			{
-				if (super.myFlag == false)
+				if (super(AnotherApp).myFlag == false)
 				{
 					print("Not instanced.");
 					return;
@@ -172,7 +173,7 @@ namespace Program
 
 			def state() -> bool
 			{
-				return super.myFlag;
+				return super(AnotherApp).myFlag;
 			};
 		};
 	};
@@ -182,8 +183,6 @@ Program::App.Engine{} myEngine;
 print(myEngine.state()); // 1
 ```
 
-This is just an example, it is not Java-like with a verbose hard-coded entry point.
-Flux is a mix of C++ and Python.
 
 Class and object inheritance:
 ```
@@ -399,13 +398,13 @@ def rsub(int x, int y) -> int
 
 Import
 ```
-import "std.fx" std;
+import "std.fx" as std;
 using std.io;				  // Only use `io` from std.fx (std.fx imports `input.fx` and `output.fx`, both use the `io` class)
 //import "math.fx";           // Direct import of all the contents of math.fx
 ```
 
 
-!void is merely a way of telling the compiler you don't know what type you'll return. You may have a function that is complex and returns various types. Flux does not support the Python-like syntax of specifying multiple return types, so we use !void instead. However, specifying your type does improve byte-code generation at compilation.
+!void is merely a way of telling the compiler you don't know what type you'll return. You may have a function that is complex and returns various types. Flux does not support the Python-like syntax of specifying multiple return types, so we use !void instead. However, specifying the type does improve byte-code generation during compilation.
 
 Example of the `data` type and casting:
 ```
@@ -473,7 +472,7 @@ template <T> myMax(T x, T y) -> !void  // Must always be !void for templates.
 
 
 Keyword list:
-asm, and, break, case, catch, class, const, continue, data, def, default, do
+as, asm, and, break, case, catch, class, const, continue, data, def, default, do
 else, enum, false, for, if, import, is, namespace, not, object, op, operator,
 or, return, signed, sizeof, struct, super, switch, template, this, throw, true,
 try, typeof, unsigned, using, void, while, xor
@@ -501,7 +500,7 @@ Addition, subtraction +, -
 Bit shift <<, >>
 Relational <, <=, >, >=
 Equality, inequality ==, !=
-Identity is, not
+Identity is, not, as
 Bitwise AND &
 Bitwise XOR ^
 Bitwise OR |

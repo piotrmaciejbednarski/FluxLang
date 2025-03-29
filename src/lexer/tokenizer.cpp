@@ -315,60 +315,90 @@ Token Tokenizer::scanIdentifier() {
 }
 
 // Process number tokens (integer and float literals)
+// Process number tokens (integer and float literals)
 Token Tokenizer::scanNumber() {
     common::SourcePosition start = getPosition();
     size_t start_pos = position_;
     bool is_float = false;
     bool has_exponent = false;
     
-    // Consume digits
+    // Check for hexadecimal format with 0x prefix
+    if (current() == '0' && peek() == 'x') {
+        advance(); // Consume '0'
+        advance(); // Consume 'x'
+        
+        // Consume hex digits
+        bool has_digits = false;
+        while (!isAtEnd() && (isDigit(current()) || 
+               (current() >= 'A' && current() <= 'F'))) {  // Capitalized for 0x notation
+            has_digits = true;
+            advance();
+        }
+        
+        if (!has_digits) {
+            error(common::ErrorCode::INVALID_NUMBER_FORMAT, "Expected hexadecimal digits after '0x'");
+            return errorToken("Expected hexadecimal digits after '0x'");
+        }
+        
+        // Extract lexeme
+        size_t length = position_ - start_pos;
+        std::string_view lexeme = text_.substr(start_pos, length);
+        
+        // Create token
+        return Token(TokenType::INTEGER_LITERAL, lexeme, start, getPosition());
+    }
+    
+    // Regular number parsing - digits first
+    bool has_digits = false;
     while (!isAtEnd() && isDigit(current())) {
+        has_digits = true;
         advance();
     }
     
-    // Check for decimal point
-    if (!isAtEnd() && current() == '.' && isDigit(peek())) {
-        is_float = true;
-        advance(); // Consume '.'
+    // Check for number type suffix
+    if (!isAtEnd()) {
+        char suffix = current();
         
-        // Consume fractional part
-        while (!isAtEnd() && isDigit(current())) {
-            advance();
+        // Check for specific bases using suffix
+        if (suffix == 'o') {           // Octal (e.g., 77o)
+            advance(); // Consume 'o'
+            // No extra checks needed - we validate during conversion later
         }
-    }
-    
-    // Check for exponent notation (e+, e-)
-    if (!isAtEnd() && (current() == 'e' || current() == 'E')) {
-        if (peek() == '+' || peek() == '-' || isDigit(peek())) {
-            is_float = true;
-            has_exponent = true;
-            advance(); // Consume 'e' or 'E'
-            
-            // Consume sign if present
-            if (!isAtEnd() && (current() == '+' || current() == '-')) {
-                advance();
-            }
-            
-            // Consume exponent digits
-            if (!isAtEnd() && isDigit(current())) {
+        else if (suffix == 'd') {      // Decimal explicit (e.g., 99d)
+            advance(); // Consume 'd'
+            // No extra checks needed - already decimal
+        }
+        else if (suffix == 'b') {      // Binary (e.g., 1010b)
+            advance(); // Consume 'b'
+            // We'll validate the format during conversion
+        }
+        else if (suffix == 'h') {      // Hex (e.g., 15h)
+            advance(); // Consume 'h'
+            // We'll validate the format during conversion
+        }
+        // Continue with regular number parsing if not a base suffix
+        else if (suffix == '.') {
+            if (isDigit(peek())) {
+                is_float = true;
+                advance(); // Consume '.'
+                
+                // Consume fractional part
                 while (!isAtEnd() && isDigit(current())) {
                     advance();
                 }
-            } else {
-                error(common::ErrorCode::INVALID_NUMBER_FORMAT, "Expected digits after exponent");
-                return errorToken("Expected digits after exponent");
             }
         }
-    }
-    
-    // Check for hexadecimal suffix 'h'
-    if (!isAtEnd() && current() == 'h' && !is_float) {
-        advance(); // Consume 'h'
     }
     
     // Extract lexeme
     size_t length = position_ - start_pos;
     std::string_view lexeme = text_.substr(start_pos, length);
+    
+    // Basic validation - make sure we have at least one digit
+    if (!has_digits) {
+        error(common::ErrorCode::INVALID_NUMBER_FORMAT, "Invalid number format");
+        return errorToken("Invalid number format");
+    }
     
     // Create token
     TokenType type = is_float ? TokenType::FLOAT_LITERAL : TokenType::INTEGER_LITERAL;

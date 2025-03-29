@@ -55,7 +55,65 @@ const std::unordered_map<std::string_view, TokenType> Token::keywords_ = {
 Token::Token(TokenType type, std::string_view lexeme, 
              const common::SourcePosition& start, const common::SourcePosition& end)
     : type_(type), lexeme_(lexeme), start_(start), end_(end), int_value_(0) {
-    if (type == TokenType::CHAR_LITERAL) {
+    // Initialize literal values based on token type
+    if (type == TokenType::INTEGER_LITERAL) {
+        try {
+            // Handle hexadecimal numbers (0x format)
+            if (lexeme.size() > 2 && lexeme[0] == '0' && (lexeme[1] == 'x')) {
+                std::string hex_str(lexeme.substr(2));
+                int_value_ = std::stoll(hex_str, nullptr, 16);
+            }
+            // Handle binary numbers (with 'b' suffix)
+            else if (lexeme.size() > 1 && (lexeme.back() == 'b')) {
+                std::string bin_str(lexeme.substr(0, lexeme.size() - 1));
+                // Check if all digits are valid binary digits (0 or 1)
+                for (char c : bin_str) {
+                    if (c != '0' && c != '1') {
+                        throw std::invalid_argument("Invalid binary digit");
+                    }
+                }
+                int_value_ = std::stoll(bin_str, nullptr, 2);
+            }
+            // Handle octal numbers (with 'o' suffix)
+            else if (lexeme.size() > 1 && (lexeme.back() == 'o')) {
+                std::string oct_str(lexeme.substr(0, lexeme.size() - 1));
+                // Check if all digits are valid octal digits (0-7)
+                for (char c : oct_str) {
+                    if (c < '0' || c > '7') {
+                        throw std::invalid_argument("Invalid octal digit");
+                    }
+                }
+                int_value_ = std::stoll(oct_str, nullptr, 8);
+            }
+            // Handle explicit decimal numbers (with 'd' suffix) 
+            else if (lexeme.size() > 1 && (lexeme.back() == 'd')) {
+                std::string dec_str(lexeme.substr(0, lexeme.size() - 1));
+                int_value_ = std::stoll(dec_str, nullptr, 10);
+            }
+            // Handle hexadecimal numbers (with 'h' suffix)
+            else if (lexeme.size() > 1 && (lexeme.back() == 'h')) {
+                std::string hex_str(lexeme.substr(0, lexeme.size() - 1));
+                int_value_ = std::stoll(hex_str, nullptr, 16);
+            }
+            // Regular decimal numbers (default)
+            else {
+                int_value_ = std::stoll(std::string(lexeme));
+            }
+        } catch (const std::exception& e) {
+            // Handle invalid numbers, but don't throw - create a valid token with value 0
+            int_value_ = 0;
+            // In a real implementation, you might want to log this error or handle it differently
+        }
+    } else if (type == TokenType::FLOAT_LITERAL) {
+        try {
+            float_value_ = std::stod(std::string(lexeme));
+        } catch (const std::exception& e) {
+            // Handle invalid floats
+            float_value_ = 0.0;
+        }
+    } else if (type == TokenType::BOOLEAN_LITERAL) {
+        bool_value_ = (lexeme == "true");
+    } else if (type == TokenType::CHAR_LITERAL) {
         // In Flux, char is the equivalent of Python's string
         // Remove the quotes
         if (lexeme.size() >= 2) {
