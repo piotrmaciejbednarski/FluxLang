@@ -62,7 +62,7 @@ namespace Flux
     };
 
     // Template function definition
-    template <T> max(T a, T b) -> !void
+    template <T> max(T a, T b) -> T
     {
         return (a > b) ? a : b;
     };
@@ -82,10 +82,10 @@ namespace Flux
 
     // Assembly block
     asm {
-        // Example assembly code
-        mov eax, 1
-        mov ebx, 0
-        int 0x80
+// Example assembly code
+mov eax, 1
+mov ebx, 0
+int 0x80
     };
 };
 
@@ -203,6 +203,8 @@ def main() -> int
     Integer a = 5;
     Integer b = 10;
     Integer *ptr_a = @a;
+
+    int x = (Integer)p;  // Casting fails
     
     // Call object method
     app.run();
