@@ -3307,7 +3307,6 @@ std::unique_ptr<Expr> Parser::call() {
     return expr;
 }
 
-// Parse a primary expression
 std::unique_ptr<Expr> Parser::primary() {
     try {
         // Handle literals and keywords
@@ -3354,6 +3353,38 @@ std::unique_ptr<Expr> Parser::primary() {
         if (check(lexer::TokenType::IDENTIFIER)) {
             auto identifier = current_;
             advance(); // Consume the identifier
+            
+            // Check for object instantiation
+            if (match(lexer::TokenType::LEFT_BRACE)) {
+                // Empty braces instantiation
+                consume(lexer::TokenType::RIGHT_BRACE, "Expected '}' after '{'");
+                
+                return std::make_unique<CallExpr>(
+                    std::make_unique<VariableExpr>(identifier),
+                    previous_,
+                    std::vector<std::unique_ptr<Expr>>{},
+                    makeRange(identifier, previous_)
+                );
+            } else if (match(lexer::TokenType::LEFT_PAREN)) {
+                // Constructor arguments
+                std::vector<std::unique_ptr<Expr>> arguments;
+                if (!check(lexer::TokenType::RIGHT_PAREN)) {
+                    do {
+                        arguments.push_back(expression());
+                    } while (match(lexer::TokenType::COMMA));
+                }
+                
+                consume(lexer::TokenType::RIGHT_PAREN, "Expected ')' after arguments");
+                
+                return std::make_unique<CallExpr>(
+                    std::make_unique<VariableExpr>(identifier),
+                    previous_,
+                    std::move(arguments),
+                    makeRange(identifier, previous_)
+                );
+            }
+            
+            // Regular identifier
             return std::make_unique<VariableExpr>(identifier);
         }
 
