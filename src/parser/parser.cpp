@@ -1787,12 +1787,6 @@ std::unique_ptr<Stmt> Parser::identifierStatement() {
     // Save the current token for potential backtracking
     auto savePos = current_;
     
-    // First try parsing as a variable declaration
-    auto varStmt = variableStatement();
-    if (varStmt) {
-        return varStmt;
-    }
-    
     // Reset position to try parsing as an expression statement
     current_ = savePos;
     
@@ -1801,6 +1795,12 @@ std::unique_ptr<Stmt> Parser::identifierStatement() {
     auto exprStmt = expressionStatement();
     if (exprStmt) {
         return exprStmt;
+    }
+
+    // Now try parsing as a variable declaration
+    auto varStmt = variableStatement();
+    if (varStmt) {
+        return varStmt;
     }
     
     // If we couldn't parse as a statement, rewind and return nullptr
