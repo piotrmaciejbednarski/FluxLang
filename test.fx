@@ -139,7 +139,6 @@ object Application
     {
         Integer count = 5;
         
-        // While loop
         while (count > 0 and this.running)
         {
             // If-else statement
@@ -192,7 +191,7 @@ object Application
 };
 
 // The main function
-def main() -> !void
+def main() -> int
 {
     // Object instantiation
     Application{} app;
@@ -203,7 +202,7 @@ def main() -> !void
     // Variables and pointers
     Integer a = 5;
     Integer b = 10;
-    Integer *ptr_a = &a;
+    Integer *ptr_a = @a;
     
     // Call object method
     app.run();

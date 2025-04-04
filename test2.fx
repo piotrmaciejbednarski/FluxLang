@@ -1,4 +1,4 @@
-def main() -> !void
+for (int x = 5; x < 3; x++)
 {
-	test = !test;
+	result *= 5;
 };

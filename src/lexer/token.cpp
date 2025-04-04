@@ -208,7 +208,7 @@ bool Token::isOperator() const {
            type_ == TokenType::DOT || type_ == TokenType::DOUBLE_COLON ||
            type_ == TokenType::QUESTION || type_ == TokenType::COLON ||
            type_ == TokenType::SEMICOLON || type_ == TokenType::COMMA ||
-           type_ == TokenType::ASTERISK_PTR || type_ == TokenType::AMPERSAND_REF;
+           type_ == TokenType::ASTERISK_PTR || type_ == TokenType::AT_REF;
 }
 
 // Convert token to string for debugging
@@ -325,7 +325,7 @@ std::string_view Token::tokenTypeToString(TokenType type) {
         case TokenType::SEMICOLON: return "SEMICOLON";
         case TokenType::COMMA: return "COMMA";
         case TokenType::ASTERISK_PTR: return "ASTERISK_PTR";
-        case TokenType::AMPERSAND_REF: return "AMPERSAND_REF";
+        case TokenType::AT_REF: return "AT_REF";
         case TokenType::ARROW: return "ARROW";
         
         // Delimiters

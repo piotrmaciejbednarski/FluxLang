@@ -16,7 +16,7 @@ enum class TokenType {
     
     // Literals
     INTEGER_LITERAL,      // 123, 10h (hex)
-    FLOAT_LITERAL,        // 123.45, 1e+10
+    FLOAT_LITERAL,        // 123.45
     CHAR_LITERAL,         // "string"
     BOOLEAN_LITERAL,      // true, false
     
@@ -127,7 +127,7 @@ enum class TokenType {
     
     // Pointer operators
     ASTERISK_PTR,         // * (pointer dereference)
-    AMPERSAND_REF,        // & (address-of)
+    AT_REF,               // @ (address-of)
     
     // Delimiters
     LEFT_PAREN,           // (

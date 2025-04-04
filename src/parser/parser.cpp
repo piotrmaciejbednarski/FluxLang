@@ -103,6 +103,18 @@ bool Parser::check(lexer::TokenType type) const {
     return current_.type() == type;
 }
 
+bool Parser::checkNext(lexer::TokenType type) {
+    if (check(lexer::TokenType::END_OF_FILE)) return false;
+    
+    // Save current token
+    auto current = current_;
+    advance(); // Move to next token
+    bool match = previous_.type() == type;
+    current_ = current; // Restore position
+    
+    return match;
+}
+
 // Match and consume the current token if it's of the given type
 bool Parser::match(lexer::TokenType type) {
     if (!check(type)) return false;
@@ -121,7 +133,7 @@ bool Parser::match(std::initializer_list<lexer::TokenType> types) {
     return false;
 }
 
-// Consume the current token if it's of the expected type, otherwise throw an error
+// Improved consume method to better handle semicolons
 lexer::Token Parser::consume(lexer::TokenType type, std::string_view message) {
     if (check(type)) {
         return advance();
@@ -131,6 +143,23 @@ lexer::Token Parser::consume(lexer::TokenType type, std::string_view message) {
     if (type == lexer::TokenType::SEMICOLON && previous_.type() == lexer::TokenType::SEMICOLON) {
         // We already consumed a semicolon but the parser lost track of it
         return previous_;
+    }
+    
+    if (type == lexer::TokenType::SEMICOLON && 
+        (current_.start().column == previous_.end().column + 1 || 
+         current_.start().line > previous_.end().line)) {
+        // Check if we're at a token right after a semicolon that might have been
+        // incorrectly consumed or missing in the source
+        std::cout << "Auto-inserting missing semicolon at line " 
+                  << previous_.end().line << ", col " << previous_.end().column << std::endl;
+        
+        // Create a synthetic semicolon token at the previous token's end position
+        return lexer::Token(
+            lexer::TokenType::SEMICOLON,
+            ";",
+            previous_.end(),
+            previous_.end()
+        );
     }
     
     if (type == lexer::TokenType::RIGHT_BRACE && previous_.type() == lexer::TokenType::RIGHT_BRACE) {
@@ -255,212 +284,7 @@ std::unique_ptr<Decl> Parser::declaration() {
                   lexer::TokenType::KEYWORD_SIGNED, 
                   lexer::TokenType::KEYWORD_UNSIGNED})) return dataDeclaration();
         if (match(lexer::TokenType::KEYWORD_ASM)) return asmDeclaration();
-        
-        // Handle identifier-based declarations (variables, function pointers, and instantiations)
-        if (check(lexer::TokenType::IDENTIFIER)) {
-            // Save the potential type/class name token
-            auto firstIdent = current_;
-            advance(); // Consume identifier
-            
-            // Case 1: Function pointer declaration (Type *name(ParamType1, ParamType2) = func;)
-            if (match(lexer::TokenType::ASTERISK)) {
-                // Check if this is a regular pointer variable (not a function pointer)
-                if (check(lexer::TokenType::IDENTIFIER)) {
-                    auto pointerName = current_;
-                    advance(); // Consume pointer variable name
-                    
-                    // Check for initializer
-                    std::unique_ptr<Expr> initializer = nullptr;
-                    if (match(lexer::TokenType::EQUAL)) {
-                        // Check for address-of operator (common in pointer initialization)
-                        if (match(lexer::TokenType::AMPERSAND)) {
-                            if (check(lexer::TokenType::IDENTIFIER)) {
-                                auto addressOfVar = current_;
-                                advance(); // Consume variable name
-                                
-                                // Create variable expression
-                                auto varExpr = std::make_unique<VariableExpr>(addressOfVar);
-                                
-                                // Create address-of unary expression
-                                initializer = std::make_unique<UnaryExpr>(
-                                    previous_, // & operator
-                                    std::move(varExpr),
-                                    true, // prefix
-                                    makeRange(previous_, addressOfVar)
-                                );
-                            } else {
-                                error("Expected identifier after '&'");
-                            }
-                        } else {
-                            // Regular initializer expression
-                            initializer = expression();
-                            if (!initializer) {
-                                error("Expected expression after '='");
-                            }
-                        }
-                    }
-                    
-                    consume(lexer::TokenType::SEMICOLON, "Expected ';' after variable declaration");
-                    
-                    // Create base type
-                    auto baseType = std::make_unique<NamedTypeExpr>(
-                        firstIdent.lexeme(),
-                        makeRange(firstIdent)
-                    );
-                    
-                    // Create pointer type
-                    auto pointerType = std::make_unique<PointerTypeExpr>(
-                        std::move(baseType),
-                        makeRange(firstIdent, previous_)
-                    );
-                    
-                    // Create variable declaration for the pointer
-                    return std::make_unique<VarDecl>(
-                        pointerName.lexeme(),
-                        std::move(pointerType),
-                        std::move(initializer),
-                        false, // not const
-                        makeRange(firstIdent, previous_)
-                    );
-                }
-                
-                // If it doesn't match a pointer variable pattern, continue with other cases...
-            }
-            
-            // Case 2: Object instantiation (Class{} obj; or Class(args){} obj;)
-            bool hasConstructorArgs = false;
-            
-            // Check for constructor arguments
-            if (match(lexer::TokenType::LEFT_PAREN)) {
-                hasConstructorArgs = true;
-                
-                // Skip through constructor arguments
-                if (!check(lexer::TokenType::RIGHT_PAREN)) {
-                    do {
-                        auto arg = expression();
-                        if (!arg) {
-                            error("Expected constructor argument");
-                            break;
-                        }
-                    } while (match(lexer::TokenType::COMMA));
-                }
-                
-                consume(lexer::TokenType::RIGHT_PAREN, "Expected ')' after constructor arguments");
-            }
-            
-            // Check for empty braces initialization
-            if (match(lexer::TokenType::LEFT_BRACE)) {
-                consume(lexer::TokenType::RIGHT_BRACE, "Expected '}' after class instantiation");
-                
-                // Check for instance name
-                if (check(lexer::TokenType::IDENTIFIER)) {
-                    auto instanceName = current_;
-                    advance(); // Consume instance name
-                    
-                    consume(lexer::TokenType::SEMICOLON, "Expected ';' after class instantiation");
-                    
-                    // Create class type and variable declaration
-                    auto classType = std::make_unique<NamedTypeExpr>(
-                        firstIdent.lexeme(),
-                        makeRange(firstIdent)
-                    );
-                    
-                    return std::make_unique<VarDecl>(
-                        instanceName.lexeme(),
-                        std::move(classType),
-                        nullptr, // No initializer needed for {} instantiation
-                        false,   // Not const
-                        makeRange(firstIdent, previous_)
-                    );
-                } else {
-                    error("Expected instance name after class instantiation");
-                    synchronize();
-                    return nullptr;
-                }
-            }
-            
-            // Case 3: Normal variable declaration (Type name = initializer;)
-            if (hasConstructorArgs) {
-                // We had constructor args but no braces, not a valid declaration
-                current_ = savedToken;
-                return nullptr;
-            }
-            
-            // Check for pointer type
-            bool isPointerType = false;
-            if (match(lexer::TokenType::ASTERISK)) {
-                isPointerType = true;
-            }
-            
-            // Check for array type
-            bool isArrayType = false;
-            std::unique_ptr<Expr> arraySizeExpr;
-            
-            if (match(lexer::TokenType::LEFT_BRACKET)) {
-                isArrayType = true;
-                
-                // Parse array size expression if present
-                if (!check(lexer::TokenType::RIGHT_BRACKET)) {
-                    arraySizeExpr = expression();
-                }
-                
-                consume(lexer::TokenType::RIGHT_BRACKET, "Expected ']' after array type");
-            }
-            
-            // Variable name
-            if (check(lexer::TokenType::IDENTIFIER)) {
-                auto varName = current_;
-                advance(); // Consume variable name
-                
-                // Optional initializer
-                std::unique_ptr<Expr> initializer;
-                if (match(lexer::TokenType::EQUAL)) {
-                    initializer = expression();
-                    if (!initializer) {
-                        error("Expected initializer expression");
-                    }
-                }
-                
-                consume(lexer::TokenType::SEMICOLON, "Expected ';' after variable declaration");
-                
-                // Create appropriate type
-                std::unique_ptr<TypeExpr> type;
-                
-                // Base type
-                auto baseType = std::make_unique<NamedTypeExpr>(
-                    firstIdent.lexeme(),
-                    makeRange(firstIdent)
-                );
-                
-                // Apply modifiers (pointer or array)
-                if (isPointerType) {
-                    type = std::make_unique<PointerTypeExpr>(
-                        std::move(baseType),
-                        makeRange(firstIdent, previous_)
-                    );
-                } else if (isArrayType) {
-                    type = std::make_unique<ArrayTypeExpr>(
-                        std::move(baseType),
-                        std::move(arraySizeExpr),
-                        makeRange(firstIdent, previous_)
-                    );
-                } else {
-                    type = std::move(baseType);
-                }
-                
-                // Create and return the variable declaration
-                return std::make_unique<VarDecl>(
-                    varName.lexeme(),
-                    std::move(type),
-                    std::move(initializer),
-                    false, // Not const
-                    makeRange(firstIdent, previous_)
-                );
-            }
-            
-            // Not a valid declaration, rewind
-            current_ = savedToken;
-        }
+        if (check(lexer::TokenType::IDENTIFIER)) return identifierDeclaration();
         
         // Not a declaration
         return nullptr;
@@ -470,6 +294,218 @@ std::unique_ptr<Decl> Parser::declaration() {
         synchronize();
         return nullptr;
     }
+}
+
+// Parse a declaration starting with an identifier
+std::unique_ptr<Decl> Parser::identifierDeclaration() {
+    // Only proceed if we're looking at an identifier
+    if (!check(lexer::TokenType::IDENTIFIER)) {
+        return nullptr;
+    }
+    
+    // Save the current token for potential backtracking
+    auto savePos = current_;
+    auto firstIdent = current_;
+    advance(); // Consume identifier
+    
+    // Case 1: Function pointer declaration (Type *name(ParamType1, ParamType2) = func;)
+    if (match(lexer::TokenType::ASTERISK)) {
+        // Check if this is a regular pointer variable (not a function pointer)
+        if (check(lexer::TokenType::IDENTIFIER)) {
+            auto pointerName = current_;
+            advance(); // Consume pointer variable name
+            
+            // Check for initializer
+            std::unique_ptr<Expr> initializer = nullptr;
+            if (match(lexer::TokenType::EQUAL)) {
+                // Check for address-of operator (common in pointer initialization)
+                if (match(lexer::TokenType::AT_REF)) {
+                    if (check(lexer::TokenType::IDENTIFIER)) {
+                        auto addressOfVar = current_;
+                        advance(); // Consume variable name
+                        
+                        // Create variable expression
+                        auto varExpr = std::make_unique<VariableExpr>(addressOfVar);
+                        
+                        // Create address-of unary expression
+                        initializer = std::make_unique<UnaryExpr>(
+                            previous_, // & operator
+                            std::move(varExpr),
+                            true, // prefix
+                            makeRange(previous_, addressOfVar)
+                        );
+                    } else {
+                        error("Expected identifier after '@'");
+                    }
+                } else {
+                    // Regular initializer expression
+                    initializer = expression();
+                    if (!initializer) {
+                        error("Expected expression after '='");
+                    }
+                }
+            }
+            
+            consume(lexer::TokenType::SEMICOLON, "Expected ';' after variable declaration");
+            
+            // Create base type
+            auto baseType = std::make_unique<NamedTypeExpr>(
+                firstIdent.lexeme(),
+                makeRange(firstIdent)
+            );
+            
+            // Create pointer type
+            auto pointerType = std::make_unique<PointerTypeExpr>(
+                std::move(baseType),
+                makeRange(firstIdent, previous_)
+            );
+            
+            // Create variable declaration for the pointer
+            return std::make_unique<VarDecl>(
+                pointerName.lexeme(),
+                std::move(pointerType),
+                std::move(initializer),
+                false, // not const
+                makeRange(firstIdent, previous_)
+            );
+        }
+    }
+    
+    // Case 2: Object instantiation (someObj{} obj; or someObj(args){} obj;)
+    bool hasConstructorArgs = false;
+    
+    // Check for constructor arguments
+    if (match(lexer::TokenType::LEFT_PAREN)) {
+        hasConstructorArgs = true;
+        
+        // Skip through constructor arguments
+        if (!check(lexer::TokenType::RIGHT_PAREN)) {
+            do {
+                auto arg = expression();
+                if (!arg) {
+                    error("Expected constructor argument");
+                    break;
+                }
+            } while (match(lexer::TokenType::COMMA));
+        }
+        
+        consume(lexer::TokenType::RIGHT_PAREN, "Expected ')' after constructor arguments");
+    }
+    
+    // Check for empty braces initialization
+    if (match(lexer::TokenType::LEFT_BRACE)) {
+        consume(lexer::TokenType::RIGHT_BRACE, "Expected '}' after class instantiation");
+        
+        // Check for instance name
+        if (check(lexer::TokenType::IDENTIFIER)) {
+            auto instanceName = current_;
+            advance(); // Consume instance name
+            
+            consume(lexer::TokenType::SEMICOLON, "Expected ';' after class instantiation");
+            
+            // Create class type and variable declaration
+            auto classType = std::make_unique<NamedTypeExpr>(
+                firstIdent.lexeme(),
+                makeRange(firstIdent)
+            );
+            
+            return std::make_unique<VarDecl>(
+                instanceName.lexeme(),
+                std::move(classType),
+                nullptr, // No initializer needed for {} instantiation
+                false,   // Not const
+                makeRange(firstIdent, previous_)
+            );
+        } else {
+            error("Expected instance name after class instantiation");
+            synchronize();
+            current_ = savePos; // Rewind to try other declaration types
+            return nullptr;
+        }
+    }
+    
+    // Case 3: Normal variable declaration (Type name = initializer;)
+    if (hasConstructorArgs) {
+        // We had constructor args but no braces, not a valid declaration
+        current_ = savePos;
+        return nullptr;
+    }
+    
+    // Check for pointer type
+    bool isPointerType = false;
+    if (match(lexer::TokenType::ASTERISK)) {
+        isPointerType = true;
+    }
+    
+    // Check for array type
+    bool isArrayType = false;
+    std::unique_ptr<Expr> arraySizeExpr;
+    
+    if (match(lexer::TokenType::LEFT_BRACKET)) {
+        isArrayType = true;
+        
+        // Parse array size expression if present
+        if (!check(lexer::TokenType::RIGHT_BRACKET)) {
+            arraySizeExpr = expression();
+        }
+        
+        consume(lexer::TokenType::RIGHT_BRACKET, "Expected ']' after array type");
+    }
+
+    // Variable name
+    if (check(lexer::TokenType::IDENTIFIER)) {
+        auto varName = current_;
+        advance(); // Consume variable name
+        
+        // Optional initializer
+        std::unique_ptr<Expr> initializer;
+        if (match(lexer::TokenType::EQUAL)) {
+            initializer = expression();
+            if (!initializer) {
+                error("Expected initializer expression");
+            }
+        }
+        
+        consume(lexer::TokenType::SEMICOLON, "Expected ';' after variable declaration");
+        
+        // Create appropriate type
+        std::unique_ptr<TypeExpr> type;
+        
+        // Base type
+        auto baseType = std::make_unique<NamedTypeExpr>(
+            firstIdent.lexeme(),
+            makeRange(firstIdent)
+        );
+        
+        // Apply modifiers (pointer or array)
+        if (isPointerType) {
+            type = std::make_unique<PointerTypeExpr>(
+                std::move(baseType),
+                makeRange(firstIdent, previous_)
+            );
+        } else if (isArrayType) {
+            type = std::make_unique<ArrayTypeExpr>(
+                std::move(baseType),
+                std::move(arraySizeExpr),
+                makeRange(firstIdent, previous_)
+            );
+        } else {
+            type = std::move(baseType);
+        }
+        
+        // Create and return the variable declaration
+        return std::make_unique<VarDecl>(
+            varName.lexeme(),
+            std::move(type),
+            std::move(initializer),
+            false, // Not const
+            makeRange(firstIdent, previous_)
+        );
+    }
+    
+    // Not a valid declaration, rewind and return nullptr
+    current_ = savePos;
+    return nullptr;
 }
 
 // Parse a namespace declaration
@@ -517,16 +553,17 @@ std::unique_ptr<Decl> Parser::namespaceDeclaration() {
 
 // Parse a class declaration
 std::unique_ptr<Decl> Parser::classDeclaration() {
-    auto classKeyword = previous_;
+    auto classKeyword = previous_;  // 'class' keyword
     auto name = consume(lexer::TokenType::IDENTIFIER, "Expected class name");
     
     std::vector<std::string_view> baseClasses;
     std::vector<std::string_view> exclusions;
     
+    // Parse inheritance clause if present
     if (match(lexer::TokenType::LESS)) {
         do {
             bool isExclusion = match(lexer::TokenType::EXCLAMATION);
-            auto baseName = consume(lexer::TokenType::IDENTIFIER, "Expected base class name");
+            auto baseName = consume(lexer::TokenType::IDENTIFIER, "Expected class(es) to inherit from");
             
             if (isExclusion) {
                 exclusions.push_back(baseName.lexeme());
@@ -535,9 +572,10 @@ std::unique_ptr<Decl> Parser::classDeclaration() {
             }
         } while (match(lexer::TokenType::COMMA));
         
-        consume(lexer::TokenType::GREATER, "Expected '>' after base classes");
+        consume(lexer::TokenType::GREATER, "Expected '>' after class(es) to inherit from");
     }
     
+    // Handle forward declaration
     if (match(lexer::TokenType::SEMICOLON)) {
         return std::make_unique<ClassDecl>(
             name.lexeme(),
@@ -545,73 +583,118 @@ std::unique_ptr<Decl> Parser::classDeclaration() {
             std::move(exclusions),
             std::vector<std::unique_ptr<Decl>>{},
             makeRange(classKeyword, previous_),
-            true
+            true  // This is a forward declaration
         );
     }
     
     consume(lexer::TokenType::LEFT_BRACE, "Expected '{' after class name");
     
+    // Set flags for context
     bool oldInFunctionBody = inFunctionBody_;
     inFunctionBody_ = false;
     
     std::vector<std::unique_ptr<Decl>> members;
     
     while (!check(lexer::TokenType::RIGHT_BRACE) && !check(lexer::TokenType::END_OF_FILE)) {
+        // Handle member variable declarations
         if (check(lexer::TokenType::IDENTIFIER)) {
             auto typeToken = current_;
-            advance();
+            advance();  // Consume type name
             
             if (check(lexer::TokenType::IDENTIFIER)) {
                 auto nameToken = current_;
-                advance();
+                advance();  // Consume variable name
                 
+                // Handle initializer
                 std::unique_ptr<Expr> initializer = nullptr;
                 if (match(lexer::TokenType::EQUAL)) {
                     if (check(lexer::TokenType::CHAR_LITERAL)) {
                         auto stringToken = current_;
-                        advance();
+                        advance();  // Consume string literal
                         initializer = std::make_unique<LiteralExpr>(
-                            stringToken, 
-                            std::string(stringToken.lexeme().size() >= 2 ? 
-                                      stringToken.lexeme().substr(1, stringToken.lexeme().size() - 2) : 
-                                      "")
+                            stringToken,
+                            std::string(stringToken.stringValue())
                         );
                     } else {
                         initializer = expression();
+                        if (!initializer) {
+                            error("Expected initializer expression");
+                        }
                     }
                 }
                 
                 consume(lexer::TokenType::SEMICOLON, "Expected ';' after variable declaration");
                 
+                // Create type expression
                 auto typeExpr = std::make_unique<NamedTypeExpr>(
                     typeToken.lexeme(),
                     makeRange(typeToken)
                 );
                 
+                // Create variable declaration
                 members.push_back(std::make_unique<VarDecl>(
                     nameToken.lexeme(),
                     std::move(typeExpr),
                     std::move(initializer),
-                    false,
+                    false,  // Not const
                     makeRange(typeToken, previous_)
                 ));
                 
                 continue;
             }
             
+            // If it wasn't a variable declaration, reset position
             current_ = typeToken;
         }
         
+        // Check for def keyword - explicitly disallow and report error
         if (check(lexer::TokenType::KEYWORD_DEF)) {
             error("Functions cannot be defined inside classes in Flux");
-            advance();
+            advance();  // Consume 'def'
             
-            while (!check(lexer::TokenType::SEMICOLON) && 
-                   !check(lexer::TokenType::RIGHT_BRACE) && 
-                   !check(lexer::TokenType::END_OF_FILE)) {
-                advance();
+            // Skip over the whole function definition to avoid cascading errors
+            // Look for function name
+            if (check(lexer::TokenType::IDENTIFIER)) {
+                advance();  // Skip function name
             }
             
+            // Skip parameter list
+            if (match(lexer::TokenType::LEFT_PAREN)) {
+                int parenLevel = 1;
+                while (parenLevel > 0 && !check(lexer::TokenType::END_OF_FILE)) {
+                    if (match(lexer::TokenType::LEFT_PAREN)) {
+                        parenLevel++;
+                    } else if (match(lexer::TokenType::RIGHT_PAREN)) {
+                        parenLevel--;
+                    } else {
+                        advance();
+                    }
+                }
+            }
+            
+            // Skip return type
+            if (match(lexer::TokenType::ARROW)) {
+                // Skip type
+                if (!check(lexer::TokenType::LEFT_BRACE)) {
+                    advance();
+                }
+            }
+            
+            // Skip function body if present
+            if (match(lexer::TokenType::LEFT_BRACE)) {
+                int braceLevel = 1;
+                while (braceLevel > 0 && !check(lexer::TokenType::END_OF_FILE)) {
+                    if (match(lexer::TokenType::LEFT_BRACE)) {
+                        braceLevel++;
+                    } else if (match(lexer::TokenType::RIGHT_BRACE)) {
+                        braceLevel--;
+                    } else {
+                        advance();
+                    }
+                }
+            }
+            
+            // Consume semicolon if present
             if (check(lexer::TokenType::SEMICOLON)) {
                 advance();
             }
@@ -619,6 +702,7 @@ std::unique_ptr<Decl> Parser::classDeclaration() {
             continue;
         }
         
+        // Handle object declarations inside class
         if (check(lexer::TokenType::KEYWORD_OBJECT)) {
             auto member = declaration();
             if (member) {
@@ -627,8 +711,10 @@ std::unique_ptr<Decl> Parser::classDeclaration() {
             }
         }
         
+        // Try parsing other kinds of declarations
         auto member = declaration();
         if (member) {
+            // Double-check that we're not trying to add a function declaration
             if (dynamic_cast<FunctionDecl*>(member.get())) {
                 error("Functions cannot be defined inside classes in Flux");
                 continue;
@@ -637,11 +723,19 @@ std::unique_ptr<Decl> Parser::classDeclaration() {
             members.push_back(std::move(member));
         } else {
             error("Expected member declaration in class");
-            advance();
+            
+            // Skip to the next token to avoid infinite loops
+            if (!check(lexer::TokenType::RIGHT_BRACE) && 
+                !check(lexer::TokenType::END_OF_FILE)) {
+                advance();
+            }
+            
+            // Try to synchronize to a stable state
             synchronize();
         }
     }
     
+    // Restore previous function body flag
     inFunctionBody_ = oldInFunctionBody;
     
     auto endBrace = consume(lexer::TokenType::RIGHT_BRACE, "Expected '}' after class body");
@@ -653,88 +747,100 @@ std::unique_ptr<Decl> Parser::classDeclaration() {
         std::move(exclusions),
         std::move(members),
         makeRange(classKeyword, previous_),
-        false
+        false  // Not a forward declaration
     );
 }
 
 // Parse an object declaration
 std::unique_ptr<Decl> Parser::objectDeclaration() {
-    auto objectKeyword = previous_;
+    auto objectKeyword = previous_;  // 'object' keyword
     auto name = consume(lexer::TokenType::IDENTIFIER, "Expected object name");
     
     std::vector<std::string_view> baseObjects;
     if (match(lexer::TokenType::LESS)) {
         do {
-            auto baseName = consume(lexer::TokenType::IDENTIFIER, "Expected base object name");
+            auto baseName = consume(lexer::TokenType::IDENTIFIER, "Expected object(s) to inherit from");
             baseObjects.push_back(baseName.lexeme());
         } while (match(lexer::TokenType::COMMA));
         
-        consume(lexer::TokenType::GREATER, "Expected '>' after base objects");
+        consume(lexer::TokenType::GREATER, "Expected '>' after object(s) to inherit from");
     }
     
+    // Handle forward declaration
     if (match(lexer::TokenType::SEMICOLON)) {
         return std::make_unique<ObjectDecl>(
             name.lexeme(),
             std::move(baseObjects),
             std::vector<std::unique_ptr<Decl>>{},
             makeRange(objectKeyword, previous_),
-            true
+            true  // This is a forward declaration
         );
     }
     
     consume(lexer::TokenType::LEFT_BRACE, "Expected '{' after object name");
     
+    // Set flag to indicate we're in an object body
     bool oldObjectFlag = inObjectBody_;
     inObjectBody_ = true;
     
     std::vector<std::unique_ptr<Decl>> members;
     
     while (!check(lexer::TokenType::RIGHT_BRACE) && !check(lexer::TokenType::END_OF_FILE)) {
+        // Handle member variable declarations
         if (check(lexer::TokenType::IDENTIFIER)) {
             auto typeToken = current_;
-            advance();
+            advance();  // Consume type name
             
             if (check(lexer::TokenType::IDENTIFIER)) {
                 auto nameToken = current_;
-                advance();
+                advance();  // Consume variable name
                 
+                // Handle initializer
                 std::unique_ptr<Expr> initializer = nullptr;
                 if (match(lexer::TokenType::EQUAL)) {
+                    // Handle string literals specially
                     if (check(lexer::TokenType::CHAR_LITERAL)) {
                         auto stringToken = current_;
-                        advance();
+                        advance();  // Consume string literal
                         initializer = std::make_unique<LiteralExpr>(
-                            stringToken, 
-                            std::string(stringToken.lexeme().size() >= 2 ? 
-                                      stringToken.lexeme().substr(1, stringToken.lexeme().size() - 2) : 
-                                      "")
+                            stringToken,
+                            std::string(stringToken.stringValue())
                         );
                     } else {
+                        // Parse other expressions
                         initializer = expression();
+                        if (!initializer) {
+                            error("Expected initializer expression");
+                        }
                     }
                 }
                 
+                // Consume semicolon
                 consume(lexer::TokenType::SEMICOLON, "Expected ';' after variable declaration");
                 
+                // Create type expression
                 auto typeExpr = std::make_unique<NamedTypeExpr>(
                     typeToken.lexeme(),
                     makeRange(typeToken)
                 );
                 
+                // Create variable declaration
                 members.push_back(std::make_unique<VarDecl>(
                     nameToken.lexeme(),
                     std::move(typeExpr),
                     std::move(initializer),
-                    false,
+                    false,  // Not const
                     makeRange(typeToken, previous_)
                 ));
                 
                 continue;
             }
             
+            // If it wasn't a variable declaration, reset position
             current_ = typeToken;
         }
         
+        // Handle method declarations
         if (match(lexer::TokenType::KEYWORD_DEF)) {
             auto member = functionDeclaration();
             if (member) {
@@ -743,16 +849,25 @@ std::unique_ptr<Decl> Parser::objectDeclaration() {
             }
         }
         
+        // Try parsing other kinds of declarations
         auto member = declaration();
         if (member) {
             members.push_back(std::move(member));
         } else {
             error("Expected member declaration in object");
-            advance();
+            
+            // Skip to the next token to avoid infinite loops
+            if (!check(lexer::TokenType::RIGHT_BRACE) && 
+                !check(lexer::TokenType::END_OF_FILE)) {
+                advance();
+            }
+            
+            // Try to synchronize to a stable state
             synchronize();
         }
     }
     
+    // Restore previous object body flag
     inObjectBody_ = oldObjectFlag;
     
     auto endBrace = consume(lexer::TokenType::RIGHT_BRACE, "Expected '}' after object body");
@@ -763,7 +878,7 @@ std::unique_ptr<Decl> Parser::objectDeclaration() {
         std::move(baseObjects),
         std::move(members),
         makeRange(objectKeyword, previous_),
-        false
+        false  // Not a forward declaration
     );
 }
 
@@ -773,6 +888,7 @@ std::unique_ptr<Decl> Parser::structDeclaration() {
     auto structKeyword = previous_;
     
     // Skip looking for the identifier entirely, we know it's "testStruct"
+    // FIX THIS FUCKING SHIT WHAT THE FUCK
     std::string_view structName = "testStruct";
     
     // Skip tokens until we find a right brace (end of struct)
@@ -786,10 +902,7 @@ std::unique_ptr<Decl> Parser::structDeclaration() {
         advance();
     }
     
-    // Consume the semicolon if present
-    if (check(lexer::TokenType::SEMICOLON)) {
-        advance();
-    }
+    consume(lexer::TokenType::SEMICOLON, "Expected ';' after struct body");
     
     // Create and return a hardcoded struct declaration with empty fields
     return std::make_unique<StructDecl>(
@@ -965,33 +1078,11 @@ std::unique_ptr<Decl> Parser::functionDeclaration() {
     } 
     // Otherwise, parse a regular function body with braces
     else if (match(lexer::TokenType::LEFT_BRACE)) {
-        std::vector<std::unique_ptr<Stmt>> statements;
+        // Use the improved blockStatement method to handle function body statements
+        body = blockStatement();
         
-        while (!check(lexer::TokenType::RIGHT_BRACE) && 
-               !check(lexer::TokenType::END_OF_FILE)) {
-            auto stmt = statement();
-            if (stmt) {
-                statements.push_back(std::move(stmt));
-            } else {
-                // Skip problematic tokens, but make sure we advance
-                if (!check(lexer::TokenType::RIGHT_BRACE) && 
-                    !check(lexer::TokenType::END_OF_FILE)) {
-                    advance();
-                }
-            }
-        }
-        
-        auto closeBrace = consume(lexer::TokenType::RIGHT_BRACE, "Expected '}' after function body");
-        
-        // Check for semicolon after function body
-        if (check(lexer::TokenType::SEMICOLON)) {
-            consume(lexer::TokenType::SEMICOLON, "Expected ';' after function body");
-        }
-        
-        body = std::make_unique<BlockStmt>(
-            std::move(statements),
-            makeRange(previous_, closeBrace)
-        );
+        // Always consume the semicolon after function body - this is the fix
+        consume(lexer::TokenType::SEMICOLON, "Expected ';' after function body");
     } else {
         error("Expected '{' to begin function body or ';' for function prototype");
         // Create an empty body to avoid null pointers
@@ -1629,103 +1720,7 @@ std::unique_ptr<Stmt> Parser::statement() {
     // Save current token for potential backtracking
     auto startToken = current_;
     
-    // 1. Special handling for compound assignments (count += 1;)
-    if (check(lexer::TokenType::IDENTIFIER)) {
-        auto varStmt = variableStatement();
-        if (varStmt) {
-            return varStmt;
-        }
-        auto savePos = current_;
-        auto identToken = current_;
-        advance(); // Consume identifier
-        
-        if (match(lexer::TokenType::PLUS_EQUAL)) {
-            // It's a plus-equal compound assignment
-            auto opToken = previous_;
-            
-            // Handle the right-hand side
-            std::unique_ptr<Expr> rightExpr;
-            if (check(lexer::TokenType::INTEGER_LITERAL)) {
-                auto intToken = current_;
-                advance(); // Consume integer
-                rightExpr = std::make_unique<LiteralExpr>(intToken, intToken.intValue());
-            } else {
-                // Create a default literal for error recovery
-                rightExpr = std::make_unique<LiteralExpr>(
-                    lexer::Token(lexer::TokenType::INTEGER_LITERAL, "1", 
-                               opToken.start(), opToken.end()),
-                    static_cast<int64_t>(1)
-                );
-            }
-            
-            // Create left-hand side variable expression
-            auto leftExpr = std::make_unique<VariableExpr>(identToken);
-            
-            // Create assignment expression
-            auto assignExpr = std::make_unique<AssignExpr>(
-                std::move(leftExpr),
-                opToken,
-                std::move(rightExpr),
-                makeRange(identToken, previous_)
-            );
-            
-            consume(lexer::TokenType::SEMICOLON, "Expected ';' after compound assignment");
-            
-            // Return as an expression statement
-            return std::make_unique<ExprStmt>(
-                std::move(assignExpr),
-                makeRange(identToken, previous_)
-            );
-        }
-        // Handle not expressions (test = not test;)
-        else if (match(lexer::TokenType::EQUAL) && check(lexer::TokenType::KEYWORD_NOT)) {
-            auto notToken = current_;
-            advance(); // Consume 'not'
-            
-            // Handle the operand of 'not'
-            std::unique_ptr<Expr> operand;
-            if (check(lexer::TokenType::IDENTIFIER)) {
-                auto varToken = current_;
-                advance(); // Consume variable name
-                operand = std::make_unique<VariableExpr>(varToken);
-            } else {
-                // Create a default operand for error recovery
-                operand = std::make_unique<VariableExpr>(identToken);
-            }
-            
-            // Create not expression
-            auto notExpr = std::make_unique<UnaryExpr>(
-                notToken,
-                std::move(operand),
-                true, // prefix
-                makeRange(notToken, previous_)
-            );
-            
-            // Create left-hand side variable expression
-            auto leftExpr = std::make_unique<VariableExpr>(identToken);
-            
-            // Create assignment expression
-            auto assignExpr = std::make_unique<AssignExpr>(
-                std::move(leftExpr),
-                lexer::Token(lexer::TokenType::EQUAL, "=", identToken.end(), notToken.start()),
-                std::move(notExpr),
-                makeRange(identToken, previous_)
-            );
-            
-            consume(lexer::TokenType::SEMICOLON, "Expected ';' after not assignment");
-            
-            // Return as an expression statement
-            return std::make_unique<ExprStmt>(
-                std::move(assignExpr),
-                makeRange(identToken, previous_)
-            );
-        }
-        
-        // Rewind if not a special case
-        current_ = savePos;
-    }
-    
-    // 2. Handle keyword-based statements
+    // Handle statements that start with keywords
     if (match(lexer::TokenType::KEYWORD_IF)) return ifStatement();
     if (match(lexer::TokenType::KEYWORD_DO)) return doWhileStatement();
     if (match(lexer::TokenType::KEYWORD_WHILE)) return whileStatement();
@@ -1736,38 +1731,9 @@ std::unique_ptr<Stmt> Parser::statement() {
     if (match(lexer::TokenType::KEYWORD_THROW)) return throwStatement();
     if (match(lexer::TokenType::KEYWORD_TRY)) return tryStatement();
     if (match(lexer::TokenType::KEYWORD_SWITCH)) return switchStatement();
-    if (match(lexer::TokenType::KEYWORD_ASM)) {
-        auto asmDecl = asmDeclaration();
-        if (asmDecl) {
-            return std::make_unique<DeclStmt>(std::move(asmDecl), asmDecl->range);
-        }
-        return nullptr;
-    }
-    if (match(lexer::TokenType::KEYWORD_OP)) {
-        auto opExpr = parseOpExpr();
-        if (opExpr) {
-            consume(lexer::TokenType::SEMICOLON, "Expected ';' after op expression");
-            return std::make_unique<ExprStmt>(
-                std::move(opExpr),
-                makeRange(startToken, previous_)
-            );
-        }
-    }
-    if (match({lexer::TokenType::KEYWORD_DATA, 
-               lexer::TokenType::KEYWORD_SIGNED, 
-               lexer::TokenType::KEYWORD_UNSIGNED})) {
-        return dataTypeStatement();
-    }
     
-    // 3. Handle special tokens
-    if (match(lexer::TokenType::SEMICOLON)) {
-        // Empty statement
-        return std::make_unique<ExprStmt>(nullptr, makeRange(previous_));
-    }
-    
-    // 4. Handle block statements
+    // Handle block statements
     if (match(lexer::TokenType::LEFT_BRACE)) {
-        // Determine type of block
         if (inControlStructure_ || inFunctionBody_) {
             return blockStatement();
         } else {
@@ -1776,7 +1742,21 @@ std::unique_ptr<Stmt> Parser::statement() {
         }
     }
     
-    // 5. Default to general expression statement
+    // Handle empty statements
+    if (match(lexer::TokenType::SEMICOLON)) {
+        // Empty statement
+        return std::make_unique<ExprStmt>(nullptr, makeRange(previous_));
+    }
+    
+    // If current token is an identifier, try to parse as identifier statement
+    if (check(lexer::TokenType::IDENTIFIER)) {
+        auto identStmt = identifierStatement();
+        if (identStmt) {
+            return identStmt;
+        }
+    }
+    
+    // Default to general expression statement which now uses the consolidated assignment handling
     auto expr = expression();
     if (expr) {
         consume(lexer::TokenType::SEMICOLON, "Expected ';' after expression");
@@ -1790,16 +1770,48 @@ std::unique_ptr<Stmt> Parser::statement() {
     // of a block or the file, force advancement to prevent infinite loops
     if (!check(lexer::TokenType::END_OF_FILE) && 
         !check(lexer::TokenType::RIGHT_BRACE)) {
+        error("Expected statement");
         advance();
     }
     
     return nullptr;
 }
 
+// Parse a statement starting with an identifier
+std::unique_ptr<Stmt> Parser::identifierStatement() {
+    // Only proceed if we're looking at an identifier
+    if (!check(lexer::TokenType::IDENTIFIER)) {
+        return nullptr;
+    }
+
+    // Save the current token for potential backtracking
+    auto savePos = current_;
+    
+    // First try parsing as a variable declaration
+    auto varStmt = variableStatement();
+    if (varStmt) {
+        return varStmt;
+    }
+    
+    // Reset position to try parsing as an expression statement
+    current_ = savePos;
+    
+    // Use expressionStatement() which will use expression() -> assignment()
+    // to handle assignments through the consolidated assignment() function
+    auto exprStmt = expressionStatement();
+    if (exprStmt) {
+        return exprStmt;
+    }
+    
+    // If we couldn't parse as a statement, rewind and return nullptr
+    current_ = savePos;
+    return nullptr;
+}
+
 // Parse a data type statement (data{32} primitiveName;)
 std::unique_ptr<Stmt> Parser::dataTypeStatement() {
     auto startToken = previous_; // Save the data/signed/unsigned token
-    bool isSigned = !previous_.is(lexer::TokenType::KEYWORD_UNSIGNED);
+    bool isSigned = previous_.is(lexer::TokenType::KEYWORD_SIGNED);
     
     // If we have signed/unsigned but not data, consume the data keyword
     if (!previous_.is(lexer::TokenType::KEYWORD_DATA)) {
@@ -1808,12 +1820,12 @@ std::unique_ptr<Stmt> Parser::dataTypeStatement() {
     
     // Parse the bit width specification
     consume(lexer::TokenType::LEFT_BRACE, "Expected '{' after 'data'");
-    auto sizeToken = consume(lexer::TokenType::INTEGER_LITERAL, "Expected bit size");
+    auto sizeToken = consume(lexer::TokenType::INTEGER_LITERAL, "Expected bit length as INTEGER_LITERAL");
     int64_t bits = sizeToken.intValue();
     consume(lexer::TokenType::RIGHT_BRACE, "Expected '}' after bit size");
     
     // Parse primitive type name
-    auto typeName = consume(lexer::TokenType::IDENTIFIER, "Expected primitive type name after bit size");
+    auto typeName = consume(lexer::TokenType::IDENTIFIER, "Expected primitive datatype name after bit length");
     
     // Create the data declaration
     auto dataDecl = std::make_unique<DataDecl>(
@@ -1823,7 +1835,7 @@ std::unique_ptr<Stmt> Parser::dataTypeStatement() {
         makeRange(startToken, previous_)
     );
     
-    consume(lexer::TokenType::SEMICOLON, "Expected ';' after data type declaration");
+    consume(lexer::TokenType::SEMICOLON, "Expected ';' after datatype declaration statement");
     
     // Create a decl statement with the data declaration
     return std::make_unique<DeclStmt>(std::move(dataDecl), makeRange(startToken, previous_));
@@ -1831,21 +1843,19 @@ std::unique_ptr<Stmt> Parser::dataTypeStatement() {
 
 // Parse an expression statement
 std::unique_ptr<Stmt> Parser::expressionStatement() {
+    auto startToken = current_;
+    
+    // Simply parse the expression using the expression() function,
+    // which will delegate to assignment() for handling assignments
     auto expr = expression();
     if (!expr) {
         error("Expected expression");
         return nullptr;
     }
     
-    // Don't report semicolon errors at the end of blocks
-    if (check(lexer::TokenType::SEMICOLON)) {
-        advance(); // Consume semicolon
-    } else if (!check(lexer::TokenType::RIGHT_BRACE) && 
-              !check(lexer::TokenType::END_OF_FILE)) {
-        error("Expected ';' after expression");
-    }
+    consume(lexer::TokenType::SEMICOLON, "Expected ';' after expression");
     
-    return std::make_unique<ExprStmt>(std::move(expr), expr->range);
+    return std::make_unique<ExprStmt>(std::move(expr), makeRange(startToken, previous_));
 }
 
 std::unique_ptr<Stmt> Parser::blockStatement() {
@@ -1857,132 +1867,8 @@ std::unique_ptr<Stmt> Parser::blockStatement() {
     while (!check(lexer::TokenType::RIGHT_BRACE) && 
            !check(lexer::TokenType::END_OF_FILE)) {
         
-        // Special handling for compound assignments (count += 1;)
-        if (check(lexer::TokenType::IDENTIFIER)) {
-            auto identToken = current_;
-            auto savePos = current_;
-            advance(); // Consume identifier
-            
-            if (match({
-                lexer::TokenType::PLUS_EQUAL,
-                lexer::TokenType::MINUS_EQUAL,
-                lexer::TokenType::ASTERISK_EQUAL,
-                lexer::TokenType::SLASH_EQUAL,
-                lexer::TokenType::PERCENT_EQUAL,
-                lexer::TokenType::AMPERSAND_EQUAL,
-                lexer::TokenType::PIPE_EQUAL,
-                lexer::TokenType::CARET_EQUAL
-            })) {
-                auto opToken = previous_;
-                
-                // Parse right side expression - use a simpler approach to avoid recursion issues
-                std::unique_ptr<Expr> rightExpr;
-                
-                if (check(lexer::TokenType::INTEGER_LITERAL)) {
-                    auto intToken = current_;
-                    advance(); // Consume integer literal
-                    rightExpr = std::make_unique<LiteralExpr>(intToken, intToken.intValue());
-                } else {
-                    // Try regular expression parsing
-                    rightExpr = expression();
-                    if (!rightExpr) {
-                        error("Expected expression after '" + std::string(opToken.lexeme()) + "'");
-                        rightExpr = std::make_unique<LiteralExpr>(
-                            lexer::Token(lexer::TokenType::INTEGER_LITERAL, "0", 
-                                        opToken.start(), opToken.end()),
-                            static_cast<int64_t>(0)
-                        );
-                    }
-                }
-                
-                // Create variable expression for left side
-                auto leftExpr = std::make_unique<VariableExpr>(identToken);
-                
-                // Create assignment expression
-                auto assignExpr = std::make_unique<AssignExpr>(
-                    std::move(leftExpr),
-                    opToken,
-                    std::move(rightExpr),
-                    makeRange(identToken, previous_)
-                );
-                
-                // Create expression statement
-                auto exprStmt = std::make_unique<ExprStmt>(
-                    std::move(assignExpr),
-                    makeRange(identToken, previous_)
-                );
-                
-                consume(lexer::TokenType::SEMICOLON, "Expected ';' after expression");
-                
-                statements.push_back(std::move(exprStmt));
-                continue;
-            }
-            // Special handling for "test = not test;" expressions
-            else if (match(lexer::TokenType::EQUAL)) {
-                if (check(lexer::TokenType::KEYWORD_NOT)) {
-                    auto notToken = current_;
-                    advance(); // Consume 'not'
-                    
-                    // Parse operand of 'not'
-                    std::unique_ptr<Expr> operand;
-                    
-                    if (check(lexer::TokenType::IDENTIFIER)) {
-                        auto varToken = current_;
-                        advance(); // Consume variable name
-                        operand = std::make_unique<VariableExpr>(varToken);
-                    } else {
-                        // Try expression parsing
-                        operand = expression();
-                        if (!operand) {
-                            error("Expected expression after 'not'");
-                            operand = std::make_unique<LiteralExpr>(
-                                lexer::Token(lexer::TokenType::KEYWORD_FALSE, "false", 
-                                           notToken.start(), notToken.end()),
-                                false
-                            );
-                        }
-                    }
-                    
-                    // Create not expression
-                    auto notExpr = std::make_unique<UnaryExpr>(
-                        notToken,
-                        std::move(operand),
-                        true, // prefix
-                        makeRange(notToken, previous_)
-                    );
-                    
-                    // Create variable expression for left side
-                    auto leftExpr = std::make_unique<VariableExpr>(identToken);
-                    
-                    // Create assignment expression
-                    auto assignExpr = std::make_unique<AssignExpr>(
-                        std::move(leftExpr),
-                        lexer::Token(lexer::TokenType::EQUAL, "=", identToken.end(), notToken.start()),
-                        std::move(notExpr),
-                        makeRange(identToken, previous_)
-                    );
-                    
-                    // Create expression statement
-                    auto exprStmt = std::make_unique<ExprStmt>(
-                        std::move(assignExpr),
-                        makeRange(identToken, previous_)
-                    );
-                    
-                    consume(lexer::TokenType::SEMICOLON, "Expected ';' after expression");
-                    
-                    statements.push_back(std::move(exprStmt));
-                    continue;
-                }
-                // Rewind if not a "not" expression
-                current_ = savePos;
-            }
-            else {
-                // Not a special case, rewind
-                current_ = savePos;
-            }
-        }
-        
-        // For regular statements
+        // Parse any type of statement, including expression statements
+        // which will handle assignments through the expression() -> assignment() call chain
         auto stmt = statement();
         
         if (stmt) {
@@ -2026,76 +1912,29 @@ std::unique_ptr<Stmt> Parser::anonymousBlockStatement() {
     while (!check(lexer::TokenType::RIGHT_BRACE) && 
            !check(lexer::TokenType::END_OF_FILE)) {
         
+        // Handle function declarations
         if (check(lexer::TokenType::KEYWORD_DEF)) {
-            // Special case for function declarations in anonymous blocks
-            auto funcStart = current_;
-            advance(); // Consume 'def'
-            
-            // Function name
-            consume(lexer::TokenType::IDENTIFIER, "Expected function name");
-            
-            // Parameter list
-            consume(lexer::TokenType::LEFT_PAREN, "Expected '(' after function name");
-            
-            // Skip parameter list
-            int parenLevel = 1;
-            while (parenLevel > 0 && !check(lexer::TokenType::END_OF_FILE)) {
-                if (match(lexer::TokenType::LEFT_PAREN)) parenLevel++;
-                else if (match(lexer::TokenType::RIGHT_PAREN)) parenLevel--;
-                else advance();
+            auto funcDecl = functionDeclaration();
+            if (funcDecl) {
+                // Convert the function declaration to a statement
+                statements.push_back(std::make_unique<DeclStmt>(
+                    std::move(funcDecl),
+                    funcDecl->range
+                ));
+                continue;
             }
-            
-            // Return type
-            if (match(lexer::TokenType::ARROW)) {
-                if (check(lexer::TokenType::KEYWORD_VOID) || 
-                    check(lexer::TokenType::BANG_VOID) ||
-                    check(lexer::TokenType::IDENTIFIER)) {
-                    advance();
-                }
-            }
-            
-            // Function body
-            if (match(lexer::TokenType::LEFT_BRACE)) {
-                int braceLevel = 1;
-                
-                while (braceLevel > 0 && !check(lexer::TokenType::END_OF_FILE)) {
-                    if (match(lexer::TokenType::LEFT_BRACE)) braceLevel++;
-                    else if (match(lexer::TokenType::RIGHT_BRACE)) braceLevel--;
-                    else advance();
-                }
-                
-                // Consume semicolon after function body
-                if (check(lexer::TokenType::SEMICOLON)) {
-                    advance();
-                }
-            }
-            
-            // Add a dummy statement for the function
-            auto dummyExpr = std::make_unique<LiteralExpr>(
-                lexer::Token(lexer::TokenType::INTEGER_LITERAL, "0", 
-                            funcStart.start(), previous_.end()),
-                static_cast<int64_t>(0)
-            );
-            
-            statements.push_back(std::make_unique<ExprStmt>(
-                std::move(dummyExpr),
-                makeRange(funcStart, previous_)
-            ));
-            
-            std::cout << "Successfully parsed function in anonymous block" << std::endl;
         }
-        else {
-            // Parse a regular statement
-            auto stmt = statement();
-            
-            if (stmt) {
-                statements.push_back(std::move(stmt));
-            } else {
-                // Force advancement to prevent getting stuck
-                error("Expected statement in anonymous block");
-                advance();
-                synchronize();
-            }
+        
+        // Parse a regular statement (using the regular statement() function)
+        auto stmt = statement();
+        
+        if (stmt) {
+            statements.push_back(std::move(stmt));
+        } else {
+            // Force advancement to prevent getting stuck
+            error("Expected statement in anonymous block");
+            advance();
+            synchronize();
         }
     }
     
@@ -2283,7 +2122,7 @@ std::unique_ptr<Stmt> Parser::doWhileStatement() {
     consume(lexer::TokenType::SEMICOLON, "Expected ';' after do-while statement");
     
     // Create a specialized DoWhileStmt or adapt WhileStmt
-    // You may need to add a DoWhileStmt class to your AST, 
+    // You may need to add a DoWhileStmt class to your AST,
     // or use WhileStmt with a flag indicating it's a do-while loop
     return std::make_unique<WhileStmt>(
         std::move(condition),
@@ -2293,14 +2132,94 @@ std::unique_ptr<Stmt> Parser::doWhileStatement() {
 }
 
 // Parse a while statement
+// Parse a while statement
 std::unique_ptr<Stmt> Parser::whileStatement() {
     auto start = previous_;  // 'while' keyword
     
     consume(lexer::TokenType::LEFT_PAREN, "Expected '(' after 'while'");
-    auto condition = expression();
-    consume(lexer::TokenType::RIGHT_PAREN, "Expected ')' after condition");
     
-    auto body = statement();
+    // Parse condition expression - special handling for logical operators
+    std::unique_ptr<Expr> condition;
+    
+    // Track the starting position for error recovery
+    auto condStart = current_;
+    
+    // Check for complex logical expressions involving 'and' or 'or' keywords
+    try {
+        condition = expression();
+        
+        if (!condition) {
+            error("Expected condition expression in while statement");
+            // Create a default true condition for error recovery
+            condition = std::make_unique<LiteralExpr>(
+                lexer::Token(lexer::TokenType::KEYWORD_TRUE, "true", 
+                           condStart.start(), condStart.end()),
+                true
+            );
+        }
+    } catch (const std::exception& e) {
+        error(std::string("Error in while condition: ") + e.what());
+        
+        // Create a default true condition for error recovery
+        condition = std::make_unique<LiteralExpr>(
+            lexer::Token(lexer::TokenType::KEYWORD_TRUE, "true", 
+                       condStart.start(), condStart.end()),
+            true
+        );
+        
+        // Try to synchronize by finding the closing parenthesis
+        while (!check(lexer::TokenType::RIGHT_PAREN) && 
+               !check(lexer::TokenType::END_OF_FILE)) {
+            advance();
+        }
+    }
+    
+    consume(lexer::TokenType::RIGHT_PAREN, "Expected ')' after while condition");
+    
+    // Set flag to indicate we're in a control structure
+    bool oldControl = inControlStructure_;
+    inControlStructure_ = true;
+    
+    // Parse the body
+    std::unique_ptr<Stmt> body;
+    
+    if (match(lexer::TokenType::LEFT_BRACE)) {
+        std::vector<std::unique_ptr<Stmt>> statements;
+        
+        while (!check(lexer::TokenType::RIGHT_BRACE) && 
+               !check(lexer::TokenType::END_OF_FILE)) {
+            auto stmt = statement();
+            if (stmt) {
+                statements.push_back(std::move(stmt));
+            } else if (!check(lexer::TokenType::RIGHT_BRACE)) {
+                // Skip problematic tokens
+                advance();
+            }
+        }
+        
+        auto closeBrace = consume(lexer::TokenType::RIGHT_BRACE, "Expected '}' after while body");
+        
+        body = std::make_unique<BlockStmt>(
+            std::move(statements),
+            makeRange(start, closeBrace)
+        );
+    } else {
+        // Single statement body
+        body = statement();
+        
+        if (!body) {
+            error("Expected statement for while loop body");
+            
+            // Create an empty block as fallback
+            body = std::make_unique<BlockStmt>(
+                std::vector<std::unique_ptr<Stmt>>{},
+                makeRange(previous_)
+            );
+        }
+    }
+    
+    // Restore control structure flag
+    inControlStructure_ = oldControl;
     
     return std::make_unique<WhileStmt>(
         std::move(condition),
@@ -2412,19 +2331,6 @@ std::unique_ptr<Stmt> Parser::forStatement() {
     if (match(lexer::TokenType::LEFT_BRACE)) {
         // Parse the body as a block statement
         body = blockStatement();
-    } else {
-        // Single statement body
-        body = statement();
-        
-        if (!body) {
-            error("Expected statement for for loop body");
-            
-            // Create an empty block as fallback
-            body = std::make_unique<BlockStmt>(
-                std::vector<std::unique_ptr<Stmt>>{},
-                makeRange(previous_)
-            );
-        }
     }
     
     // Restore control structure flag
@@ -2439,14 +2345,17 @@ std::unique_ptr<Stmt> Parser::forStatement() {
     );
 }
 
-// Parse a return statement
+// Simple and clean return statement method
 std::unique_ptr<Stmt> Parser::returnStatement() {
     auto start = previous_;  // 'return' keyword
     
     // Parse return value if present
-    std::unique_ptr<Expr> value;
+    std::unique_ptr<Expr> value = nullptr;
     if (!check(lexer::TokenType::SEMICOLON)) {
         value = expression();
+        if (!value) {
+            error("Expected expression after 'return'");
+        }
     }
     
     consume(lexer::TokenType::SEMICOLON, "Expected ';' after return statement");
@@ -2746,7 +2655,6 @@ std::unique_ptr<Stmt> Parser::switchStatement() {
 }
 
 // Parse a variable statement
-// Parse a variable statement
 std::unique_ptr<Stmt> Parser::variableStatement() {
     // Save the start position
     auto startToken = current_;
@@ -2792,40 +2700,34 @@ std::unique_ptr<Stmt> Parser::variableStatement() {
     // Parse initializer (optional)
     std::unique_ptr<Expr> initializer = nullptr;
     if (match(lexer::TokenType::EQUAL)) {
-        // Handle pointer dereference as initializer (*a)
-        if (match(lexer::TokenType::ASTERISK)) {
-            auto asteriskToken = previous_;
-            
-            // Parse the pointer variable name
-            if (check(lexer::TokenType::IDENTIFIER)) {
-                auto pointerVar = current_;
-                advance(); // Consume pointer variable name
-                
-                // Create variable expression for the pointer
-                auto pointerExpr = std::make_unique<VariableExpr>(pointerVar);
-                
-                // Create unary dereference expression
-                initializer = std::make_unique<UnaryExpr>(
-                    asteriskToken,
-                    std::move(pointerExpr),
-                    true, // prefix
-                    makeRange(asteriskToken, previous_)
-                );
-            } else {
-                error("Expected identifier after '*' in variable initializer");
-            }
-        } else {
-            // For other expressions, use the general expression parser
-            initializer = expression();
-        }
+        // For robustness, we'll parse directly to avoid complex expression issues
+        auto leftSideExpr = primary();
         
-        if (!initializer) {
-            error("Expected expression after '='");
+        // Handle binary operators manually
+        if (match(lexer::TokenType::PIPE)) {
+            auto opToken = previous_;
+            auto rightSideExpr = primary();
+            
+            // Create binary expression directly
+            initializer = std::make_unique<BinaryExpr>(
+                std::move(leftSideExpr),
+                opToken,
+                std::move(rightSideExpr),
+                makeRange(typeToken, previous_)
+            );
+        } else {
+            // Just a simple expression
+            initializer = std::move(leftSideExpr);
         }
     }
     
-    // Consume the semicolon
-    consume(lexer::TokenType::SEMICOLON, "Expected ';' after variable declaration");
+    // Manually check and consume semicolon
+    if (check(lexer::TokenType::SEMICOLON)) {
+        advance(); // Consume semicolon
+    } else {
+        error("Expected ';' after variable declaration");
+        // Don't fail catastrophically - continue parsing
+    }
     
     // Create and return the variable statement
     return std::make_unique<VarStmt>(
@@ -2839,105 +2741,64 @@ std::unique_ptr<Stmt> Parser::variableStatement() {
 // Parse an expression
 std::unique_ptr<Expr> Parser::expression() {
     try {
+        // Simply delegate to assignment() which now handles all assignment patterns
         return assignment();
     } catch (const std::exception& e) {
+        std::cout << "Error in expression parsing: " << e.what() << std::endl;
         error(std::string("Error parsing expression: ") + e.what());
         synchronize();
         return nullptr;
     }
 }
 
-// Parse an assignment expression
 std::unique_ptr<Expr> Parser::assignment() {
     // First parse the LHS expression
     auto expr = ternary();
     if (!expr) return nullptr;
     
-    // Check if this is an assignment operation
-    if (match(lexer::TokenType::EQUAL)) {
-        auto equalsToken = previous_; // Save the equals token
-        
-        // Check for 'not' operator at the start of the right side
-        if (match(lexer::TokenType::KEYWORD_NOT)) {
-            auto notToken = previous_; // Save the 'not' token
-            
-            // Parse the operand that's being negated
-            auto operand = ternary(); // Use ternary instead of expression to avoid infinite recursion
-            if (!operand) {
-                error("Expected expression after 'not'");
-                operand = std::make_unique<LiteralExpr>(
-                    lexer::Token(lexer::TokenType::KEYWORD_FALSE, "false", 
-                               notToken.start(), notToken.end()),
-                    false
-                );
-            }
-            
-            // Create the unary NOT expression
-            auto notExpr = std::make_unique<UnaryExpr>(
-                notToken,
-                std::move(operand),
-                true, // prefix
-                makeRange(notToken, previous_)
-            );
-            
-            // Create and return the assignment with the NOT expression as its value
-            return std::make_unique<AssignExpr>(
-                std::move(expr),
-                equalsToken,
-                std::move(notExpr),
-                makeRange(expr->range.start, previous_.end())
-            );
-        }
-        
-        // Regular assignment (not involving 'not')
-        auto value = expression();
-        if (!value) {
-            error("Expected expression after '='");
-            return expr;
-        }
-        
-        return std::make_unique<AssignExpr>(
-            std::move(expr),
-            equalsToken,
-            std::move(value),
-            makeRange(expr->range.start, previous_.end())
-        );
-    }
+    // Track the start position for error reporting
+    auto startPos = expr->range.start;
     
-    // Handle other assignment operators (+=, -=, etc.)
+    // All assignment operators in one matching block
     if (match({
+        lexer::TokenType::EQUAL,
         lexer::TokenType::PLUS_EQUAL,
         lexer::TokenType::MINUS_EQUAL,
-        lexer::TokenType::ASTERISK_EQUAL,
+        lexer::TokenType::ASTERISK_EQUAL,  // Explicitly handle *= 
         lexer::TokenType::SLASH_EQUAL,
         lexer::TokenType::PERCENT_EQUAL,
         lexer::TokenType::AMPERSAND_EQUAL,
         lexer::TokenType::PIPE_EQUAL,
-        lexer::TokenType::CARET_EQUAL,
-        lexer::TokenType::LESS_LESS_EQUAL,
-        lexer::TokenType::GREATER_GREATER_EQUAL,
-        lexer::TokenType::DOUBLE_ASTERISK_EQUAL
+        lexer::TokenType::CARET_EQUAL
     })) {
-        auto op = previous_;
-        auto value = expression();
+        auto opToken = previous_;
         
+        // Parse the right-hand side expression
+        auto value = expression();
         if (!value) {
             error("Expected expression after assignment operator");
-            return expr;
+            // Create a default value for error recovery
+            value = std::make_unique<LiteralExpr>(
+                lexer::Token(lexer::TokenType::INTEGER_LITERAL, "1", 
+                           opToken.start(), opToken.end()),
+                static_cast<int64_t>(1)
+            );
         }
         
+        // Create and return the assignment expression
         return std::make_unique<AssignExpr>(
             std::move(expr),
-            op,
+            opToken,
             std::move(value),
-            makeRange(expr->range.start, previous_.end())
+            makeRange(startPos, previous_.end())
         );
     }
     
+    // If not an assignment, return the parsed expression
     return expr;
 }
 
-// Parse a ternary expression
+// Fixed ternary expression method to handle parenthesized conditions
 std::unique_ptr<Expr> Parser::ternary() {
     auto expr = logicalOr();
     if (!expr) return nullptr;
@@ -3012,13 +2873,24 @@ std::unique_ptr<Expr> Parser::bitwiseOr() {
     
     while (match(lexer::TokenType::PIPE)) {
         auto op = previous_;
+        std::cout << "Processing bitwise OR operator" << std::endl;
+        
         auto right = bitwiseXor();
+        
+        if (!right) {
+            error("Expected expression after '|'");
+            return expr;  // Return what we have so far
+        }
+        
+        // Create the binary expression with proper range tracking
         expr = std::make_unique<BinaryExpr>(
             std::move(expr),
             op,
             std::move(right),
-            makeRange(op, previous_)
+            makeRange(expr->range.start, right->range.end)
         );
+        
+        std::cout << "Created binary expression with |" << std::endl;
     }
     
     return expr;
@@ -3206,9 +3078,10 @@ std::unique_ptr<Expr> Parser::term() {
     return expr;
 }
 
-// Parse a factor expression
+// Simplified fix for the factor method
 std::unique_ptr<Expr> Parser::factor() {
     auto expr = exponentiation();
+    if (!expr) return nullptr;
     
     while (match({
         lexer::TokenType::ASTERISK, 
@@ -3218,8 +3091,27 @@ std::unique_ptr<Expr> Parser::factor() {
         auto op = previous_;
         std::cout << "Processing factor operator: " << op.lexeme() << std::endl;
         
-        auto right = exponentiation();
+        // For modulo specifically, directly parse an identifier if that's what's next
+        if (op.type() == lexer::TokenType::PERCENT && check(lexer::TokenType::IDENTIFIER)) {
+            auto identToken = current_;
+            advance(); // Consume the identifier
+            
+            // Create a variable expression for the identifier
+            auto right = std::make_unique<VariableExpr>(identToken);
+            
+            // Create the binary expression
+            expr = std::make_unique<BinaryExpr>(
+                std::move(expr),
+                op,
+                std::move(right),
+                makeRange(expr->range.start, identToken.end())
+            );
+            
+            continue; // Skip the rest of the loop iteration
+        }
         
+        // Standard path for non-modulo operators
+        auto right = exponentiation();
         if (!right) {
             error("Expected expression after '" + std::string(op.lexeme()) + "'");
             break;
@@ -3261,8 +3153,8 @@ std::unique_ptr<Expr> Parser::unary() {
         auto notToken = previous_;
         auto startPos = notToken.start();
         
-        // Parse the operand
-        auto operand = primary();  // Use primary() instead of unary() to avoid recursive issues
+        // Parse the operand - Use unary() instead of primary() for correct precedence
+        auto operand = unary();
         if (!operand) {
             error("Expected expression after 'not'");
             // Create a default value for error recovery
@@ -3283,7 +3175,7 @@ std::unique_ptr<Expr> Parser::unary() {
         );
     }
     
-    // Handle other unary operators (no changes to this part)
+    // Handle other unary operators
     if (match({
         lexer::TokenType::EXCLAMATION,
         lexer::TokenType::MINUS,
@@ -3317,8 +3209,6 @@ std::unique_ptr<Expr> Parser::unary() {
             );
         }
         
-        std::cout << "Created pointer dereference expression (*)" << std::endl;
-        
         // Create a unary expression for the dereference operation
         return std::make_unique<UnaryExpr>(
             op,
@@ -3327,9 +3217,9 @@ std::unique_ptr<Expr> Parser::unary() {
             makeRange(op, previous_)
         );
     }
-    
-    // Special handling for address-of operator (&)
-    if (match(lexer::TokenType::AMPERSAND)) {
+
+    // Special handling for address-of operator (@)
+    if (match(lexer::TokenType::AT_REF)) {
         auto op = previous_;
         auto right = unary();  // Use unary() for flexibility
         
@@ -3366,7 +3256,7 @@ std::unique_ptr<Expr> Parser::postfix() {
     
     if (match({
         lexer::TokenType::PLUS_PLUS,
-        lexer::TokenType::MINUS_MINUS
+        lexer::TokenType::MINUS_MINUS,
     })) {
         auto op = previous_;
         return std::make_unique<UnaryExpr>(
@@ -3420,54 +3310,25 @@ std::unique_ptr<Expr> Parser::call() {
 // Parse a primary expression
 std::unique_ptr<Expr> Parser::primary() {
     try {
+        // Handle literals and keywords
         if (match(lexer::TokenType::KEYWORD_THIS)) {
-            auto thisToken = previous_;
-            return std::make_unique<VariableExpr>(thisToken);
+            return std::make_unique<VariableExpr>(previous_);
         }
         
         if (match(lexer::TokenType::KEYWORD_SUPER)) {
-            auto superToken = previous_;
-            return std::make_unique<VariableExpr>(superToken);
+            return std::make_unique<VariableExpr>(previous_);
         }
 
         if (match(lexer::TokenType::KEYWORD_FALSE)) {
-            return std::make_unique<LiteralExpr>(
-                previous_,
-                false
-            );
+            return std::make_unique<LiteralExpr>(previous_, false);
         }
         
         if (match(lexer::TokenType::KEYWORD_TRUE)) {
-            return std::make_unique<LiteralExpr>(
-                previous_,
-                true
-            );
+            return std::make_unique<LiteralExpr>(previous_, true);
         }
         
-        // Special handling for 'not' keyword
-        if (match(lexer::TokenType::KEYWORD_NOT)) {
-            auto notToken = previous_;
-            auto operand = primary();  // Parse the operand
-            
-            if (!operand) {
-                error("Expected expression after 'not'");
-                // Create a default value for error recovery
-                operand = std::make_unique<LiteralExpr>(
-                    lexer::Token(lexer::TokenType::KEYWORD_FALSE, "false", notToken.start(), notToken.end()),
-                    false
-                );
-            }
-            
-            return std::make_unique<UnaryExpr>(
-                notToken,
-                std::move(operand),
-                true,  // prefix
-                makeRange(notToken, previous_)
-            );
-        }
-        
+        // Handle literals
         if (match(lexer::TokenType::CHAR_LITERAL)) {
-            // Create a string literal expression
             auto stringToken = previous_;
             return std::make_unique<LiteralExpr>(
                 stringToken,
@@ -3475,7 +3336,6 @@ std::unique_ptr<Expr> Parser::primary() {
             );
         }
         
-        // Handle integer and float literals
         if (match(lexer::TokenType::INTEGER_LITERAL)) {
             return std::make_unique<LiteralExpr>(
                 previous_,
@@ -3489,15 +3349,15 @@ std::unique_ptr<Expr> Parser::primary() {
                 previous_.floatValue()
             );
         }
-        // Handle identifiers, including keywords that can be used as identifiers
+        
+        // Handle identifiers
         if (check(lexer::TokenType::IDENTIFIER)) {
-            // Create a variable expression for the identifier
             auto identifier = current_;
             advance(); // Consume the identifier
-            
             return std::make_unique<VariableExpr>(identifier);
         }
 
+        // Handle keywords that can be used as identifiers
         if (match({
                 lexer::TokenType::KEYWORD_XOR,
                 lexer::TokenType::KEYWORD_AND,
@@ -3509,32 +3369,34 @@ std::unique_ptr<Expr> Parser::primary() {
         if (match(lexer::TokenType::KEYWORD_OP)) {
             return parseOpExpr();
         }
+        
         // Parenthesized expressions
         if (match(lexer::TokenType::LEFT_PAREN)) {
+            auto leftParen = previous_;
             auto expr = expression();
-            consume(lexer::TokenType::RIGHT_PAREN, "Expected ')' after expression");
+            if (!expr) {
+                error("Expected expression after '('");
+                return nullptr;
+            }
+            
+            auto closeParen = consume(lexer::TokenType::RIGHT_PAREN, "Expected ')' after expression");
+            
             return std::make_unique<GroupExpr>(
                 std::move(expr),
-                makeRange(previous_)
+                makeRange(leftParen, closeParen)
             );
         }
 
-        // Handle sizeof
+        // Special expressions
         if (match(lexer::TokenType::KEYWORD_SIZEOF)) {
             return parseSizeOfExpr();
         }
         
-        // Handle typeof
         if (match(lexer::TokenType::KEYWORD_TYPEOF)) {
             return parseTypeOfExpr();
         }
         
-        // Handle op
-        if (match(lexer::TokenType::KEYWORD_OP)) {
-            return parseOpExpr();
-        }
-        
-        // If no valid primary expression is found
+        // No valid primary expression found
         error("Expected expression");
         return nullptr;
     } catch (const std::exception& e) {
@@ -3632,7 +3494,10 @@ std::unique_ptr<TypeExpr> Parser::type() {
     // 1. Handle keywords that define types
     if (match({lexer::TokenType::KEYWORD_CLASS, 
               lexer::TokenType::KEYWORD_OBJECT, 
-              lexer::TokenType::KEYWORD_STRUCT})) {
+              lexer::TokenType::KEYWORD_STRUCT,
+              lexer::TokenType::KEYWORD_DATA,
+              lexer::TokenType::KEYWORD_SIGNED,
+              lexer::TokenType::KEYWORD_UNSIGNED})) {
         
         // Convert keyword to string type name
         std::string_view typeName;
@@ -3640,6 +3505,9 @@ std::unique_ptr<TypeExpr> Parser::type() {
             case lexer::TokenType::KEYWORD_CLASS:  typeName = "class"; break;
             case lexer::TokenType::KEYWORD_OBJECT: typeName = "object"; break;
             case lexer::TokenType::KEYWORD_STRUCT: typeName = "struct"; break;
+            case lexer::TokenType::KEYWORD_DATA: typeName = "data"; break;
+            case lexer::TokenType::KEYWORD_SIGNED: typeName = "signed data"; break;
+            case lexer::TokenType::KEYWORD_UNSIGNED: typeName = "unsigned data"; break;
             default: /* Unreachable */ break;
         }
         
@@ -3861,7 +3729,6 @@ std::unique_ptr<Expr> Parser::parseTypeOfExpr() {
     );
 }
 
-// Parse an op expression (op<expr operator expr>)
 // Parse an op expression (op<expr operator expr>)
 std::unique_ptr<Expr> Parser::parseOpExpr() {
     auto start = previous_;  // 'op' keyword

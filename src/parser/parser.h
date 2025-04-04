@@ -62,6 +62,7 @@ private:
     lexer::Token advance();
     void advanceWithGuard(const char* context);
     bool check(lexer::TokenType type) const;
+    bool checkNext(lexer::TokenType type);
     bool match(lexer::TokenType type);
     bool match(std::initializer_list<lexer::TokenType> types);
     lexer::Token consume(lexer::TokenType type, std::string_view message);
@@ -76,6 +77,7 @@ private:
     
     // Parsing declarations
     std::unique_ptr<Decl> declaration();
+    std::unique_ptr<Decl> identifierDeclaration();
     std::unique_ptr<Decl> namespaceDeclaration();
     std::unique_ptr<Decl> classDeclaration();
     std::unique_ptr<Decl> objectDeclaration();
@@ -93,6 +95,7 @@ private:
     
     // Parsing statements
     std::unique_ptr<Stmt> statement();
+    std::unique_ptr<Stmt> identifierStatement();
     std::unique_ptr<Stmt> dataTypeStatement();
     std::unique_ptr<Stmt> expressionStatement();
     std::unique_ptr<Stmt> anonymousBlockStatement();

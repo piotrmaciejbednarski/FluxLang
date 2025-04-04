@@ -217,7 +217,7 @@ Token Tokenizer::makeToken(TokenType type) const {
         case TokenType::SEMICOLON:
         case TokenType::COMMA:
         case TokenType::ASTERISK_PTR:
-        case TokenType::AMPERSAND_REF:
+        case TokenType::AT_REF:
         case TokenType::LEFT_PAREN:
         case TokenType::RIGHT_PAREN:
         case TokenType::LEFT_BRACE:
@@ -624,6 +624,9 @@ Token Tokenizer::scanOperator() {
             if (match('&')) return makeToken(TokenType::AMPERSAND_AMPERSAND);
             if (match('=')) return makeToken(TokenType::AMPERSAND_EQUAL);
             return makeToken(TokenType::AMPERSAND);
+
+        case '@':
+            return makeToken(TokenType::AT_REF);
             
         case '|':
             if (match('|')) return makeToken(TokenType::PIPE_PIPE);
