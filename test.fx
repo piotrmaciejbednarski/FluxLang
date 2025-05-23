@@ -204,7 +204,7 @@ def main() -> int
     Integer b = 10;
     Integer *ptr_a = @a;
 
-    int x = (Integer)p;  // Casting fails
+    int x = Integer:p;  // Casting fails
     
     // Call object method
     app.run();

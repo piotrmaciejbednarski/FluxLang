@@ -1,690 +1,598 @@
 #include "tokenizer.h"
 #include <cctype>
-#include <unordered_map>
+#include <cstring>
+#include <charconv>
 
 namespace flux {
 namespace lexer {
 
-// Constructor with source code
-Tokenizer::Tokenizer(std::shared_ptr<common::Source> source)
-    : source_(std::move(source)),
-      text_(source_->text()),
-      position_(0),
-      line_(1),
-      column_(1) {
+Tokenizer::Tokenizer(std::shared_ptr<common::Source> source, common::Arena& arena)
+    : source_(source), arena_(arena), current_(0), position_(1, 1),
+      iStringState_(IStringState::NONE), iStringBraceDepth_(0) {
 }
 
-// Tokenize the entire source and return all tokens
-std::vector<Token> Tokenizer::tokenizeAll() {
+std::vector<Token> Tokenizer::tokenize() {
     std::vector<Token> tokens;
     
-    // Reset state
-    position_ = 0;
-    line_ = 1;
-    column_ = 1;
-    
-    // Tokenize until end of file
-    while (true) {
+    while (!isAtEnd()) {
         Token token = nextToken();
-        tokens.push_back(token);
-        
-        if (token.type() == TokenType::END_OF_FILE || token.type() == TokenType::ERROR) {
+        if (token.type != TokenType::WHITESPACE && token.type != TokenType::COMMENT) {
+            tokens.push_back(token);
+        }
+        if (token.type == TokenType::ERROR) {
             break;
         }
     }
+    
+    // Add EOF token
+    common::SourcePosition eofPos = position_;
+    tokens.emplace_back(TokenType::END_OF_FILE, "", makeRange(eofPos));
     
     return tokens;
 }
 
-// Get the next token
 Token Tokenizer::nextToken() {
-    // Skip whitespace and comments
-    skipWhitespaceAndComments();
+    if (iStringState_ != IStringState::NONE) {
+        return lexIStringExpression(position_);
+    }
     
-    // Check for end of file
+    skipWhitespace();
+    
     if (isAtEnd()) {
-        return makeToken(TokenType::END_OF_FILE);
+        return makeToken(TokenType::END_OF_FILE, position_);
     }
     
-    // Determine token type and scan it
-    char c = current();
+    common::SourcePosition start = position_;
+    char c = advance();
     
-    if (isAlpha(c) || c == '_') {
-        return scanIdentifier();
-    }
-    
+    // Numbers
     if (isDigit(c)) {
-        return scanNumber();
+        current_--; // Back up
+        position_ = start;
+        return lexNumber(start);
     }
     
+    // Identifiers and keywords
+    if (isAlpha(c) || c == '_') {
+        current_--; // Back up
+        position_ = start;
+        return lexIdentifier(start);
+    }
+    
+    // Strings
     if (c == '"') {
-        // Check for i-string
-        if (position_ > 0 && text_[position_ - 1] == 'i') {
-            // Backtrack to include the 'i'
-            position_--;
-            column_--;
-            return scanIString();
-        }
-        return scanString();
+        current_--; // Back up
+        position_ = start;
+        return lexString(start);
     }
     
-    return scanOperator();
+    // I-strings
+    if (c == 'i' && peek() == '"') {
+        current_--; // Back up
+        position_ = start;
+        return lexIString(start);
+    }
+    
+    // Comments - handle before other operators
+    if (c == '/' && peek() == '/') {
+        current_--; // Back up
+        position_ = start;
+        skipComment();
+        return makeToken(TokenType::COMMENT, start);
+    }
+    
+    // Single character tokens and operators
+    switch (c) {
+        // Simple punctuation
+        case '(':  return makeToken(TokenType::LEFT_PAREN, start);
+        case ')':  return makeToken(TokenType::RIGHT_PAREN, start);
+        case '{':  return makeToken(TokenType::LEFT_BRACE, start);
+        case '}':  return makeToken(TokenType::RIGHT_BRACE, start);
+        case '[':  return makeToken(TokenType::LEFT_BRACKET, start);
+        case ']':  return makeToken(TokenType::RIGHT_BRACKET, start);
+        case ';':  return makeToken(TokenType::SEMICOLON, start);
+        case ',':  return makeToken(TokenType::COMMA, start);
+        case '.':  return makeToken(TokenType::DOT, start);
+        case '?':  return makeToken(TokenType::QUESTION, start);
+        case '~':  return makeToken(TokenType::BITWISE_NOT, start);
+        case '@':  return makeToken(TokenType::ADDRESS_OF, start);
+    }
+    
+    // Multi-character operators
+    current_--; // Back up
+    position_ = start;
+    return lexOperator(start);
 }
 
-// Peek at the next token without consuming it
 Token Tokenizer::peekToken() {
-    // Save current state
-    size_t saved_position = position_;
-    size_t saved_line = line_;
-    size_t saved_column = column_;
+    size_t savedCurrent = current_;
+    common::SourcePosition savedPosition = position_;
+    IStringState savedIStringState = iStringState_;
+    int savedIStringBraceDepth = iStringBraceDepth_;
     
-    // Get the next token
     Token token = nextToken();
     
-    // Restore state
-    position_ = saved_position;
-    line_ = saved_line;
-    column_ = saved_column;
+    current_ = savedCurrent;
+    position_ = savedPosition;
+    iStringState_ = savedIStringState;
+    iStringBraceDepth_ = savedIStringBraceDepth;
     
     return token;
 }
 
-// Get the current position in the source
+bool Tokenizer::isAtEnd() const {
+    return current_ >= source_->text().size();
+}
+
 common::SourcePosition Tokenizer::currentPosition() const {
-    return {line_, column_};
+    return position_;
 }
 
-// Current character
-char Tokenizer::current() const {
-    if (isAtEnd()) {
-        return '\0';
-    }
-    return text_[position_];
-}
-
-// Next character (lookahead)
 char Tokenizer::peek() const {
-    if (position_ + 1 >= text_.size()) {
-        return '\0';
-    }
-    return text_[position_ + 1];
+    if (isAtEnd()) return '\0';
+    return source_->text()[current_];
 }
 
-// Next next character (2-character lookahead)
 char Tokenizer::peekNext() const {
-    if (position_ + 2 >= text_.size()) {
-        return '\0';
-    }
-    return text_[position_ + 2];
+    if (current_ + 1 >= source_->text().size()) return '\0';
+    return source_->text()[current_ + 1];
 }
 
-// Advance to the next character
 char Tokenizer::advance() {
-    char c = current();
-    position_++;
-    
-    if (c == '\n') {
-        line_++;
-        column_ = 1;
-    } else {
-        column_++;
-    }
-    
+    if (isAtEnd()) return '\0';
+    char c = source_->text()[current_++];
+    updatePosition(c);
     return c;
 }
 
-// Check if current character matches expected and advance if it does
 bool Tokenizer::match(char expected) {
-    if (isAtEnd() || current() != expected) {
-        return false;
-    }
-    
+    if (isAtEnd()) return false;
+    if (source_->text()[current_] != expected) return false;
     advance();
     return true;
 }
 
-// Check if we've reached the end of the file
-bool Tokenizer::isAtEnd() const {
-    return position_ >= text_.size();
-}
-
-// Skip whitespace and comments
-void Tokenizer::skipWhitespaceAndComments() {
-    while (!isAtEnd()) {
-        char c = current();
-        
-        switch (c) {
-            case ' ':
-            case '\t':
-            case '\r':
-            case '\n':
-                advance();
-                break;
-                
-            case '/':
-                if (peek() == '/') {
-                    // Line comment
-                    while (!isAtEnd() && current() != '\n') {
-                        advance();
-                    }
-                } else if (peek() == '*') {
-                    // Block comment
-                    advance(); // Skip '/'
-                    advance(); // Skip '*'
-                    
-                    while (!isAtEnd() && !(current() == '*' && peek() == '/')) {
-                        advance();
-                    }
-                    
-                    if (!isAtEnd()) {
-                        advance(); // Skip '*'
-                        advance(); // Skip '/'
-                    }
-                } else {
-                    return; // Division operator, not a comment
-                }
-                break;
-                
-            default:
-                return;
-        }
-    }
-}
-
-// Create a token
-Token Tokenizer::makeToken(TokenType type) const {
-    size_t start_pos = position_;
-    size_t length = 0;
+bool Tokenizer::match(const char* str) {
+    size_t len = std::strlen(str);
+    if (current_ + len > source_->text().size()) return false;
     
-    // For operators and delimiters, use the appropriate length
-    switch (type) {
-        case TokenType::PLUS:
-        case TokenType::MINUS:
-        case TokenType::ASTERISK:
-        case TokenType::SLASH:
-        case TokenType::PERCENT:
-        case TokenType::AMPERSAND:
-        case TokenType::PIPE:
-        case TokenType::CARET:
-        case TokenType::TILDE:
-        case TokenType::EXCLAMATION:
-        case TokenType::EQUAL:
-        case TokenType::LESS:
-        case TokenType::GREATER:
-        case TokenType::DOT:
-        case TokenType::QUESTION:
-        case TokenType::COLON:
-        case TokenType::SEMICOLON:
-        case TokenType::COMMA:
-        case TokenType::ASTERISK_PTR:
-        case TokenType::AT_REF:
-        case TokenType::LEFT_PAREN:
-        case TokenType::RIGHT_PAREN:
-        case TokenType::LEFT_BRACE:
-        case TokenType::RIGHT_BRACE:
-        case TokenType::LEFT_BRACKET:
-        case TokenType::RIGHT_BRACKET:
-            length = 1;
-            break;
-            
-        case TokenType::PLUS_PLUS:
-        case TokenType::MINUS_MINUS:
-        case TokenType::EQUAL_EQUAL:
-        case TokenType::NOT_EQUAL:
-        case TokenType::LESS_EQUAL:
-        case TokenType::GREATER_EQUAL:
-        case TokenType::AMPERSAND_AMPERSAND:
-        case TokenType::PIPE_PIPE:
-        case TokenType::LESS_LESS:
-        case TokenType::GREATER_GREATER:
-        case TokenType::PLUS_EQUAL:
-        case TokenType::MINUS_EQUAL:
-        case TokenType::ASTERISK_EQUAL:
-        case TokenType::SLASH_EQUAL:
-        case TokenType::PERCENT_EQUAL:
-        case TokenType::AMPERSAND_EQUAL:
-        case TokenType::PIPE_EQUAL:
-        case TokenType::CARET_EQUAL:
-        case TokenType::DOUBLE_COLON:
-            length = 2;
-            break;
-            
-        case TokenType::DOUBLE_ASTERISK:
-        case TokenType::LESS_LESS_EQUAL:
-        case TokenType::GREATER_GREATER_EQUAL:
-            length = 2;
-            break;
-            
-        case TokenType::DOUBLE_ASTERISK_EQUAL:
-            length = 3;
-            break;
-            
-        default:
-            // For other token types, calculate length from position
-            length = position_ - start_pos;
-            break;
+    for (size_t i = 0; i < len; i++) {
+        if (source_->text()[current_ + i] != str[i]) return false;
     }
     
-    // Create token
-    common::SourcePosition start = {line_, column_ - length};
-    common::SourcePosition end = {line_, column_};
-    std::string_view lexeme = text_.substr(start_pos - length, length);
-    
-    return Token(type, lexeme, start, end);
-}
-
-// Create an error token
-Token Tokenizer::errorToken(std::string_view message) const {
-    common::SourcePosition pos = {line_, column_};
-    return Token(TokenType::ERROR, message, pos, pos);
-}
-
-// Report an error
-void Tokenizer::error(common::ErrorCode code, std::string_view message) {
-    common::SourcePosition start = {line_, column_};
-    common::SourcePosition end = {line_, column_ + 1};
-    auto location = makeSourceLocation(start, end);
-    
-    errors_.addError(code, message, location);
-}
-
-// Process identifier tokens (keywords and identifiers)
-Token Tokenizer::scanIdentifier() {
-    common::SourcePosition start = getPosition();
-    size_t start_pos = position_;
-    
-    // Consume identifier characters
-    while (!isAtEnd() && (isAlphaNumeric(current()) || current() == '_')) {
+    // Advance past the matched string
+    for (size_t i = 0; i < len; i++) {
         advance();
     }
-    
-    // Extract lexeme
-    size_t length = position_ - start_pos;
-    std::string_view lexeme = text_.substr(start_pos, length);
-    
-    // Check for !void (special case)
-    if (lexeme == "!void") {
-        return Token(TokenType::BANG_VOID, lexeme, start, getPosition());
-    }
-    
-    // Check if it's a keyword
-    TokenType type = Token::getKeywordType(lexeme);
-    
-    // Create token
-    return Token(type, lexeme, start, getPosition());
+    return true;
 }
 
-// Process number tokens (integer and float literals)
-// Process number tokens (integer and float literals)
-Token Tokenizer::scanNumber() {
-    common::SourcePosition start = getPosition();
-    size_t start_pos = position_;
-    bool is_float = false;
-    bool has_exponent = false;
-    
-    // Check for hexadecimal format with 0x prefix
-    if (current() == '0' && peek() == 'x') {
-        advance(); // Consume '0'
-        advance(); // Consume 'x'
+void Tokenizer::skipWhitespace() {
+    while (!isAtEnd() && isWhitespace(peek())) {
+        advance();
+    }
+}
+
+void Tokenizer::skipComment() {
+    // We should be positioned at the first '/'
+    if (peek() == '/' && peekNext() == '/') {
+        advance(); // consume first '/'
+        advance(); // consume second '/'
         
-        // Consume hex digits
-        bool has_digits = false;
-        while (!isAtEnd() && (isDigit(current()) || 
-               (current() >= 'A' && current() <= 'F'))) {  // Capitalized for 0x notation
-            has_digits = true;
+        // Read until end of line
+        while (!isAtEnd() && peek() != '\n') {
             advance();
         }
-        
-        if (!has_digits) {
-            error(common::ErrorCode::INVALID_NUMBER_FORMAT, "Expected hexadecimal digits after '0x'");
-            return errorToken("Expected hexadecimal digits after '0x'");
-        }
-        
-        // Extract lexeme
-        size_t length = position_ - start_pos;
-        std::string_view lexeme = text_.substr(start_pos, length);
-        
-        // Create token
-        return Token(TokenType::INTEGER_LITERAL, lexeme, start, getPosition());
+        // Don't consume the newline - let the main loop handle it
     }
+}
+
+void Tokenizer::updatePosition(char c) {
+    if (c == '\n') {
+        position_.line++;
+        position_.column = 1;
+    } else {
+        position_.column++;
+    }
+}
+
+common::SourceRange Tokenizer::makeRange(const common::SourcePosition& start) const {
+    return common::SourceRange(start, position_);
+}
+
+Token Tokenizer::makeToken(TokenType type, const common::SourcePosition& start) {
+    size_t startOffset = source_->positionToOffset(start);
+    size_t endOffset = source_->positionToOffset(position_);
+    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
+    return Token(type, text, makeRange(start));
+}
+
+Token Tokenizer::makeToken(TokenType type, const common::SourcePosition& start, int64_t value) {
+    size_t startOffset = source_->positionToOffset(start);
+    size_t endOffset = source_->positionToOffset(position_);
+    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
+    return Token(type, text, makeRange(start), value);
+}
+
+Token Tokenizer::makeToken(TokenType type, const common::SourcePosition& start, double value) {
+    size_t startOffset = source_->positionToOffset(start);
+    size_t endOffset = source_->positionToOffset(position_);
+    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
+    return Token(type, text, makeRange(start), value);
+}
+
+Token Tokenizer::makeErrorToken(const char* message, const common::SourcePosition& start) {
+    reportError(common::ErrorCode::INVALID_CHARACTER, message, start);
+    return Token(TokenType::ERROR, message, makeRange(start));
+}
+
+Token Tokenizer::lexNumber(const common::SourcePosition& start) {
+    bool hasDecimal = false;
+    bool hasExponent = false;
     
-    // Regular number parsing - digits first
-    bool has_digits = false;
-    while (!isAtEnd() && isDigit(current())) {
-        has_digits = true;
+    // Consume digits
+    while (isDigit(peek())) {
         advance();
     }
     
-    // Check for number type suffix
-    if (!isAtEnd()) {
-        char suffix = current();
-        
-        // Check for specific bases using suffix
-        if (suffix == 'o') {           // Octal (e.g., 77o)
-            advance(); // Consume 'o'
-            // No extra checks needed - we validate during conversion later
-        }
-        else if (suffix == 'd') {      // Decimal explicit (e.g., 99d)
-            advance(); // Consume 'd'
-            // No extra checks needed - already decimal
-        }
-        else if (suffix == 'b') {      // Binary (e.g., 1010b)
-            advance(); // Consume 'b'
-            // We'll validate the format during conversion
-        }
-        else if (suffix == 'h') {      // Hex (e.g., 15h)
-            advance(); // Consume 'h'
-            // We'll validate the format during conversion
-        }
-        // Continue with regular number parsing if not a base suffix
-        else if (suffix == '.') {
-            if (isDigit(peek())) {
-                is_float = true;
-                advance(); // Consume '.'
-                
-                // Consume fractional part
-                while (!isAtEnd() && isDigit(current())) {
-                    advance();
-                }
-            }
+    // Look for decimal point
+    if (peek() == '.' && isDigit(peekNext())) {
+        hasDecimal = true;
+        advance(); // consume '.'
+        while (isDigit(peek())) {
+            advance();
         }
     }
     
-    // Extract lexeme
-    size_t length = position_ - start_pos;
-    std::string_view lexeme = text_.substr(start_pos, length);
-    
-    // Basic validation - make sure we have at least one digit
-    if (!has_digits) {
-        error(common::ErrorCode::INVALID_NUMBER_FORMAT, "Invalid number format");
-        return errorToken("Invalid number format");
+    // Look for exponent
+    if (peek() == 'e' || peek() == 'E') {
+        hasExponent = true;
+        advance(); // consume 'e' or 'E'
+        if (peek() == '+' || peek() == '-') {
+            advance(); // consume sign
+        }
+        while (isDigit(peek())) {
+            advance();
+        }
     }
     
-    // Create token
-    TokenType type = is_float ? TokenType::FLOAT_LITERAL : TokenType::INTEGER_LITERAL;
-    return Token(type, lexeme, start, getPosition());
+    size_t startOffset = source_->positionToOffset(start);
+    size_t endOffset = source_->positionToOffset(position_);
+    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
+    
+    if (hasDecimal || hasExponent) {
+        double value;
+        if (parseFloat(text, value)) {
+            return makeToken(TokenType::FLOAT_LITERAL, start, value);
+        } else {
+            return makeErrorToken("Invalid float format", start);
+        }
+    } else {
+        int64_t value;
+        if (parseInteger(text, value)) {
+            return makeToken(TokenType::INTEGER_LITERAL, start, value);
+        } else {
+            return makeErrorToken("Invalid integer format", start);
+        }
+    }
 }
 
-// Process string tokens
-Token Tokenizer::scanString() {
-    common::SourcePosition start = getPosition();
-    size_t start_pos = position_;
+Token Tokenizer::lexString(const common::SourcePosition& start) {
+    advance(); // consume opening '"'
     
-    advance(); // Consume opening quote
-    
-    // Consume string contents
-    while (!isAtEnd() && current() != '"') {
-        if (current() == '\\') {
-            advance(); // Consume escape character
-            
+    while (!isAtEnd() && peek() != '"') {
+        if (peek() == '\\') {
+            advance(); // consume '\'
             if (isAtEnd()) {
-                error(common::ErrorCode::UNTERMINATED_STRING, "Unterminated string");
-                return errorToken("Unterminated string");
+                return makeErrorToken("Unterminated string", start);
             }
-            
-            // Handle escape sequences
-            switch (current()) {
-                case '"':
-                case '\\':
-                case 'n':
-                case 't':
-                case 'r':
-                    advance();
-                    break;
-                default:
-                    error(common::ErrorCode::INVALID_ESCAPE_SEQUENCE, "Invalid escape sequence");
-                    return errorToken("Invalid escape sequence");
-            }
+            advance(); // consume escaped character
         } else {
             advance();
         }
     }
     
     if (isAtEnd()) {
-        error(common::ErrorCode::UNTERMINATED_STRING, "Unterminated string");
-        return errorToken("Unterminated string");
+        return makeErrorToken("Unterminated string", start);
     }
     
-    advance(); // Consume closing quote
-    
-    // Extract lexeme (including quotes)
-    size_t length = position_ - start_pos;
-    std::string_view lexeme = text_.substr(start_pos, length);
-    
-    // Create token
-    return Token(TokenType::CHAR_LITERAL, lexeme, start, getPosition());
+    advance(); // consume closing '"'
+    return makeToken(TokenType::STRING_LITERAL, start);
 }
 
-// Process injectable string tokens (i"...")
-Token Tokenizer::scanIString() {
-    common::SourcePosition start = getPosition();
-    size_t start_pos = position_;
+Token Tokenizer::lexIString(const common::SourcePosition& start) {
+    advance(); // consume 'i'
+    advance(); // consume '"'
     
-    advance(); // Consume 'i'
-    advance(); // Consume opening quote
+    iStringState_ = IStringState::IN_TEXT;
+    return makeToken(TokenType::I_STRING_START, start);
+}
+
+Token Tokenizer::lexIdentifier(const common::SourcePosition& start) {
+    while (isAlphaNumeric(peek()) || peek() == '_') {
+        advance();
+    }
     
-    std::vector<Token> parts;
+    size_t startOffset = source_->positionToOffset(start);
+    size_t endOffset = source_->positionToOffset(position_);
+    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
     
-    // Start with the opening token
-    parts.push_back(Token(TokenType::ISTRING_START, "i\"", start, getPosition()));
+    TokenType type = keywordTable.lookup(text);
+    return makeToken(type, start);
+}
+
+Token Tokenizer::lexBinaryLiteral(const common::SourcePosition& start) {
+    advance(); // consume '{'
     
-    bool in_expression = false;
-    size_t expression_start = 0;
-    common::SourcePosition expr_start_pos;
+    bool foundBinaryDigits = false;
+    bool hasOnlyBinaryAndCommas = true;
     
-    // Consume string contents and expressions
-    while (!isAtEnd() && (in_expression || current() != '"')) {
-        if (!in_expression && current() == '{') {
-            // Extract text between expressions
-            size_t text_start = start_pos + 2; // Skip i"
-            size_t text_length = position_ - text_start;
-            
-            if (text_length > 0) {
-                std::string_view text = text_.substr(text_start, text_length);
-                common::SourcePosition text_start_pos = start;
-                common::SourcePosition text_end_pos = getPosition();
-                parts.push_back(Token(TokenType::ISTRING_MIDDLE, text, text_start_pos, text_end_pos));
-            }
-            
-            // Start of expression
-            in_expression = true;
-            expression_start = position_;
-            expr_start_pos = getPosition();
-            
-            advance(); // Consume '{'
-            
-            // Add expression start token
-            parts.push_back(Token(TokenType::ISTRING_EXPR_START, "{", expr_start_pos, getPosition()));
-        } else if (in_expression && current() == '}') {
-            // End of expression
-            in_expression = false;
-            
-            // Extract expression
-            size_t expr_length = position_ - expression_start - 1; // Exclude '{'
-            
-            // Add expression end token
-            common::SourcePosition expr_end_pos = getPosition();
-            advance(); // Consume '}'
-            parts.push_back(Token(TokenType::ISTRING_EXPR_END, "}", expr_end_pos, getPosition()));
-            
-            // Update start position for next text part
-            start_pos = position_;
-        } else if (in_expression && current() == '"') {
-            // Handle quoted string inside expression
-            scanString();
-        } else {
+    while (!isAtEnd() && peek() != '}') {
+        char c = peek();
+        if (isBinaryDigit(c)) {
+            foundBinaryDigits = true;
             advance();
+        } else if (c == ',' || isWhitespace(c)) {
+            advance();
+        } else {
+            // Found non-binary, non-comma, non-whitespace character
+            hasOnlyBinaryAndCommas = false;
+            break;
         }
     }
     
-    if (isAtEnd()) {
-        error(common::ErrorCode::UNTERMINATED_STRING, "Unterminated injectable string");
-        return errorToken("Unterminated injectable string");
+    // Only treat as binary literal if:
+    // 1. We found actual binary digits (0 or 1)
+    // 2. Everything inside was binary digits, commas, or whitespace
+    // 3. We reached the closing brace
+    if (!foundBinaryDigits || !hasOnlyBinaryAndCommas || peek() != '}') {
+        // This is not a binary literal, treat '{' as a regular left brace
+        // Reset position to just after the opening brace
+        current_ = source_->positionToOffset(start) + 1;
+        position_ = start;
+        updatePosition('{');
+        return makeToken(TokenType::LEFT_BRACE, start);
     }
     
-    if (in_expression) {
-        error(common::ErrorCode::UNTERMINATED_STRING, "Unterminated expression in injectable string");
-        return errorToken("Unterminated expression in injectable string");
-    }
-    
-    // Extract final text part if any
-    size_t text_start = start_pos;
-    size_t text_length = position_ - text_start;
-    
-    if (text_length > 0) {
-        std::string_view text = text_.substr(text_start, text_length);
-        common::SourcePosition text_start_pos = {line_, column_ - (unsigned int)text_length};
-        common::SourcePosition text_end_pos = getPosition();
-        parts.push_back(Token(TokenType::ISTRING_MIDDLE, text, text_start_pos, text_end_pos));
-    }
-    
-    advance(); // Consume closing quote
-    
-    // Add closing token
-    parts.push_back(Token(TokenType::ISTRING_END, "\"", {line_, column_ - 1}, getPosition()));
-    
-    // For now, return just the start token
-    // The parser will need to handle the complexity of i-strings
-    return parts[0];
+    advance(); // consume '}'
+    return makeToken(TokenType::BINARY_LITERAL, start);
 }
 
-// Process operator tokens
-Token Tokenizer::scanOperator() {
-    common::SourcePosition start = getPosition();
+Token Tokenizer::lexOperator(const common::SourcePosition& start) {
     char c = advance();
     
     switch (c) {
-        // Single-character tokens
-        case '(': return makeToken(TokenType::LEFT_PAREN);
-        case ')': return makeToken(TokenType::RIGHT_PAREN);
-        case '{': return makeToken(TokenType::LEFT_BRACE);
-        case '}': return makeToken(TokenType::RIGHT_BRACE);
-        case '[': return makeToken(TokenType::LEFT_BRACKET);
-        case ']': return makeToken(TokenType::RIGHT_BRACKET);
-        case ',': return makeToken(TokenType::COMMA);
-        case '.': return makeToken(TokenType::DOT);
-        case ':': return makeToken(TokenType::COLON);
-        case ';': return makeToken(TokenType::SEMICOLON);
-        case '?': return makeToken(TokenType::QUESTION);
-        case '~': return makeToken(TokenType::TILDE);
-        
-        // Operators that could be one or two characters
         case '+':
-            if (match('+')) return makeToken(TokenType::PLUS_PLUS);
-            if (match('=')) return makeToken(TokenType::PLUS_EQUAL);
-            return makeToken(TokenType::PLUS);
+            if (match('+')) return makeToken(TokenType::INCREMENT, start);
+            if (match('=')) return makeToken(TokenType::PLUS_ASSIGN, start);
+            return makeToken(TokenType::PLUS, start);
             
         case '-':
-            if (match('-')) return makeToken(TokenType::MINUS_MINUS);
-            if (match('=')) return makeToken(TokenType::MINUS_EQUAL);
-            if (match('>')) return makeToken(TokenType::ARROW);
-            return makeToken(TokenType::MINUS);
+            if (match('-')) return makeToken(TokenType::DECREMENT, start);
+            if (match('=')) return makeToken(TokenType::MINUS_ASSIGN, start);
+            if (match('>')) return makeToken(TokenType::ARROW, start);
+            return makeToken(TokenType::MINUS, start);
             
         case '*':
             if (match('*')) {
-                if (match('=')) return makeToken(TokenType::DOUBLE_ASTERISK_EQUAL);
-                return makeToken(TokenType::DOUBLE_ASTERISK);
+                if (match('=')) return makeToken(TokenType::POWER_ASSIGN, start);
+                return makeToken(TokenType::POWER, start);
             }
-            if (match('=')) return makeToken(TokenType::ASTERISK_EQUAL);
-            return makeToken(TokenType::ASTERISK);
+            if (match('=')) return makeToken(TokenType::MULTIPLY_ASSIGN, start);
+            return makeToken(TokenType::MULTIPLY, start);
             
         case '/':
-            if (match('=')) return makeToken(TokenType::SLASH_EQUAL);
-            return makeToken(TokenType::SLASH);
+            if (match('=')) return makeToken(TokenType::DIVIDE_ASSIGN, start);
+            return makeToken(TokenType::DIVIDE, start);
             
         case '%':
-            if (match('=')) return makeToken(TokenType::PERCENT_EQUAL);
-            return makeToken(TokenType::PERCENT);
+            if (match('=')) return makeToken(TokenType::MODULO_ASSIGN, start);
+            return makeToken(TokenType::MODULO, start);
             
         case '=':
-            if (match('=')) return makeToken(TokenType::EQUAL_EQUAL);
-            return makeToken(TokenType::EQUAL);
+            if (match('=')) return makeToken(TokenType::EQUAL, start);
+            return makeToken(TokenType::ASSIGN, start);
             
         case '!':
-            if (match('=')) return makeToken(TokenType::NOT_EQUAL);
-            return makeToken(TokenType::EXCLAMATION);
+            if (match('=')) return makeToken(TokenType::NOT_EQUAL, start);
+            return makeToken(TokenType::LOGICAL_NOT, start);
             
         case '<':
             if (match('<')) {
-                if (match('=')) return makeToken(TokenType::LESS_LESS_EQUAL);
-                return makeToken(TokenType::LESS_LESS);
+                if (match('=')) return makeToken(TokenType::SHIFT_LEFT_ASSIGN, start);
+                return makeToken(TokenType::SHIFT_LEFT, start);
             }
-            if (match('=')) return makeToken(TokenType::LESS_EQUAL);
-            return makeToken(TokenType::LESS);
+            if (match('=')) return makeToken(TokenType::LESS_EQUAL, start);
+            return makeToken(TokenType::LESS_THAN, start);
             
         case '>':
             if (match('>')) {
-                if (match('=')) return makeToken(TokenType::GREATER_GREATER_EQUAL);
-                return makeToken(TokenType::GREATER_GREATER);
+                if (match('=')) return makeToken(TokenType::SHIFT_RIGHT_ASSIGN, start);
+                return makeToken(TokenType::SHIFT_RIGHT, start);
             }
-            if (match('=')) return makeToken(TokenType::GREATER_EQUAL);
-            return makeToken(TokenType::GREATER);
+            if (match('=')) return makeToken(TokenType::GREATER_EQUAL, start);
+            return makeToken(TokenType::GREATER_THAN, start);
             
         case '&':
-            if (match('&')) return makeToken(TokenType::AMPERSAND_AMPERSAND);
-            if (match('=')) return makeToken(TokenType::AMPERSAND_EQUAL);
-            return makeToken(TokenType::AMPERSAND);
-
-        case '@':
-            return makeToken(TokenType::AT_REF);
+            if (match('&')) return makeToken(TokenType::LOGICAL_AND, start);
+            if (match('=')) return makeToken(TokenType::BITWISE_AND_ASSIGN, start);
+            return makeToken(TokenType::BITWISE_AND, start);
             
         case '|':
-            if (match('|')) return makeToken(TokenType::PIPE_PIPE);
-            if (match('=')) return makeToken(TokenType::PIPE_EQUAL);
-            return makeToken(TokenType::PIPE);
+            if (match('|')) return makeToken(TokenType::LOGICAL_OR, start);
+            if (match('=')) return makeToken(TokenType::BITWISE_OR_ASSIGN, start);
+            return makeToken(TokenType::BITWISE_OR, start);
             
         case '^':
-            if (match('=')) return makeToken(TokenType::CARET_EQUAL);
-            return makeToken(TokenType::CARET);
+            if (match('=')) return makeToken(TokenType::BITWISE_XOR_ASSIGN, start);
+            return makeToken(TokenType::BITWISE_XOR, start);
+            
+        case ':':
+            if (match(':')) return makeToken(TokenType::SCOPE_RESOLUTION, start);
+            if (iStringState_ == IStringState::WAITING_FOR_COLON && match('{')) {
+                iStringState_ = IStringState::IN_EXPRESSION;
+                iStringBraceDepth_ = 1;
+                return makeToken(TokenType::I_STRING_EXPR_START, start);
+            }
+            return makeToken(TokenType::COLON, start);
+            
+        default:
+            return makeErrorToken("Unexpected character", start);
     }
-    
-    // Unrecognized character
-    error(common::ErrorCode::INVALID_CHARACTER, "Unexpected character");
-    return errorToken("Unexpected character");
 }
 
-// Helper methods for scanning
+Token Tokenizer::lexIStringText(const common::SourcePosition& start) {
+    while (!isAtEnd() && peek() != '"' && peek() != '{') {
+        if (peek() == '\\') {
+            advance(); // consume '\'
+            if (isAtEnd()) {
+                return makeErrorToken("Unterminated i-string", start);
+            }
+            advance(); // consume escaped character
+        } else {
+            advance();
+        }
+    }
+    
+    if (peek() == '"') {
+        advance(); // consume '"'
+        iStringState_ = IStringState::NONE;
+        return makeToken(TokenType::I_STRING_END, start);
+    } else if (peek() == '{') {
+        advance(); // consume '{'
+        if (peek() == '}') {
+            advance(); // consume '}'
+            // Empty placeholder, continue as text
+            return lexIStringText(start);
+        } else {
+            current_--; // back up
+            position_.column--;
+            iStringState_ = IStringState::WAITING_FOR_COLON;
+            return makeToken(TokenType::I_STRING_TEXT, start);
+        }
+    }
+    
+    return makeToken(TokenType::I_STRING_TEXT, start);
+}
+
+Token Tokenizer::lexIStringExpression(const common::SourcePosition& start) {
+    if (iStringState_ == IStringState::IN_TEXT) {
+        return lexIStringText(start);
+    }
+    
+    if (iStringState_ == IStringState::IN_EXPRESSION) {
+        // Handle brace counting for nested expressions
+        char c = peek();
+        if (c == '{') {
+            iStringBraceDepth_++;
+        } else if (c == '}') {
+            iStringBraceDepth_--;
+            if (iStringBraceDepth_ == 0) {
+                advance(); // consume '}'
+                if (match(';')) {
+                    iStringState_ = IStringState::IN_TEXT;
+                    return makeToken(TokenType::I_STRING_EXPR_END, start);
+                } else {
+                    return makeErrorToken("Expected ';' after i-string expression", start);
+                }
+            }
+        }
+        
+        // Parse normal token within expression
+        iStringState_ = IStringState::NONE;
+        Token token = nextToken();
+        iStringState_ = IStringState::IN_EXPRESSION;
+        return token;
+    }
+    
+    return makeErrorToken("Invalid i-string state", start);
+}
+
 bool Tokenizer::isDigit(char c) const {
     return c >= '0' && c <= '9';
 }
 
+bool Tokenizer::isHexDigit(char c) const {
+    return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+bool Tokenizer::isBinaryDigit(char c) const {
+    return c == '0' || c == '1';
+}
+
 bool Tokenizer::isAlpha(char c) const {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
 bool Tokenizer::isAlphaNumeric(char c) const {
     return isAlpha(c) || isDigit(c);
 }
 
-// Get current source position
-common::SourcePosition Tokenizer::getPosition() const {
-    return {line_, column_};
+bool Tokenizer::isWhitespace(char c) const {
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
-// Helper for building source location
-output::SourceLocation Tokenizer::makeSourceLocation(
-    const common::SourcePosition& start, 
-    const common::SourcePosition& end) const {
-    // Get the line content
-    std::string_view line_content;
-    int highlight_start = 0;
-    int highlight_length = 0;
+bool Tokenizer::parseInteger(std::string_view text, int64_t& result, int base) const {
+    const char* start = text.data();
+    const char* end = text.data() + text.size();
     
-    if (source_->getLine(start.line, line_content)) {
-        // Calculate highlight positions
-        highlight_start = start.column - 1;
-        highlight_length = end.column - start.column;
+    auto [ptr, ec] = std::from_chars(start, end, result, base);
+    return ec == std::errc{} && ptr == end;
+}
+
+bool Tokenizer::parseFloat(std::string_view text, double& result) const {
+    const char* start = text.data();
+    const char* end = text.data() + text.size();
+    
+    auto [ptr, ec] = std::from_chars(start, end, result);
+    return ec == std::errc{} && ptr == end;
+}
+
+std::string Tokenizer::parseStringLiteral(std::string_view text) const {
+    std::string result;
+    result.reserve(text.size());
+    
+    const char* ptr = text.data() + 1; // Skip opening quote
+    const char* end = text.data() + text.size() - 1; // Skip closing quote
+    
+    while (ptr < end) {
+        if (*ptr == '\\') {
+            result += parseEscapeSequence(ptr);
+        } else {
+            result += *ptr++;
+        }
     }
     
-    return output::SourceLocation(
-        source_->filename(),
-        start.line,
-        start.column,
-        line_content,
-        highlight_start,
-        highlight_length
-    );
+    return result;
 }
 
-} // namespace lexer
-} // namespace flux
+char Tokenizer::parseEscapeSequence(const char*& ptr) const {
+    ++ptr; // Skip backslash
+    
+    switch (*ptr++) {
+        case 'n': return '\n';
+        case 't': return '\t';
+        case 'r': return '\r';
+        case '\\': return '\\';
+        case '"': return '"';
+        case '\'': return '\'';
+        case '0': return '\0';
+        default:
+            --ptr; // Back up
+            return *ptr++; // Return the character as-is
+    }
+}
+
+void Tokenizer::reportError(common::ErrorCode code, const char* message, const common::SourcePosition& position) {
+    // Convert position to output location
+    output::SourceLocation location(
+        source_->filename(),
+        static_cast<int>(position.line),
+        static_cast<int>(position.column)
+    );
+    
+    errorCollector_.addError(code, message, location);
+}
+
+}
+}

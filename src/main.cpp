@@ -1,188 +1,149 @@
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <memory>
-#include <vector>
-#include <unordered_map>
-
 #include "common/arena.h"
-#include "common/error.h"
 #include "common/source.h"
-#include "lexer/token.h"
+#include "common/error.h"
 #include "lexer/tokenizer.h"
-#include "parser/parser.h"
 #include "output/writer.h"
+#include <iostream>
+#include <string>
+#include <iomanip>
 
-// Print program usage
-void printUsage(const std::string& program_name) {
-    std::cout << "Usage: " << program_name << " [options] <flux_file>" << std::endl;
-    std::cout << "Options:" << std::endl;
-    std::cout << "  --l             Lex only (tokenize the input file)" << std::endl;
-    std::cout << "  --p             Parse only (create AST but don't execute)" << std::endl;
-    std::cout << "  -e \"<flux_code>\" Execute code directly from command line" << std::endl;
-    std::cout << "  -h, --help      Display this help message" << std::endl;
-}
+using namespace flux;
 
-// Process source for lexing only
-void processLexing(const std::shared_ptr<flux::common::Source>& source) {
-    // Create tokenizer
-    flux::lexer::Tokenizer tokenizer(source);
-    
-    // Tokenize all
-    std::vector<flux::lexer::Token> tokens = tokenizer.tokenizeAll();
-    
-    // Print tokens
-    std::cout << "Tokenization results:" << std::endl;
-    std::cout << "---------------------" << std::endl;
-    
-    for (const auto& token : tokens) {
-        std::cout << token.toString() << std::endl;
-        
-        // Stop if we hit an error
-        if (token.type() == flux::lexer::TokenType::ERROR) {
-            break;
-        }
-    }
-    
-    // Report any errors
-    if (tokenizer.hasErrors()) {
-        std::cout << "\nErrors:" << std::endl;
-        std::cout << "-------" << std::endl;
-        tokenizer.errors().reportErrors();
-    } else {
-        std::cout << "\nTokenization completed successfully." << std::endl;
-    }
-    
-    // Print token statistics
-    std::cout << "\nStatistics:" << std::endl;
-    std::cout << "----------" << std::endl;
-    std::cout << "Total tokens: " << tokens.size() << std::endl;
-    
-    // Count token types
-    std::unordered_map<flux::lexer::TokenType, int> token_counts;
-    for (const auto& token : tokens) {
-        token_counts[token.type()]++;
-    }
-    
-    // Print token type counts
-    std::cout << "Token type distribution:" << std::endl;
-    for (const auto& [type, count] : token_counts) {
-        std::cout << "  " << flux::lexer::Token::tokenTypeToString(type) << ": " << count << std::endl;
-    }
-}
-
-// Process source for parsing only
-void processParsing(const std::shared_ptr<flux::common::Source>& source) {
-    // Create tokenizer
-    flux::lexer::Tokenizer tokenizer(source);
-    
-    // Create parser
-    flux::parser::Parser parser(tokenizer);
-    
-    // Parse the program
-    std::unique_ptr<flux::parser::Program> program = parser.parseProgram();
-    
-    // Report success or errors
-    if (parser.hasErrors()) {
-        std::cout << "Parsing failed with errors:" << std::endl;
-        std::cout << "-------------------------" << std::endl;
-        parser.errors().reportErrors();
-    } else {
-        std::cout << "Parsing completed successfully." << std::endl;
-        std::cout << "Number of top-level declarations: " << program->declarations.size() << std::endl;
-        
-        // TODO: Add more information about the parsed program when needed
-    }
-}
-
-// Process source (default includes both lexing and parsing)
-void processSource(const std::shared_ptr<flux::common::Source>& source, bool lexOnly, bool parseOnly) {
-    try {
-        if (lexOnly) {
-            processLexing(source);
-        } else if (parseOnly) {
-            processParsing(source);
-        } else {
-            // Default: execute the program (for now, just parse it)
-            processParsing(source);
-            
-            // TODO: Add type checking and execution steps here
-            std::cout << "\nExecution is not yet implemented." << std::endl;
-        }
-    } catch (const flux::common::Error& e) {
-        // Report error
-        e.report();
-    }
+void printUsage(const char* programName) {
+    std::cout << "Flux Lexer\n";
+    std::cout << "Usage: " << programName << " <file.fx>\n\n";
+    std::cout << "This will tokenize the Flux source file and display all tokens.\n";
 }
 
 int main(int argc, char* argv[]) {
-    try {
-        // Process command line arguments
-        if (argc < 2) {
-            printUsage(argv[0]);
-            return 1;
-        }
-        
-        // Check for help flag
-        std::string arg1(argv[1]);
-        if (arg1 == "-h" || arg1 == "--help") {
+    // Check arguments
+    if (argc != 2) {
+        if (argc > 1 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
             printUsage(argv[0]);
             return 0;
         }
+        std::cerr << "Error: Please provide a Flux source file\n";
+        printUsage(argv[0]);
+        return 1;
+    }
+    
+    std::string filename = argv[1];
+    
+    try {
+        // Create arena for memory management
+        common::Arena arena;
         
-        // Initialize arena
-        flux::common::Arena arena;
+        // Load source file
+        output::defaultWriter.info("Loading file: " + filename);
+        auto source = common::Source::fromFile(filename, arena);
         
-        // Parse options
-        bool lexOnly = false;
-        bool parseOnly = false;
-        std::string filename;
+        output::defaultWriter.info("File loaded successfully");
+        output::defaultWriter.info("Size: " + std::to_string(source->text().size()) + " bytes");
+        output::defaultWriter.info("Lines: " + std::to_string(source->lineCount()));
+        std::cout << "\n";
         
-        for (int i = 1; i < argc; ++i) {
-            std::string arg(argv[i]);
-            
-            if (arg == "--l") {
-                lexOnly = true;
-            } else if (arg == "--p") {
-                parseOnly = true;
-            } else if (arg == "-e" && i + 1 < argc) {
-                // Process from command line
-                std::string code(argv[++i]);
-                auto source = flux::common::Source::fromString(code, "<command_line>", arena);
-                processSource(source, lexOnly, parseOnly);
-                return 0;
-            } else if (arg[0] != '-') {
-                // Assume it's the filename
-                filename = arg;
-            } else {
-                std::cerr << "Unknown option: " << arg << std::endl;
-                printUsage(argv[0]);
-                return 1;
-            }
-        }
+        // Create tokenizer
+        lexer::Tokenizer tokenizer(source, arena);
         
-        if (filename.empty()) {
-            std::cerr << "No input file specified." << std::endl;
-            printUsage(argv[0]);
+        // Tokenize
+        output::defaultWriter.info("Starting lexical analysis...");
+        auto tokens = tokenizer.tokenize();
+        
+        // Check for errors
+        if (tokenizer.errorCollector().hasErrors()) {
+            output::defaultWriter.error("Lexical analysis failed with errors:");
+            tokenizer.errorCollector().reportErrors();
             return 1;
         }
         
-        // Process from file
-        auto source = flux::common::Source::fromFile(filename, arena);
-        processSource(source, lexOnly, parseOnly);
+        output::defaultWriter.info("Lexical analysis completed successfully");
+        output::defaultWriter.info("Tokens found: " + std::to_string(tokens.size()));
+        std::cout << "\n";
         
-        return 0;
-    } catch (const flux::common::Error& e) {
-        // Report error
+        // Print tokens in a formatted table
+        std::cout << "TOKEN LIST\n";
+        std::cout << "==========\n";
+        std::cout << std::left << std::setw(4) << "#" 
+                  << std::setw(20) << "Type" 
+                  << std::setw(15) << "Position" 
+                  << std::setw(30) << "Text" 
+                  << "Value\n";
+        std::cout << std::string(80, '-') << "\n";
+        
+        for (size_t i = 0; i < tokens.size(); i++) {
+            const auto& token = tokens[i];
+            
+            // Format position
+            std::string position = std::to_string(token.range.start.line) + ":" + 
+                                 std::to_string(token.range.start.column);
+            
+            // Format text (escape special characters and limit length)
+            std::string text = std::string(token.text);
+            if (text.length() > 25) {
+                text = text.substr(0, 22) + "...";
+            }
+            
+            // Replace special characters for display
+            for (char& c : text) {
+                if (c == '\n') c = ' ';
+                if (c == '\t') c = ' ';
+                if (c == '\r') c = ' ';
+            }
+            
+            // Format additional value information
+            std::string value = "";
+            if (token.type == lexer::TokenType::INTEGER_LITERAL) {
+                value = "(" + std::to_string(token.intValue) + ")";
+            } else if (token.type == lexer::TokenType::FLOAT_LITERAL) {
+                value = "(" + std::to_string(token.floatValue) + ")";
+            }
+            
+            std::cout << std::left << std::setw(4) << i + 1
+                      << std::setw(20) << lexer::tokenTypeToString(token.type)
+                      << std::setw(15) << position
+                      << std::setw(30) << ("\"" + text + "\"")
+                      << value << "\n";
+        }
+        
+        std::cout << std::string(80, '-') << "\n";
+        std::cout << "Total tokens: " << tokens.size() << "\n";
+        
+        // Print summary statistics
+        std::cout << "\nTOKEN STATISTICS\n";
+        std::cout << "================\n";
+        
+        size_t identifiers = 0, keywords = 0, operators = 0, literals = 0, punctuation = 0;
+        
+        for (const auto& token : tokens) {
+            if (token.type == lexer::TokenType::IDENTIFIER) {
+                identifiers++;
+            } else if (lexer::isKeyword(token.type)) {
+                keywords++;
+            } else if (lexer::isOperator(token.type)) {
+                operators++;
+            } else if (lexer::isLiteral(token.type)) {
+                literals++;
+            } else if (token.type != lexer::TokenType::END_OF_FILE) {
+                punctuation++;
+            }
+        }
+        
+        std::cout << "Identifiers: " << identifiers << "\n";
+        std::cout << "Keywords: " << keywords << "\n";
+        std::cout << "Operators: " << operators << "\n";
+        std::cout << "Literals: " << literals << "\n";
+        std::cout << "Punctuation: " << punctuation << "\n";
+        
+        output::defaultWriter.info("\nLexical analysis completed successfully!");
+        
+    } catch (const common::Error& e) {
+        output::defaultWriter.error("Flux error: " + e.message());
         e.report();
         return 1;
     } catch (const std::exception& e) {
-        // Report standard exception
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    } catch (...) {
-        // Report unknown exception
-        std::cerr << "Unknown error occurred" << std::endl;
+        output::defaultWriter.error("System error: " + std::string(e.what()));
         return 1;
     }
+    
+    return 0;
 }

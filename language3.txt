@@ -136,7 +136,6 @@ def myAdd(float x, float y) -> float
 ```
 
 If a function's return type is void nothing will be returned, regardless if your return statement provides something.
-Functions cannot contain object or struct definitions. This is to maintain code legibility and organization.
 
 You can also use assembly directly:
 
@@ -622,7 +621,7 @@ def main() -> int
 
 **Self-Modifiable Code:**
 ```
-def make_adder(int x) -> (def()->int) {                      // Return a function that returns an int
+def make_adder(int x) -> (def()->int) {
     // Machine code for: int adder(int y) { return x + y; }
     signed data{8}[] code = [
         0x55,                         // push rbp
@@ -633,19 +632,8 @@ def make_adder(int x) -> (def()->int) {                      // Return a functio
         0x5D,                         // pop rbp
         0xC3                          // ret
     ];
-
-    // If made into a function, it cannot be modified at runtime because const
-    const signed data{8}[] no_modify_code = [
-        0x55,                         // push rbp
-        0x48, 0x89, 0xE5,             // mov rbp, rsp
-        0x89, 0x7D, 0xFC,             // mov [rbp-4], edi (store y)
-        0x8B, 0x45, 0xFC,             // mov eax, [rbp-4] (load y)
-        0x05, x, 0x00, 0x00, 0x00,    // add eax, x (immediate)
-        0x5D,                         // pop rbp
-        0xC3                          // ret
-    ];
-
-    // Proper casting to function that returns an int
+    
+    // Proper casting to function
     return (def()->int)code;
 };
 

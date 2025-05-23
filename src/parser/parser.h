@@ -44,24 +44,22 @@ private:
     common::ErrorCollector errors_;
     
     // Panic mode flag (for error recovery)
-    bool panicMode_;
+    bool panicMode_ = false;
 
-    // Flag for handling anonymous blocks
+    // Context flags for parsing
     bool inFunctionBody_ = false;
-
-    // Logical control flag
-    bool inControlStructure_ = false;
-
-    // Flag cause we're fucking stupid
     bool inObjectBody_ = false;
-    
+    bool inControlStructure_ = false;
+    bool inTemplateDeclaration_ = false;
+
     // Synchronization points for error recovery
     std::unordered_map<lexer::TokenType, bool> syncPoints_;
     
-    // Token handling
+    // Token handling methods
     lexer::Token advance();
     void advanceWithGuard(const char* context);
     bool check(lexer::TokenType type) const;
+    bool checkAny(std::initializer_list<lexer::TokenType> types) const;
     bool checkNext(lexer::TokenType type);
     bool match(lexer::TokenType type);
     bool match(std::initializer_list<lexer::TokenType> types);
@@ -70,7 +68,7 @@ private:
     void resetParsingState();
     void synchronize();
     
-    // Error reporting
+    // Error reporting methods
     void error(std::string_view message);
     void error(const lexer::Token& token, std::string_view message);
     lexer::Token errorToken(std::string_view message);
@@ -81,9 +79,10 @@ private:
     std::unique_ptr<Decl> namespaceDeclaration();
     std::unique_ptr<Decl> classDeclaration();
     std::unique_ptr<Decl> objectDeclaration();
+    std::unique_ptr<Decl> objectTemplateDeclaration();
     std::unique_ptr<Decl> structDeclaration();
     std::unique_ptr<Decl> functionDeclaration();
-    std::unique_ptr<Decl> variableDeclaration(bool isConst);
+    std::unique_ptr<Decl> variableDeclaration(bool isConst, bool isVolatile = false);
     std::unique_ptr<Decl> importDeclaration();
     std::unique_ptr<Decl> usingDeclaration();
     std::unique_ptr<Decl> operatorDeclaration();
@@ -92,6 +91,13 @@ private:
     std::unique_ptr<Decl> typeDeclaration();
     std::unique_ptr<Decl> dataDeclaration();
     std::unique_ptr<Decl> asmDeclaration();
+    std::unique_ptr<Decl> sectionDeclaration();
+    std::unique_ptr<Decl> parseTemplateParameterList();
+    
+    // Parsing modifiers and attributes
+    std::optional<size_t> parseAlignmentAttribute();
+    //SectionDecl::Attribute parseSectionAttribute();
+    std::unique_ptr<Expr> parseAddressSpecifier();
     
     // Parsing statements
     std::unique_ptr<Stmt> statement();
@@ -111,10 +117,12 @@ private:
     std::unique_ptr<Stmt> tryStatement();
     std::unique_ptr<Stmt> switchStatement();
     std::unique_ptr<Stmt> variableStatement();
+    std::unique_ptr<Stmt> assertStatement();
     
     // Parsing expressions
     std::unique_ptr<Expr> expression();
     std::unique_ptr<Expr> assignment();
+    std::unique_ptr<Expr> cast();
     std::unique_ptr<Expr> ternary();
     std::unique_ptr<Expr> logicalOr();
     std::unique_ptr<Expr> logicalAnd();
@@ -122,6 +130,7 @@ private:
     std::unique_ptr<Expr> bitwiseXor();
     std::unique_ptr<Expr> bitwiseAnd();
     std::unique_ptr<Expr> equality();
+    std::unique_ptr<Expr> is();
     std::unique_ptr<Expr> comparison();
     std::unique_ptr<Expr> bitShift();
     std::unique_ptr<Expr> term();
@@ -136,6 +145,9 @@ private:
     std::unique_ptr<Expr> parseSizeOfExpr();
     std::unique_ptr<Expr> parseTypeOfExpr();
     std::unique_ptr<Expr> parseOpExpr();
+    std::unique_ptr<Expr> parseArrayLiteral();
+    std::unique_ptr<Expr> parseDictionaryLiteral();
+    std::unique_ptr<Expr> parseAddressOfExpr();
     
     // Parsing type expressions
     std::unique_ptr<TypeExpr> type();
@@ -145,6 +157,15 @@ private:
     std::unique_ptr<TypeExpr> functionType();
     std::unique_ptr<TypeExpr> dataType();
     std::unique_ptr<TypeExpr> qualifiedType();
+    bool isTypeModifier(const lexer::Token& token) const;
+    
+    // Helper methods for parsing objects
+    std::vector<std::unique_ptr<Decl>> parseObjectMembers();
+    std::vector<std::string_view> parseInheritanceList();
+    std::vector<std::string_view> parseExclusionList();
+    
+    // Helper methods for parsing templates
+    std::vector<TemplateDecl::Parameter> parseTemplateParameters();
     
     // Helpers
     common::SourceRange makeRange(const lexer::Token& start, const lexer::Token& end) const;

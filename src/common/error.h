@@ -24,6 +24,8 @@ enum class ErrorCode {
     UNTERMINATED_STRING,
     INVALID_ESCAPE_SEQUENCE,
     INVALID_NUMBER_FORMAT,
+    INVALID_SECTION_ATTRIBUTE,
+    INVALID_ADDRESS_SPECIFIER,
     
     // Parser errors
     PARSER_ERROR,         // General parser error

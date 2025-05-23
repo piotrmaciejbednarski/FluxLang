@@ -22,18 +22,13 @@ set(SOURCES
     src/lexer/tokenizer.h
     src/lexer/token.cpp
     src/lexer/token.h
-    src/parser/ast.h
-    src/parser/ast.cpp
-    src/parser/parser.h
-    src/parser/parser.cpp
-)
-
-# Source files for the runtime
-set(RUNTIME_SOURCES
-    #src/runtime/fluxvalue.cpp
-    #src/runtime/fluxobject.cpp
-    #src/runtime/fluxclass.cpp
-    #src/runtime/interpreter.cpp
+    #src/parser/ast.h
+    #src/parser/ast.cpp
+    #src/type/type.h
+    #src/type/type_checker.h
+    #src/type/type_checker.cpp
+    #src/parser/parser.h
+    #src/parser/parser2.cpp
 )
 
 # Source files for utils
@@ -45,4 +40,4 @@ set(UTILS_SOURCES
 set(MAIN_SOURCE src/main.cpp)
 
 # Add the executable
-add_executable(Flux ${MAIN_SOURCE} ${SOURCES} ${PARSER_SOURCES} ${RUNTIME_SOURCES} ${UTILS_SOURCES})
+add_executable(Flux ${MAIN_SOURCE} ${SOURCES} ${UTILS_SOURCES})

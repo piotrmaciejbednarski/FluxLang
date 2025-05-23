@@ -3,23 +3,30 @@
 #include "token.h"
 #include "../common/source.h"
 #include "../common/error.h"
-#include <string>
-#include <string_view>
+#include "../common/arena.h"
 #include <vector>
 #include <memory>
-#include <utility>
 
 namespace flux {
 namespace lexer {
 
-// Class to tokenize Flux source code
+// Tokenizer class for the Flux language
 class Tokenizer {
 public:
-    // Constructor with source code
-    Tokenizer(std::shared_ptr<common::Source> source);
+    // Constructor
+    Tokenizer(std::shared_ptr<common::Source> source, common::Arena& arena);
     
-    // Tokenize the entire source and return all tokens
-    std::vector<Token> tokenizeAll();
+    // Destructor
+    ~Tokenizer() = default;
+    
+    // Disable copy and move
+    Tokenizer(const Tokenizer&) = delete;
+    Tokenizer& operator=(const Tokenizer&) = delete;
+    Tokenizer(Tokenizer&&) = delete;
+    Tokenizer& operator=(Tokenizer&&) = delete;
+    
+    // Tokenize the entire source
+    std::vector<Token> tokenize();
     
     // Get the next token
     Token nextToken();
@@ -27,73 +34,83 @@ public:
     // Peek at the next token without consuming it
     Token peekToken();
     
-    // Get the current position in the source
-    common::SourcePosition currentPosition() const;
-    
-    // Get any errors that occurred during tokenization
-    const common::ErrorCollector& errors() const { return errors_; }
-    
-    // Check if there were errors during tokenization
-    bool hasErrors() const { return errors_.hasErrors(); }
-
-private:
-    std::shared_ptr<common::Source> source_;  // Source code
-    std::string_view text_;                   // Source text view
-    size_t position_;                         // Current position in source
-    size_t line_;                             // Current line
-    size_t column_;                           // Current column
-    common::ErrorCollector errors_;           // Error collector
-    
-    // Current character
-    char current() const;
-    
-    // Next character (lookahead)
-    char peek() const;
-    
-    // Next next character (2-character lookahead)
-    char peekNext() const;
-    
-    // Advance to the next character
-    char advance();
-    
-    // Check if current character matches expected and advance if it does
-    bool match(char expected);
-    
-    // Check if we've reached the end of the file
+    // Check if we're at the end of the source
     bool isAtEnd() const;
     
-    // Skip whitespace and comments
-    void skipWhitespaceAndComments();
+    // Get current position
+    common::SourcePosition currentPosition() const;
     
-    // Create a token
-    Token makeToken(TokenType type) const;
+    // Get error collector for collecting lexer errors
+    common::ErrorCollector& errorCollector() { return errorCollector_; }
+
+private:
+    std::shared_ptr<common::Source> source_;
+    common::Arena& arena_;
+    common::ErrorCollector errorCollector_;
     
-    // Create an error token
-    Token errorToken(std::string_view message) const;
+    // Current position in source
+    size_t current_;
+    common::SourcePosition position_;
     
-    // Report an error
-    void error(common::ErrorCode code, std::string_view message);
+    // State for i-string parsing
+    enum class IStringState {
+        NONE,
+        IN_TEXT,
+        IN_EXPRESSION,
+        WAITING_FOR_COLON
+    };
+    IStringState iStringState_;
+    int iStringBraceDepth_;
     
-    // Process tokens
-    Token scanToken();
-    Token scanIdentifier();
-    Token scanNumber();
-    Token scanString();
-    Token scanIString(); // Injectable strings
-    Token scanOperator();
+    // Helper methods
+    char peek() const;
+    char peekNext() const;
+    char advance();
+    bool match(char expected);
+    bool match(const char* str);
+    void skipWhitespace();
+    void skipComment();
     
-    // Helper methods for scanning
+    // Position tracking
+    void updatePosition(char c);
+    common::SourceRange makeRange(const common::SourcePosition& start) const;
+    
+    // Token creation methods
+    Token makeToken(TokenType type, const common::SourcePosition& start);
+    Token makeToken(TokenType type, const common::SourcePosition& start, int64_t value);
+    Token makeToken(TokenType type, const common::SourcePosition& start, double value);
+    Token makeErrorToken(const char* message, const common::SourcePosition& start);
+    
+    // Lexing methods for different token types
+    Token lexNumber(const common::SourcePosition& start);
+    Token lexString(const common::SourcePosition& start);
+    Token lexIString(const common::SourcePosition& start);
+    Token lexIdentifier(const common::SourcePosition& start);
+    Token lexBinaryLiteral(const common::SourcePosition& start);
+    Token lexOperator(const common::SourcePosition& start);
+    
+    // I-string specific methods
+    Token lexIStringText(const common::SourcePosition& start);
+    Token lexIStringExpression(const common::SourcePosition& start);
+    
+    // Character classification
     bool isDigit(char c) const;
+    bool isHexDigit(char c) const;
+    bool isBinaryDigit(char c) const;
     bool isAlpha(char c) const;
     bool isAlphaNumeric(char c) const;
+    bool isWhitespace(char c) const;
     
-    // Get current source position
-    common::SourcePosition getPosition() const;
+    // Number parsing helpers
+    bool parseInteger(std::string_view text, int64_t& result, int base = 10) const;
+    bool parseFloat(std::string_view text, double& result) const;
     
-    // Helper for building source location
-    output::SourceLocation makeSourceLocation(
-        const common::SourcePosition& start, 
-        const common::SourcePosition& end) const;
+    // String parsing helpers
+    std::string parseStringLiteral(std::string_view text) const;
+    char parseEscapeSequence(const char*& ptr) const;
+    
+    // Error reporting
+    void reportError(common::ErrorCode code, const char* message, const common::SourcePosition& position);
 };
 
 } // namespace lexer

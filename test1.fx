@@ -1,9 +1,11 @@
 import "std.fx" as std;
 using std.types;
 
-namespace simulation {
+namespace simulation
+{
     // Simulation error types
-    enum SimulationErrorType {
+    enum SimulationErrorType
+    {
         NETWORK_FAILURE = 0,
         COMPUTATION_ERROR = 1,
         RESOURCE_EXHAUSTION = 2,
@@ -14,35 +16,48 @@ namespace simulation {
     signed data{64} NodeConfig;
 
     // Resource tracking struct
-    struct ResourcePool {
-        int cpu;
-        int memory;
-        int bandwidth;
+    struct ResourcePool
+    {
+        i32 cpu, memory, bandwidth;
     };
 
     // Base network node class
-    class NetworkNode {
-        const int MAX_CONNECTIONS = 10;
+    class NetworkNode
+    {
+        const i32 MAX_CONNECTIONS = 10;
         
         char[] nodeId;
         ResourcePool resources;
         bool isActive;
 
-        def __init(char[] id) -> void {
+        def __init(char[] id) -> void
+        {
             this.nodeId = id;
-            this.resources = ResourcePool{
+            
+            ResourcePool
+            {
+                cpu = 100,
+                memory = 1024,
+                bandwitdht = 1000
+            } this.resources;               // VALID
+
+            this.resources = ResourcePool   // INVALID
+            {
                 cpu = 100,
                 memory = 1024,
                 bandwidth = 1000
             };
+
             this.isActive = true;
             return;
         };
 
-        def allocateResources(int cpuReq, int memoryReq, int bandwidthReq) -> bool {
+        def allocateResources(i32 cpuReq, i32 memoryReq, i32 bandwidthReq) -> bool
+        {
             if (cpuReq > this.resources.cpu or 
                 memoryReq > this.resources.memory or 
-                bandwidthReq > this.resources.bandwidth) {
+                bandwidthReq > this.resources.bandwidth)
+            {
                 return false;
             };
 
@@ -54,12 +69,14 @@ namespace simulation {
     };
 
     // Distributed computation object
-    object DistributedTask {
+    object DistributedTask
+    {
         char[] taskId;
-        int complexity;
+        i32 complexity;
         bool isCompleted;
 
-        def __init(char[] id, int taskComplexity) -> void {
+        def __init(char[] id, i32 taskComplexity) -> void
+        {
             this.taskId = id;
             this.complexity = taskComplexity;
             this.isCompleted = false;
@@ -68,17 +85,22 @@ namespace simulation {
 
         def execute() -> !void {
             // Simulate complex computation
-            int iterations = this.complexity;
+            i32 iterations = this.complexity;
             
-            while (iterations > 0) {
+            while (iterations > 0)
+            {
                 // Complex nested computation simulation
-                if (iterations % 2 == 0) {
+                if (iterations % 2 == 0)
+                {
                     iterations /= 2;
-                } else {
+                }
+                else
+                {
                     iterations = iterations * 3 + 1;
                 };
 
-                if (iterations < 0) {
+                if (iterations < 0)
+                {
                     throw("Computation overflow");
                 };
             };
@@ -89,16 +111,19 @@ namespace simulation {
     };
 
     // Network management object
-    object NetworkManager {
+    object NetworkManager
+    {
         NetworkNode[] nodes;
         DistributedTask[] pendingTasks;
 
-        def __init(int nodeCount) -> void {
+        def __init(i32 nodeCount) -> void
+        {
             this.nodes = [];
             this.pendingTasks = [];
 
             // Initialize network nodes
-            for (int i = 0; i < nodeCount; i += 1) {
+            for (i32 i = 0; i < nodeCount; i += 1)
+            {
                 // Custom node ID generation
                 char[] nodeId = i"Node-{}":{i;};
                 NetworkNode(nodeId){} node;
@@ -107,18 +132,24 @@ namespace simulation {
             return;
         };
 
-        def distributeTask(DistributedTask task) -> bool {
-            for (int i = 0; i < this.nodes.size(); i += 1) {
+        def distributeTask(DistributedTask task) -> bool
+        {
+            for (i32 i = 0; i < this.nodes.size(); i += 1)
+            {
                 // Complex task distribution logic
-                int requiredCpu = task.complexity / 10;
-                int requiredMemory = task.complexity * 2;
-                int requiredBandwidth = task.complexity / 5;
+                i32 requiredCpu = task.complexity / 10;
+                i32 requiredMemory = task.complexity * 2;
+                i32 requiredBandwidth = task.complexity / 5;
 
-                if (this.nodes[i].allocateResources(requiredCpu, requiredMemory, requiredBandwidth)) {
-                    try {
+                if (this.nodes[i].allocateResources(requiredCpu, requiredMemory, requiredBandwidth))
+                {
+                    try
+                    {
                         task.execute();
                         return true;
-                    } catch (Error) {
+                    }
+                    catch (Error)
+                    {
                         // Rollback resource allocation
                         this.nodes[i].resources.cpu += requiredCpu;
                         this.nodes[i].resources.memory += requiredMemory;
@@ -131,10 +162,13 @@ namespace simulation {
             return false;
         };
 
-        def balanceLoad() -> void {
+        def balanceLoad() -> void
+        {
             // Complex load balancing algorithm
-            for (int i = 0; i < this.pendingTasks.size(); i += 1) {
-                if (not this.pendingTasks[i].isCompleted) {
+            for (i32 i = 0; i < this.pendingTasks.size(); i += 1)
+            {
+                if (not this.pendingTasks[i].isCompleted)
+                {
                     this.distributeTask(this.pendingTasks[i]);
                 };
             };
@@ -143,16 +177,20 @@ namespace simulation {
     };
 
     // Simulation controller
-    object SimulationController {
+    object SimulationController
+    {
         NetworkManager{} networkManager;
-        int simulationTime;
+        i32 simulationTime;
 
-        def __init(int nodes, int tasks) -> void {
-            this.networkManager = NetworkManager(nodes){};
+        def __init(i32 nodes, i32 tasks) -> void
+        {
+            this.networkManager = NetworkManager(nodes){};      // INVALID
+            NetworkManager(nodes){} this.networkManager;        // VALID
             this.simulationTime = 0;
 
             // Initialize tasks
-            for (int i = 0; i < tasks; i += 1) {
+            for (i32 i = 0; i < tasks; i += 1)
+            {
                 char[] taskId = i"Task-{}":{i;};
                 DistributedTask(taskId, i * 100 + 50){} task;
                 this.networkManager.pendingTasks.push(task);
@@ -160,8 +198,9 @@ namespace simulation {
             return;
         };
 
-        def runSimulation() -> !void {
-            while (this.networkManager.pendingTasks.size() > 0) {
+        def runSimulation() -> i32 {
+            while (this.networkManager.pendingTasks.size() > 0)
+            {
                 this.networkManager.balanceLoad();
                 this.simulationTime += 1;
 
@@ -174,10 +213,13 @@ namespace simulation {
             return 0;
         };
 
-        def cleanupCompletedTasks() -> void {
+        def cleanupCompletedTasks() -> void
+        {
             // Remove completed tasks
-            for (int i = this.networkManager.pendingTasks.size() - 1; i >= 0; i -= 1) {
-                if (this.networkManager.pendingTasks[i].isCompleted) {
+            for (i32 i = this.networkManager.pendingTasks.size() - 1; i >= 0; i -= 1)
+            {
+                if (this.networkManager.pendingTasks[i].isCompleted)
+                {
                     this.networkManager.pendingTasks.remove(i);
                 };
             };
@@ -186,11 +228,13 @@ namespace simulation {
     };
 
     // Custom operator for task complexity calculation
-    operator(int baseComplexity, int multiplier)[task_complexity] -> int {
+    operator(i32 baseComplexity, i32 multiplier)[task_complexity] -> i32
+    {
         return baseComplexity * multiplier + 42;
     };
 
-    def main() -> !void {
+    def main() -> !void
+    {
         // Simulate distributed system
         SimulationController(10, 50){} simulation;
         
