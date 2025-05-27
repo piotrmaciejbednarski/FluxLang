@@ -2,6 +2,9 @@ Flux is a mix of C++, Zig, and Python, and has a slightly more strict syntax tha
 
 The Flux code brace style is Allman style. There is no syntactic sugar.
 
+Flux gets its name from flux or solder paste used to clean in preparation for soldering,
+ie to perform electrical engineering.
+
 Flux uses the object keyword as opposed to the class keyword, because it's more logical.
 
 **Objects:**
@@ -80,29 +83,26 @@ The reason objects and structs cannot be defined inside of functions
 is to make functions cleanly written. You can define them globally,
 or organize them into a namespace, but not in functions.
 
-Structs can contain instances of objects, but you cannot instance them inside the struct.
+Structs can contain instances of objects.
 Structs cannot contain functions, templates, or anonymous blocks, but they may contain pointers to functions and templates.
 
 ```
-object myObj
+object myObject
 {
-	def __init() -> void         // Constructor
+	def __init() -> void         // Constructor, called on instantiation
 	{
 		return;
 	};
 
-	def __exit() -> void         // Destructor
+	def __exit() -> void         // Destructor, called on destruction
 	{
 		return;
 	};
 };
 
-myObj{} newObj1, newObj2;  // Must be instanced outside of the struct
-
 struct myStruct
 {
-	newObj1;
-	newObj2;
+	myObject{} newObj1, newObj2;
 };
 
 struct newStruct
@@ -136,8 +136,9 @@ def myAdd(float x, float y) -> float
 ```
 
 If a function's return type is void nothing will be returned, regardless if your return statement provides something.
+Functions cannot contain object or struct definitions. This is to maintain code legibility and organization.
 
-You can also use assembly directly:
+You can also use in-line assembly directly:
 
 ```
 asm {
@@ -262,18 +263,18 @@ def rsub(int x, int y) -> int
 Import
 ```
 import "std.fx" as std;
-using std.io, std.types;          // Only use `io` from std.fx (std.fx imports `input.fx` and `output.fx`
-//import "math.fx";               // Direct import of all the contents of math.fx as if the source replaced this line
+using std::io, std::types;          // Only use `io` from std.fx (std.fx imports `input.fx` and `output.fx`
+//import "math.fx";                 // Direct import of all the contents of math.fx as if the source replaced this line
 ```
 
 
-!void is merely a way of telling the compiler you don't know what type you'll return. You may have a function that is complex and returns various - or compound - types. Flux does not support the Python-like syntax of specifying multiple return types, so we use !void instead. However, specifying the type does allow for optimization.
+!void is merely a way of telling the compiler you don't know what type you'll return. You may have a function that is complex and returns various - or compound - types. Flux does not support the Python-like syntax of specifying multiple return types, so we use !void instead. However, specifying the type does allow for optimization, but you cannot return `auto`.
 
 
 Example of the `data` type and casting:
 ```
 import "std.fx" as std;  // `std` becomes an immutable identifier
-using std.types;         // Standard types like int, uint, float, ufloat, byte, string, string, and so on.
+using std::types;         // Standard types like int, uint, float, ufloat, byte, string, string, and so on.
 
 byte someByte = {0, 1, 0, 0, 0, 0, 0, 1};     // "A" but in binary
 string somestring = i"{s}":{someByte;};       // "A"
@@ -297,10 +298,9 @@ object someObject
 	data {3} some3bitDatatype;                 // 3 bits long
 };
 
-data d_someObject = (void)someObject               // 99 bits long with no alignment, aligns to object members if cast
-someObject{} o_newInst = (someObject)d_someObject; // Cast back to someObject (only works if object definition has members to fill)
+data d_someObject = (void)someObject           // 99 bits long
 
-someObject{} nulled = (void)o_newInst;           // You can only void instances of objects.
+someObject{} nulled = (void)o_newInst;         // You can only void instances of objects.
 
 // The same casting behavior applies to objects and structs
 ```
@@ -315,7 +315,7 @@ fit their needs that are flexible.
 All standard Flux types are built from the data type.
 These types are defined in the standard library:
 
-bit is defined as `signed data {1} bit;`
+bit is defined as `unsigned data {1} bit;`
 bool is defined as `bit bool;`
 true is defined as `bool true = 1;`
 false is defined as `bool false = 0;`
@@ -323,7 +323,7 @@ i32 is defined as `signed data {32} int;`
 ui32 is defined as `unsigned data {32} uint;`
 float is defined as `signed data {64} float;`
 ufloat is defined as `unsigned data {64} ufloat;`
-string is defined as `signed data{8}[] string;`
+string is defined as `unsigned data{8}[] string;`
 
 Essentially you must include "std.fx" and use std.types to have access to true and false,
 otherwise programmatically you would write 1 or 0 in place of them respectively.
@@ -339,7 +339,7 @@ print(sizeof(ufloat));
 ```
 Result:
 ```
-signed data{1}
+unsigned data{1}
 bit
 signed data{32}
 1
@@ -354,8 +354,8 @@ signed data{32}
 // there is no way to change this.
 // You add your own padding data structures manually.
 struct {
-    data {8} status;
-    data {32} address;
+    unsigned data {8} status;
+    unsigned data {32} address;
 };
 ```
 
@@ -370,9 +370,9 @@ volatile const data{32}* MMIO_REGISTER = @0xFFFF0000;
 ```
 // Define a struct for a hardware register map
 struct GPIORegisters {
-    data {32} control;
-    data {32} status;
-    data {64} buffer;
+    unsigned data {32} control;
+    unsigned data {32} status;
+    unsigned data {64} buffer;
 };
 
 // Map to a fixed hardware address
@@ -389,13 +389,9 @@ def main() -> !void {
 **The void keyword:**
 void is equivalent to Python's None as well as C++'s void and can be used in both contexts such as:
 
-`if (x is void) {...};`
+`if (x is void) {...code...};`
 
-or
-
-`x = void;` which is equivalent to `void x;`
-
-`x = int;` is equivalent to `int x;`
+`void x;`
 
 
 **Function Templates:**
@@ -411,18 +407,18 @@ template <V,K,R> someFunc(V x, K y) -> R
 };
 
 // Pointer to template function:
-template <T*> t_myMax(T,T) = @myMax;
+template* <T> tp_myMax(T,T) = @myMax;
 ```
 
 
 **Object Templates:**
 ```
 object template <T> MyObject {  // `<T>` declares template parameters
+	T value;  // Template-typed member
     def __init(T x) -> void {
         this.value = x;
         assert(typeof(x)==i32);
     };
-    T value;  // Template-typed member
 };
 
 // Instantiation:
@@ -442,6 +438,14 @@ object template <U> ChildObject <MyObject<U>> {  // Inherit from templated objec
 ChildObject<int>{} child(3, 4);  // `U` = `int`, parent `T` = `int`
 ```
 
+Functions cannot be defined inside of functions unless they are written lambda style such as
+declaring a variable equal to an anonymous code block like `void x = {return;};`
+
+You cannot put template functions inside of template functions because they are functions.
+
+You can put object templates inside object templates, and functions inside object templates,
+or even templates inside of object templates, but never functions inside of functions, ever.
+
 
 **Generic Hardware Register example:**
 ```
@@ -457,7 +461,7 @@ statusReg.write(0xFF);
 ```
 
 
-Flux allows defining custom operators with `operator` and their use in code like any other operator
+Flux allows defining custom operators with `operator` and their use in code like any other operator.
 You cannot redefine Flux built-in operators (+,-,*,/,&,==,+=,++,-=,-- etc)
 You define operators in the following manner:
 ```
@@ -484,7 +488,8 @@ def main() -> !void
 
 **Arrays:**
 ```
-signed data {32} int;
+import "std.fx" as std;
+using std::io, std::types;
 
 int[] ia_myArray = [3, 92, 14, 30, 6, 5, 11, 400];
 
@@ -560,11 +565,14 @@ object Obj
 {
 	def __init(float p, string j) {float self.p = p; string self.j = j;};
 };
+
 struct Point { int x; int y; };
+
 Point{} p = {10, 20};
 Obj{} Obj(3.14,"pi");
-auto {x, y} = p;   // x=10, y=20
-auto {p, j} = Obj; // p=3.14, j="pi"
+
+auto {x, y} = p;   // int x=10, int y=20
+auto {p, j} = Obj; // float p=3.14, string j="pi"
 ```
 
 **Casting:**
@@ -574,119 +582,12 @@ string y = (string)x;   // "5"
 ```
 
 
-**Logic:**
-```
-import "std.fx" as std;
-
-using std.exceptions;
-
-signed data {32} int;
-signed data {1} bool;
-signed data {8}[] string;
-
-def main() -> int
-{
-	bool myFlag = false;
-	string fname, lname = "John", "Doe";
-
-	if ("Do" in lname)
-	{
-		myFlag = true;
-	}
-	else
-	{
-		throw("\"Do\" not found in last name!");
-	};
-
-	try
-	{
-		while (true)
-		{
-			switch (fname)           // Switch supports type patterns, not rigid like Python
-			{
-				case ("John")
-				{
-					break;
-				};
-				case (default)
-				{
-					throw("The name ain't John."){__exception = std.exceptions.base;};
-					// Can throw anything, caught from while, switch, or case(default) as `e` in this example is a string.
-					// Acts as a `break;` equivalent but is not the same.
-				};
-			};
-		};
-	}
-	catch (__exception as e)    // Special dunder for catching the exception from throw
-	{
-		if (e == std.exceptions.base)
-		{
-			print(i"throw chain: while -> switch -> case(default)\nException: {}":{e;});
-			return 1;
-		}
-	};
-
-	return 0;
-};
-```
-
-
-**Self-Modifiable Code:**
-```
-def make_adder(int x) -> (()->int) {
-    // Machine code for: int adder(int y) { return x + y; }
-    signed data{8}[] code = [
-        0x55,                         // push rbp
-        0x48, 0x89, 0xE5,             // mov rbp, rsp
-        0x89, 0x7D, 0xFC,             // mov [rbp-4], edi (store y)
-        0x8B, 0x45, 0xFC,             // mov eax, [rbp-4] (load y)
-        0x05, x, 0x00, 0x00, 0x00,    // add eax, x (immediate)
-        0x5D,                         // pop rbp
-        0xC3                          // ret
-    ];
-    
-    // Proper casting to function
-    return (()->int)code;
-};
-
-def main() -> int {
-    (()->int) adder = make_adder(5);
-    adder(3);  // 8 (executes generated machine code)
-    return 0;
-};
-```
-
-
-**Polymorphic Bytecode Example:**
-```
-object template <T> BytecodeRunner {
-    data{8}[] code;
-    def execute(T input) -> T {
-        asm {
-            mov eax, @input
-            lea ebx, @this.code
-            call ebx
-            mov @input, eax
-        };
-        return input;
-    };
-};
-
-def main() -> int {
-    // Self-modifying XOR cipher (opcodes for 'xor eax, 0x55; ret')
-    BytecodeRunner<int>{} runner;
-    runner.code = (data{8}[])[0x35,0x55,0x00,0x00,0x00,0xC3];
-    print(runner.execute(0xAA));  // Output: 0xFF (0xAA ^ 0x55)
-    return 0;
-};
-```
-
 
 Keyword list:
-auto, as, asm, assert, and, break, case, catch, const, continue, data, def, default,
-do, else, enum, for, if, import, in, is, namespace, not, object, operator, or,
-return, signed, sizeof, struct, super, switch, template, this, throw, try,
-typeof, unsigned, using, void, volatile, while, xor
+auto, as, asm, assert, and, break, case, catch, const, continue, data, def,
+default, do, else, enum, for, if, import, in, is, namespace, not, object,
+operator, or, return, signed, sizeof, struct, super, switch, template, this,
+throw, try, typeof, unsigned, using, void, volatile, while, xor
 
 
 Literal types:
@@ -694,7 +595,7 @@ array `[a,b,c,d,...]`, dictionary `{a:b,c:d,...}`, integer `5`, float `3.14`, st
 
 
 Types:
-data, list, dict, void, const
+data, list, dict, void, const, volatile, object, struct, def
 
 
 Member access .

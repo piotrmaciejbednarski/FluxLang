@@ -103,8 +103,8 @@ myObj testObject(3,5);
 
 Inheritance:
 ```
-object anotherObj : myObj     // Exclusion would be !myObj, and you can include or exclude in the same array.
-{
+object anotherObj : myObj     // Exclusion would be !myObj, and you can include or exclude in the same list of identifiers separated
+{                             // by commas
 	def __init() -> this
 	{
 		myObj newObj(10,2);
@@ -262,7 +262,7 @@ dict* p_myDict = @myDict;           // Pointer
 // Pointer Arithmetic:
 import "standard.fx" as std;
 
-using std:io, std::types;
+using std::io, std::types;
 
 def main() -> i32
 {
@@ -406,7 +406,7 @@ struct GPIORegisters {
 // Map to a fixed hardware address
 volatile const GPIORegisters* GPIO = @0x40000000;
 
-def main() -> !void {
+def main() -> i32 {
     GPIO.control = 0x1;  // Write to control register (aligned access)
     asm { cli };         // Disable interrupts (assembly inline)
     return 0;
@@ -462,7 +462,7 @@ object template <U> ChildObject : MyObject<U> // Inherit from templated object
 
     def __init(U x, U y) -> this
     {
-        U super.MyObject<y> newObj(x);  // Explicit parent init
+        U super.MyObject<U> newObj(x);  // Explicit parent init
         this.y = y;
         return;
     };
@@ -479,7 +479,7 @@ object template <U> ChildObject : MyObject<U> // Inherit from templated object
 };
 
 // Usage
-ChildObject<myObject<2>> child(3, 4);  // `U` = `i32`, parent `T` = `i32`
+ChildObject<myObject<i32>> child(3, 4);  // `U` = `i32`, parent `T` = `i32`
 
 // Struct templates
 struct template <T> tStruct
@@ -597,8 +597,8 @@ float[] floats = [(float)x for (x in int_array)];
 **Dictionaries:**
 ```
 dict myDict1 = {0: "First",
-               1: "Second,
-               2: "Third"}
+                1: "Second",
+                2: "Third"}
 
 dict myDict2 = {"test_1": "Test phrase 1.",
                 "test_2": "The void stares back.",
@@ -624,9 +624,13 @@ for (x,y in myDict1)
 ```
 object Obj
 {
+	float p;
+	string j;
+
 	def __init(float p, string j)
 	{
-		float self.p = p; string self.j = j;
+		this.p = p;
+		this.j = j;
 	};
 };
 
@@ -635,7 +639,7 @@ struct Point { i32 x; i32 y; } q = {5,3};  // Can declare at the end of a defini
 Point p = {10, 20};
 Obj myObj(3.14,"pi");
 
-auto {x, y} = p;     // i32 x=10, i32 y=20
+auto {x, y} = u;     // i32 x=10, i32 y=20
 auto {p, j} = myObj; // float p=3.14, string j="pi"
 print(q.x + q.y);    // 8
 ```
@@ -659,26 +663,31 @@ Literal types:
 array `[a,b,c,d,...]`, dictionary `{a:b,c:d,...}`, integer `5`, float `3.14`, string `"x"`
 
 
-Member access .
-Scope resolution ::
-Function call (), array subscript []
-Prefix/Postfix increment/decrement ++, --
-Unary plus/minus +, -
-Logical NOT and bitwise NOT !,~
-Address-of and dereference @, *
-Type casting (type)identifier
-Exponentiation ^^
-Multiplication, division, modulo *, /, %
-Addition, subtraction +, -
-Bit shift <<, >>
-Relational <, <=, >, >=
-Equality, inequality ==, !=
-Identity is, not, as
-Bitwise AND &
-Bitwise XOR ^
-Bitwise OR |
-Logical AND and, &&
-Logical OR or, ||
-Conditional expression ?:
-Assignment =, +=, -=, *=, ^^=, /=, %=, &=, |=, ^=, <<=, >>=
-Comma operator ,
+================================================================================
+                        FLUX OPERATOR PRECEDENCE TABLE
+                              (Highest to Lowest)
+================================================================================
+
+Level | Operators                                    | Assoc | Description
+------|----------------------------------------------|-------|------------------
+  1   | () [] . ::                                   | Left  | Primary expressions
+  2   | ++ -- (postfix)                              | Left  | Postfix inc/dec
+  3   | ++ -- (prefix) + - ! ~ @ * not sizeof typeof | Right | Unary operators
+  4   | (type)                                       | Right | Type casting
+  5   | ^^                                           | Right | Exponentiation
+  6   | * / %                                        | Left  | Multiplicative
+  7   | + -                                          | Left  | Additive
+  8   | << >>                                        | Left  | Bit shift
+  9   | < <= > >= in                                 | Left  | Relational
+ 10   | == !=                                        | Left  | Equality
+ 11   | is not as                                    | Left  | Identity
+ 12   | &                                            | Left  | Bitwise AND
+ 13   | ^ xor                                        | Left  | Bitwise XOR
+ 14   | |                                            | Left  | Bitwise OR
+ 15   | and &&                                       | Left  | Logical AND
+ 16   | or ||                                        | Left  | Logical OR
+ 17   | ?:                                           | Right | Conditional
+ 18   | = += -= *= /= %= &= |= ^= <<= >>= ^^=        | Right | Assignment
+ 19   | ,                                            | Left  | Comma
+
+================================================================================

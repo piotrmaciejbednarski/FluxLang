@@ -10,107 +10,105 @@
 namespace flux {
 namespace lexer {
 
-// Tokenizer class for the Flux language
+// Tokenizer class for lexical analysis of Flux source code
 class Tokenizer {
 public:
     // Constructor
-    Tokenizer(std::shared_ptr<common::Source> source, common::Arena& arena);
+    Tokenizer(std::shared_ptr<common::Source> source, 
+              common::Arena& arena = common::Arena::defaultArena());
     
     // Destructor
-    ~Tokenizer() = default;
+    ~Tokenizer();
     
-    // Disable copy and move
-    Tokenizer(const Tokenizer&) = delete;
-    Tokenizer& operator=(const Tokenizer&) = delete;
-    Tokenizer(Tokenizer&&) = delete;
-    Tokenizer& operator=(Tokenizer&&) = delete;
+    // Tokenize the entire source and return all tokens
+    std::vector<Token> tokenizeAll();
     
-    // Tokenize the entire source
-    std::vector<Token> tokenize();
-    
-    // Get the next token
+    // Get the next token (streaming interface)
     Token nextToken();
     
     // Peek at the next token without consuming it
     Token peekToken();
     
-    // Check if we're at the end of the source
+    // Check if we've reached the end of the source
     bool isAtEnd() const;
     
-    // Get current position
-    common::SourcePosition currentPosition() const;
+    // Get current position in source
+    common::SourcePosition getCurrentPosition() const;
     
-    // Get error collector for collecting lexer errors
-    common::ErrorCollector& errorCollector() { return errorCollector_; }
+    // Get the source
+    std::shared_ptr<common::Source> getSource() const { return source_; }
+    
+    // Get error collector
+    const common::ErrorCollector& getErrors() const { return errors_; }
+    
+    // Check if there were any tokenization errors
+    bool hasErrors() const { return errors_.hasErrors(); }
 
 private:
     std::shared_ptr<common::Source> source_;
     common::Arena& arena_;
-    common::ErrorCollector errorCollector_;
+    common::ErrorCollector errors_;
     
-    // Current position in source
-    size_t current_;
-    common::SourcePosition position_;
+    // Current position in the source text
+    size_t current_offset_;
+    common::SourcePosition current_position_;
     
-    // State for i-string parsing
-    enum class IStringState {
-        NONE,
-        IN_TEXT,
-        IN_EXPRESSION,
-        WAITING_FOR_COLON
-    };
-    IStringState iStringState_;
-    int iStringBraceDepth_;
-    
-    // Helper methods
-    char peek() const;
-    char peekNext() const;
-    char advance();
-    bool match(char expected);
-    bool match(const char* str);
-    void skipWhitespace();
-    void skipComment();
+    // Character reading functions
+    char currentChar() const;
+    char peekChar(size_t offset = 1) const;
+    void advance();
+    void advanceBy(size_t count);
+    bool isAtEnd(size_t offset) const;
     
     // Position tracking
     void updatePosition(char c);
-    common::SourceRange makeRange(const common::SourcePosition& start) const;
+    common::SourcePosition getPositionAt(size_t offset) const;
     
-    // Token creation methods
-    Token makeToken(TokenType type, const common::SourcePosition& start);
-    Token makeToken(TokenType type, const common::SourcePosition& start, int64_t value);
-    Token makeToken(TokenType type, const common::SourcePosition& start, double value);
-    Token makeErrorToken(const char* message, const common::SourcePosition& start);
+    // Token creation helpers
+    Token makeToken(TokenType type, size_t start_offset, size_t end_offset);
+    Token makeToken(TokenType type, size_t start_offset, size_t end_offset, 
+                   const std::string& processed_text);
+    Token makeErrorToken(const std::string& message, size_t start_offset, size_t end_offset);
     
-    // Lexing methods for different token types
-    Token lexNumber(const common::SourcePosition& start);
-    Token lexString(const common::SourcePosition& start);
-    Token lexIString(const common::SourcePosition& start);
-    Token lexIdentifier(const common::SourcePosition& start);
-    Token lexBinaryLiteral(const common::SourcePosition& start);
-    Token lexOperator(const common::SourcePosition& start);
+    // Main tokenization functions
+    Token scanToken();
     
-    // I-string specific methods
-    Token lexIStringText(const common::SourcePosition& start);
-    Token lexIStringExpression(const common::SourcePosition& start);
+    // Specific token scanners
+    Token scanIdentifierOrKeyword();
+    Token scanNumber();
+    Token scanString();
+    Token scanCharacter();
+    Token scanDataLiteral();
+    Token scanIString();
+    Token scanLineComment();
+    Token scanBlockComment();
+    Token scanOperator();
     
-    // Character classification
-    bool isDigit(char c) const;
-    bool isHexDigit(char c) const;
-    bool isBinaryDigit(char c) const;
-    bool isAlpha(char c) const;
-    bool isAlphaNumeric(char c) const;
-    bool isWhitespace(char c) const;
+    // Helper functions
+    void skipWhitespace();
+    bool match(char expected);
+    bool matchSequence(const char* sequence);
     
     // Number parsing helpers
-    bool parseInteger(std::string_view text, int64_t& result, int base = 10) const;
-    bool parseFloat(std::string_view text, double& result) const;
+    Token scanIntegerLiteral(int base, size_t start_offset);
+    Token scanFloatLiteral(size_t start_offset);
+    bool isValidInBase(char c, int base);
     
     // String parsing helpers
-    std::string parseStringLiteral(std::string_view text) const;
-    char parseEscapeSequence(const char*& ptr) const;
+    std::string parseStringContent();
+    std::string parseCharacterContent();
+    char parseEscapeSequence();
+    
+    // Data literal parsing
+    std::string parseDataContent();
+    
+    // i-string parsing helpers
+    Token parseIStringLiteral();
     
     // Error reporting
-    void reportError(common::ErrorCode code, const char* message, const common::SourcePosition& position);
+    void reportError(common::ErrorCode code, const std::string& message);
+    void reportError(common::ErrorCode code, const std::string& message, 
+                    const common::SourcePosition& position);
 };
 
 } // namespace lexer

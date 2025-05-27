@@ -1,63 +1,96 @@
 import "std.fx" as std;
-using std.io, std.types;
+using std::io, std::types;
 
 // Global object definitions
-object GlobalObj {
-    def __init(int val) -> void {
+object GlobalObj
+{
+    i32 value;
+
+    def __init(i32 val) -> this
+    {
         this.value = val;
+        return this;
     };
-    int value;
+
+    def __exit() -> void
+    {
+        return;
+    };
 };
 
-namespace example {
-    object NamespaceObj {
-        def __init(string name) -> void {
-            this.name = name;
-        };
+namespace example
+{
+    object NamespaceObj
+    {
         string name;
-    };
-};
 
-object ContainerObj {
-    object NestedObj {
-        def __init() -> void {
-            this.data = "nested";
+        def __init(string name) -> this
+        {
+            this.name = name;
+            return this;
         };
-        string data;
+
+        def __exit() -> void
+        {
+            return;
+        };
     };
 };
 
-def main() -> int {
-    // Correct: Instantiating objects inside function
-    GlobalObj{} globalInstance(42);
-    example::NamespaceObj{} namespaceInstance("test");
-    ContainerObj{} containerInstance;
-    ContainerObj.NestedObj{} nestedInstance;
-    
-    // Incorrect (would cause error):
-    // object InvalidObj {};  // Can't define objects inside functions
-    
-    // Struct definition is allowed in functions
-    struct LocalStruct {
-        int x;
-        int y;
+object ContainerObj
+{
+    object NestedObj
+    {
+        string buf;
+
+        def __init() -> this
+        {
+            this.buf = "nested";
+            return this;
+        };
+
+        def __exit() -> void
+        {
+            return;
+        };
     };
+};
+
+
+struct myStruct
+{
+    int x, y;
+};
+
+def main() -> i32
+{
+    // Correct: Instantiating objects inside function
+    GlobalObj globalInstance(42);
+    example::NamespaceObj namespaceInstance("test");
+    ContainerObj containerInstance;
+    ContainerObj.NestedObj nestedInstance;
     
-    LocalStruct{} s = {1, 2};
+    myStruct s = {1, 2};
     
     return 0;
 };
 
 // More object definitions at global scope
-object Parent {
-    def greet() -> void {
+object Parent
+{
+    def greet() -> void
+    {
         print("Hello from Parent");
+        return;
     };
 };
 
-object Child <Parent> {
-    def greet() -> void {
+object Child : Parent
+{
+    def greet() -> void
+    {
         super.Parent.greet();
         print("Hello from Child");
+        return;
     };
 };

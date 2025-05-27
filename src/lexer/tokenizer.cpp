@@ -1,598 +1,695 @@
 #include "tokenizer.h"
 #include <cctype>
+#include <algorithm>
 #include <cstring>
-#include <charconv>
 
 namespace flux {
 namespace lexer {
 
 Tokenizer::Tokenizer(std::shared_ptr<common::Source> source, common::Arena& arena)
-    : source_(source), arena_(arena), current_(0), position_(1, 1),
-      iStringState_(IStringState::NONE), iStringBraceDepth_(0) {
+    : source_(source), arena_(arena), current_offset_(0), current_position_(1, 1) {
 }
 
-std::vector<Token> Tokenizer::tokenize() {
+Tokenizer::~Tokenizer() {
+}
+
+std::vector<Token> Tokenizer::tokenizeAll() {
     std::vector<Token> tokens;
     
     while (!isAtEnd()) {
         Token token = nextToken();
-        if (token.type != TokenType::WHITESPACE && token.type != TokenType::COMMENT) {
+        
+        // Filter out whitespace and comments by default
+        if (!token.shouldFilter()) {
             tokens.push_back(token);
         }
-        if (token.type == TokenType::ERROR) {
+        
+        if (token.type == TokenType::END_OF_FILE) {
             break;
         }
     }
-    
-    // Add EOF token
-    common::SourcePosition eofPos = position_;
-    tokens.emplace_back(TokenType::END_OF_FILE, "", makeRange(eofPos));
     
     return tokens;
 }
 
 Token Tokenizer::nextToken() {
-    if (iStringState_ != IStringState::NONE) {
-        return lexIStringExpression(position_);
-    }
-    
     skipWhitespace();
     
     if (isAtEnd()) {
-        return makeToken(TokenType::END_OF_FILE, position_);
+        return makeToken(TokenType::END_OF_FILE, current_offset_, current_offset_);
     }
     
-    common::SourcePosition start = position_;
-    char c = advance();
-    
-    // Numbers
-    if (isDigit(c)) {
-        current_--; // Back up
-        position_ = start;
-        return lexNumber(start);
-    }
-    
-    // Identifiers and keywords
-    if (isAlpha(c) || c == '_') {
-        current_--; // Back up
-        position_ = start;
-        return lexIdentifier(start);
-    }
-    
-    // Strings
-    if (c == '"') {
-        current_--; // Back up
-        position_ = start;
-        return lexString(start);
-    }
-    
-    // I-strings
-    if (c == 'i' && peek() == '"') {
-        current_--; // Back up
-        position_ = start;
-        return lexIString(start);
-    }
-    
-    // Comments - handle before other operators
-    if (c == '/' && peek() == '/') {
-        current_--; // Back up
-        position_ = start;
-        skipComment();
-        return makeToken(TokenType::COMMENT, start);
-    }
-    
-    // Single character tokens and operators
-    switch (c) {
-        // Simple punctuation
-        case '(':  return makeToken(TokenType::LEFT_PAREN, start);
-        case ')':  return makeToken(TokenType::RIGHT_PAREN, start);
-        case '{':  return makeToken(TokenType::LEFT_BRACE, start);
-        case '}':  return makeToken(TokenType::RIGHT_BRACE, start);
-        case '[':  return makeToken(TokenType::LEFT_BRACKET, start);
-        case ']':  return makeToken(TokenType::RIGHT_BRACKET, start);
-        case ';':  return makeToken(TokenType::SEMICOLON, start);
-        case ',':  return makeToken(TokenType::COMMA, start);
-        case '.':  return makeToken(TokenType::DOT, start);
-        case '?':  return makeToken(TokenType::QUESTION, start);
-        case '~':  return makeToken(TokenType::BITWISE_NOT, start);
-        case '@':  return makeToken(TokenType::ADDRESS_OF, start);
-    }
-    
-    // Multi-character operators
-    current_--; // Back up
-    position_ = start;
-    return lexOperator(start);
+    return scanToken();
 }
 
 Token Tokenizer::peekToken() {
-    size_t savedCurrent = current_;
-    common::SourcePosition savedPosition = position_;
-    IStringState savedIStringState = iStringState_;
-    int savedIStringBraceDepth = iStringBraceDepth_;
+    // Save current state
+    size_t saved_offset = current_offset_;
+    common::SourcePosition saved_position = current_position_;
     
+    // Get next token
     Token token = nextToken();
     
-    current_ = savedCurrent;
-    position_ = savedPosition;
-    iStringState_ = savedIStringState;
-    iStringBraceDepth_ = savedIStringBraceDepth;
+    // Restore state
+    current_offset_ = saved_offset;
+    current_position_ = saved_position;
     
     return token;
 }
 
 bool Tokenizer::isAtEnd() const {
-    return current_ >= source_->text().size();
+    return current_offset_ >= source_->text().size();
 }
 
-common::SourcePosition Tokenizer::currentPosition() const {
-    return position_;
+common::SourcePosition Tokenizer::getCurrentPosition() const {
+    return current_position_;
 }
 
-char Tokenizer::peek() const {
-    if (isAtEnd()) return '\0';
-    return source_->text()[current_];
-}
-
-char Tokenizer::peekNext() const {
-    if (current_ + 1 >= source_->text().size()) return '\0';
-    return source_->text()[current_ + 1];
-}
-
-char Tokenizer::advance() {
-    if (isAtEnd()) return '\0';
-    char c = source_->text()[current_++];
-    updatePosition(c);
-    return c;
-}
-
-bool Tokenizer::match(char expected) {
-    if (isAtEnd()) return false;
-    if (source_->text()[current_] != expected) return false;
-    advance();
-    return true;
-}
-
-bool Tokenizer::match(const char* str) {
-    size_t len = std::strlen(str);
-    if (current_ + len > source_->text().size()) return false;
-    
-    for (size_t i = 0; i < len; i++) {
-        if (source_->text()[current_ + i] != str[i]) return false;
+char Tokenizer::currentChar() const {
+    if (isAtEnd()) {
+        return '\0';
     }
-    
-    // Advance past the matched string
-    for (size_t i = 0; i < len; i++) {
-        advance();
-    }
-    return true;
+    return source_->text()[current_offset_];
 }
 
-void Tokenizer::skipWhitespace() {
-    while (!isAtEnd() && isWhitespace(peek())) {
+char Tokenizer::peekChar(size_t offset) const {
+    size_t pos = current_offset_ + offset;
+    if (pos >= source_->text().size()) {
+        return '\0';
+    }
+    return source_->text()[pos];
+}
+
+void Tokenizer::advance() {
+    if (!isAtEnd()) {
+        updatePosition(currentChar());
+        current_offset_++;
+    }
+}
+
+void Tokenizer::advanceBy(size_t count) {
+    for (size_t i = 0; i < count && !isAtEnd(); ++i) {
         advance();
     }
 }
 
-void Tokenizer::skipComment() {
-    // We should be positioned at the first '/'
-    if (peek() == '/' && peekNext() == '/') {
-        advance(); // consume first '/'
-        advance(); // consume second '/'
-        
-        // Read until end of line
-        while (!isAtEnd() && peek() != '\n') {
-            advance();
-        }
-        // Don't consume the newline - let the main loop handle it
-    }
+bool Tokenizer::isAtEnd(size_t offset) const {
+    return current_offset_ + offset >= source_->text().size();
 }
 
 void Tokenizer::updatePosition(char c) {
     if (c == '\n') {
-        position_.line++;
-        position_.column = 1;
+        current_position_.line++;
+        current_position_.column = 1;
     } else {
-        position_.column++;
+        current_position_.column++;
     }
 }
 
-common::SourceRange Tokenizer::makeRange(const common::SourcePosition& start) const {
-    return common::SourceRange(start, position_);
+common::SourcePosition Tokenizer::getPositionAt(size_t offset) const {
+    return source_->offsetToPosition(offset);
 }
 
-Token Tokenizer::makeToken(TokenType type, const common::SourcePosition& start) {
-    size_t startOffset = source_->positionToOffset(start);
-    size_t endOffset = source_->positionToOffset(position_);
-    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
-    return Token(type, text, makeRange(start));
+Token Tokenizer::makeToken(TokenType type, size_t start_offset, size_t end_offset) {
+    std::string_view text = source_->text().substr(start_offset, end_offset - start_offset);
+    common::SourcePosition pos = getPositionAt(start_offset);
+    return Token(type, text, pos);
 }
 
-Token Tokenizer::makeToken(TokenType type, const common::SourcePosition& start, int64_t value) {
-    size_t startOffset = source_->positionToOffset(start);
-    size_t endOffset = source_->positionToOffset(position_);
-    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
-    return Token(type, text, makeRange(start), value);
+Token Tokenizer::makeToken(TokenType type, size_t start_offset, size_t end_offset, 
+                          const std::string& processed_text) {
+    Token token = makeToken(type, start_offset, end_offset);
+    token.processed_text = processed_text;
+    return token;
 }
 
-Token Tokenizer::makeToken(TokenType type, const common::SourcePosition& start, double value) {
-    size_t startOffset = source_->positionToOffset(start);
-    size_t endOffset = source_->positionToOffset(position_);
-    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
-    return Token(type, text, makeRange(start), value);
+Token Tokenizer::makeErrorToken(const std::string& message, size_t start_offset, size_t end_offset) {
+    Token token = makeToken(TokenType::ERROR, start_offset, end_offset);
+    token.processed_text = message;
+    reportError(common::ErrorCode::INVALID_CHARACTER, message, getPositionAt(start_offset));
+    return token;
 }
 
-Token Tokenizer::makeErrorToken(const char* message, const common::SourcePosition& start) {
-    reportError(common::ErrorCode::INVALID_CHARACTER, message, start);
-    return Token(TokenType::ERROR, message, makeRange(start));
-}
-
-Token Tokenizer::lexNumber(const common::SourcePosition& start) {
-    bool hasDecimal = false;
-    bool hasExponent = false;
+Token Tokenizer::scanToken() {
+    size_t start_offset = current_offset_;
+    char c = currentChar();
     
-    // Consume digits
-    while (isDigit(peek())) {
+    // Single character tokens
+    switch (c) {
+        case '(':
+            advance();
+            return makeToken(TokenType::PAREN_OPEN, start_offset, current_offset_);
+        case ')':
+            advance();
+            return makeToken(TokenType::PAREN_CLOSE, start_offset, current_offset_);
+        case '{':
+            advance();
+            return makeToken(TokenType::BRACE_OPEN, start_offset, current_offset_);
+        case '}':
+            advance();
+            return makeToken(TokenType::BRACE_CLOSE, start_offset, current_offset_);
+        case '[':
+            advance();
+            return makeToken(TokenType::BRACKET_OPEN, start_offset, current_offset_);
+        case ']':
+            advance();
+            return makeToken(TokenType::BRACKET_CLOSE, start_offset, current_offset_);
+        case ';':
+            advance();
+            return makeToken(TokenType::SEMICOLON, start_offset, current_offset_);
+        case ',':
+            advance();
+            return makeToken(TokenType::COMMA, start_offset, current_offset_);
+        case '?':
+            advance();
+            return makeToken(TokenType::CONDITIONAL, start_offset, current_offset_);
+        case '~':
+            advance();
+            return makeToken(TokenType::BITWISE_NOT, start_offset, current_offset_);
+        case '@':
+            advance();
+            return makeToken(TokenType::ADDRESS_OF, start_offset, current_offset_);
+        case '\n':
+            advance();
+            return makeToken(TokenType::NEWLINE, start_offset, current_offset_);
+    }
+    
+    // Multi-character tokens and operators
+    if (c == '/') {
+        if (peekChar() == '/') {
+            return scanLineComment();
+        } else if (peekChar() == '*') {
+            return scanBlockComment();
+        } else {
+            return scanOperator();
+        }
+    }
+    
+    // String literals
+    if (c == '"') {
+        return scanString();
+    }
+    
+    // Character literals
+    if (c == '\'') {
+        return scanCharacter();
+    }
+    
+    // i-string literals
+    if (c == 'i' && peekChar() == '"') {
+        return scanIString();
+    }
+    
+    // Numbers
+    if (isDigit(c)) {
+        return scanNumber();
+    }
+    
+    // Identifiers and keywords
+    if (isIdentifierStart(c)) {
+        return scanIdentifierOrKeyword();
+    }
+    
+    // Operators
+    if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || 
+        c == '=' || c == '!' || c == '<' || c == '>' || c == '&' || 
+        c == '|' || c == '^' || c == ':' || c == '.') {
+        return scanOperator();
+    }
+    
+    // Unknown character
+    advance();
+    return makeErrorToken("Unexpected character", start_offset, current_offset_);
+}
+
+Token Tokenizer::scanIdentifierOrKeyword() {
+    size_t start_offset = current_offset_;
+    
+    // Read identifier
+    while (isIdentifierContinue(currentChar())) {
         advance();
     }
     
-    // Look for decimal point
-    if (peek() == '.' && isDigit(peekNext())) {
-        hasDecimal = true;
-        advance(); // consume '.'
-        while (isDigit(peek())) {
+    std::string_view text = source_->text().substr(start_offset, current_offset_ - start_offset);
+    TokenType type = getKeywordType(text);
+    
+    return makeToken(type, start_offset, current_offset_);
+}
+
+Token Tokenizer::scanNumber() {
+    size_t start_offset = current_offset_;
+    
+    // Check for hex, binary, or octal prefix
+    if (currentChar() == '0') {
+        char next = peekChar();
+        if (next == 'x' || next == 'X') {
+            advanceBy(2); // Skip "0x"
+            return scanIntegerLiteral(16, start_offset);
+        } else if (next == 'b' || next == 'B') {
+            advanceBy(2); // Skip "0b"
+            return scanIntegerLiteral(2, start_offset);
+        } else if (next == 'o' || next == 'O') {
+            advanceBy(2); // Skip "0o"
+            return scanIntegerLiteral(8, start_offset);
+        }
+    }
+    
+    // Decimal number (could be int or float)
+    while (isDigit(currentChar())) {
+        advance();
+    }
+    
+    // Check for decimal point
+    if (currentChar() == '.' && isDigit(peekChar())) {
+        return scanFloatLiteral(start_offset);
+    }
+    
+    // Check for exponent
+    if (currentChar() == 'e' || currentChar() == 'E') {
+        return scanFloatLiteral(start_offset);
+    }
+    
+    return scanIntegerLiteral(10, start_offset);
+}
+
+Token Tokenizer::scanIntegerLiteral(int base, size_t start_offset) {
+    // Read digits in the specified base
+    while (isValidInBase(currentChar(), base)) {
+        advance();
+    }
+    
+    std::string_view text = source_->text().substr(start_offset, current_offset_ - start_offset);
+    Token token = makeToken(TokenType::INTEGER_LITERAL, start_offset, current_offset_);
+    
+    try {
+        if (base == 16) {
+            token.integer_value = parseIntegerLiteral(text.substr(2), 16); // Skip "0x"
+        } else if (base == 2) {
+            token.integer_value = parseIntegerLiteral(text.substr(2), 2); // Skip "0b"
+        } else if (base == 8) {
+            token.integer_value = parseIntegerLiteral(text.substr(2), 8); // Skip "0o"
+        } else {
+            token.integer_value = parseIntegerLiteral(text, base);
+        }
+    } catch (...) {
+        return makeErrorToken("Invalid integer literal", start_offset, current_offset_);
+    }
+    
+    return token;
+}
+
+Token Tokenizer::scanFloatLiteral(size_t start_offset) {
+    // Handle decimal point
+    if (currentChar() == '.') {
+        advance();
+        while (isDigit(currentChar())) {
             advance();
         }
     }
     
-    // Look for exponent
-    if (peek() == 'e' || peek() == 'E') {
-        hasExponent = true;
-        advance(); // consume 'e' or 'E'
-        if (peek() == '+' || peek() == '-') {
-            advance(); // consume sign
+    // Handle exponent
+    if (currentChar() == 'e' || currentChar() == 'E') {
+        advance();
+        if (currentChar() == '+' || currentChar() == '-') {
+            advance();
         }
-        while (isDigit(peek())) {
+        while (isDigit(currentChar())) {
             advance();
         }
     }
     
-    size_t startOffset = source_->positionToOffset(start);
-    size_t endOffset = source_->positionToOffset(position_);
-    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
+    std::string_view text = source_->text().substr(start_offset, current_offset_ - start_offset);
+    Token token = makeToken(TokenType::FLOAT_LITERAL, start_offset, current_offset_);
     
-    if (hasDecimal || hasExponent) {
-        double value;
-        if (parseFloat(text, value)) {
-            return makeToken(TokenType::FLOAT_LITERAL, start, value);
-        } else {
-            return makeErrorToken("Invalid float format", start);
-        }
-    } else {
-        int64_t value;
-        if (parseInteger(text, value)) {
-            return makeToken(TokenType::INTEGER_LITERAL, start, value);
-        } else {
-            return makeErrorToken("Invalid integer format", start);
-        }
+    try {
+        token.float_value = parseFloatLiteral(text);
+    } catch (...) {
+        return makeErrorToken("Invalid float literal", start_offset, current_offset_);
+    }
+    
+    return token;
+}
+
+bool Tokenizer::isValidInBase(char c, int base) {
+    switch (base) {
+        case 2: return isBinaryDigit(c);
+        case 8: return isOctalDigit(c);
+        case 10: return isDigit(c);
+        case 16: return isHexDigit(c);
+        default: return false;
     }
 }
 
-Token Tokenizer::lexString(const common::SourcePosition& start) {
-    advance(); // consume opening '"'
+Token Tokenizer::scanString() {
+    size_t start_offset = current_offset_;
+    advance(); // Skip opening quote
     
-    while (!isAtEnd() && peek() != '"') {
-        if (peek() == '\\') {
-            advance(); // consume '\'
+    std::string content;
+    while (!isAtEnd() && currentChar() != '"') {
+        if (currentChar() == '\\') {
+            advance();
             if (isAtEnd()) {
-                return makeErrorToken("Unterminated string", start);
+                return makeErrorToken("Unterminated string literal", start_offset, current_offset_);
             }
-            advance(); // consume escaped character
+            content += parseEscapeSequence();
+        } else if (currentChar() == '\n') {
+            return makeErrorToken("Unterminated string literal", start_offset, current_offset_);
         } else {
+            content += currentChar();
             advance();
         }
     }
     
     if (isAtEnd()) {
-        return makeErrorToken("Unterminated string", start);
+        return makeErrorToken("Unterminated string literal", start_offset, current_offset_);
     }
     
-    advance(); // consume closing '"'
-    return makeToken(TokenType::STRING_LITERAL, start);
-}
-
-Token Tokenizer::lexIString(const common::SourcePosition& start) {
-    advance(); // consume 'i'
-    advance(); // consume '"'
+    advance(); // Skip closing quote
     
-    iStringState_ = IStringState::IN_TEXT;
-    return makeToken(TokenType::I_STRING_START, start);
+    return makeToken(TokenType::STRING_LITERAL, start_offset, current_offset_, content);
 }
 
-Token Tokenizer::lexIdentifier(const common::SourcePosition& start) {
-    while (isAlphaNumeric(peek()) || peek() == '_') {
+Token Tokenizer::scanCharacter() {
+    size_t start_offset = current_offset_;
+    advance(); // Skip opening quote
+    
+    if (isAtEnd() || currentChar() == '\n') {
+        return makeErrorToken("Unterminated character literal", start_offset, current_offset_);
+    }
+    
+    char c;
+    if (currentChar() == '\\') {
+        advance();
+        if (isAtEnd()) {
+            return makeErrorToken("Unterminated character literal", start_offset, current_offset_);
+        }
+        c = parseEscapeSequence();
+    } else {
+        c = currentChar();
         advance();
     }
     
-    size_t startOffset = source_->positionToOffset(start);
-    size_t endOffset = source_->positionToOffset(position_);
-    std::string_view text = source_->text().substr(startOffset, endOffset - startOffset);
-    
-    TokenType type = keywordTable.lookup(text);
-    return makeToken(type, start);
-}
-
-Token Tokenizer::lexBinaryLiteral(const common::SourcePosition& start) {
-    advance(); // consume '{'
-    
-    bool foundBinaryDigits = false;
-    bool hasOnlyBinaryAndCommas = true;
-    
-    while (!isAtEnd() && peek() != '}') {
-        char c = peek();
-        if (isBinaryDigit(c)) {
-            foundBinaryDigits = true;
-            advance();
-        } else if (c == ',' || isWhitespace(c)) {
-            advance();
-        } else {
-            // Found non-binary, non-comma, non-whitespace character
-            hasOnlyBinaryAndCommas = false;
-            break;
-        }
+    if (isAtEnd() || currentChar() != '\'') {
+        return makeErrorToken("Unterminated character literal", start_offset, current_offset_);
     }
     
-    // Only treat as binary literal if:
-    // 1. We found actual binary digits (0 or 1)
-    // 2. Everything inside was binary digits, commas, or whitespace
-    // 3. We reached the closing brace
-    if (!foundBinaryDigits || !hasOnlyBinaryAndCommas || peek() != '}') {
-        // This is not a binary literal, treat '{' as a regular left brace
-        // Reset position to just after the opening brace
-        current_ = source_->positionToOffset(start) + 1;
-        position_ = start;
-        updatePosition('{');
-        return makeToken(TokenType::LEFT_BRACE, start);
-    }
+    advance(); // Skip closing quote
     
-    advance(); // consume '}'
-    return makeToken(TokenType::BINARY_LITERAL, start);
+    std::string content(1, c);
+    Token token = makeToken(TokenType::CHARACTER_LITERAL, start_offset, current_offset_, content);
+    token.integer_value = static_cast<long long>(c);
+    
+    return token;
 }
 
-Token Tokenizer::lexOperator(const common::SourcePosition& start) {
-    char c = advance();
+char Tokenizer::parseEscapeSequence() {
+    char c = currentChar();
+    advance();
     
     switch (c) {
-        case '+':
-            if (match('+')) return makeToken(TokenType::INCREMENT, start);
-            if (match('=')) return makeToken(TokenType::PLUS_ASSIGN, start);
-            return makeToken(TokenType::PLUS, start);
-            
-        case '-':
-            if (match('-')) return makeToken(TokenType::DECREMENT, start);
-            if (match('=')) return makeToken(TokenType::MINUS_ASSIGN, start);
-            if (match('>')) return makeToken(TokenType::ARROW, start);
-            return makeToken(TokenType::MINUS, start);
-            
-        case '*':
-            if (match('*')) {
-                if (match('=')) return makeToken(TokenType::POWER_ASSIGN, start);
-                return makeToken(TokenType::POWER, start);
-            }
-            if (match('=')) return makeToken(TokenType::MULTIPLY_ASSIGN, start);
-            return makeToken(TokenType::MULTIPLY, start);
-            
-        case '/':
-            if (match('=')) return makeToken(TokenType::DIVIDE_ASSIGN, start);
-            return makeToken(TokenType::DIVIDE, start);
-            
-        case '%':
-            if (match('=')) return makeToken(TokenType::MODULO_ASSIGN, start);
-            return makeToken(TokenType::MODULO, start);
-            
-        case '=':
-            if (match('=')) return makeToken(TokenType::EQUAL, start);
-            return makeToken(TokenType::ASSIGN, start);
-            
-        case '!':
-            if (match('=')) return makeToken(TokenType::NOT_EQUAL, start);
-            return makeToken(TokenType::LOGICAL_NOT, start);
-            
-        case '<':
-            if (match('<')) {
-                if (match('=')) return makeToken(TokenType::SHIFT_LEFT_ASSIGN, start);
-                return makeToken(TokenType::SHIFT_LEFT, start);
-            }
-            if (match('=')) return makeToken(TokenType::LESS_EQUAL, start);
-            return makeToken(TokenType::LESS_THAN, start);
-            
-        case '>':
-            if (match('>')) {
-                if (match('=')) return makeToken(TokenType::SHIFT_RIGHT_ASSIGN, start);
-                return makeToken(TokenType::SHIFT_RIGHT, start);
-            }
-            if (match('=')) return makeToken(TokenType::GREATER_EQUAL, start);
-            return makeToken(TokenType::GREATER_THAN, start);
-            
-        case '&':
-            if (match('&')) return makeToken(TokenType::LOGICAL_AND, start);
-            if (match('=')) return makeToken(TokenType::BITWISE_AND_ASSIGN, start);
-            return makeToken(TokenType::BITWISE_AND, start);
-            
-        case '|':
-            if (match('|')) return makeToken(TokenType::LOGICAL_OR, start);
-            if (match('=')) return makeToken(TokenType::BITWISE_OR_ASSIGN, start);
-            return makeToken(TokenType::BITWISE_OR, start);
-            
-        case '^':
-            if (match('=')) return makeToken(TokenType::BITWISE_XOR_ASSIGN, start);
-            return makeToken(TokenType::BITWISE_XOR, start);
-            
-        case ':':
-            if (match(':')) return makeToken(TokenType::SCOPE_RESOLUTION, start);
-            if (iStringState_ == IStringState::WAITING_FOR_COLON && match('{')) {
-                iStringState_ = IStringState::IN_EXPRESSION;
-                iStringBraceDepth_ = 1;
-                return makeToken(TokenType::I_STRING_EXPR_START, start);
-            }
-            return makeToken(TokenType::COLON, start);
-            
-        default:
-            return makeErrorToken("Unexpected character", start);
-    }
-}
-
-Token Tokenizer::lexIStringText(const common::SourcePosition& start) {
-    while (!isAtEnd() && peek() != '"' && peek() != '{') {
-        if (peek() == '\\') {
-            advance(); // consume '\'
-            if (isAtEnd()) {
-                return makeErrorToken("Unterminated i-string", start);
-            }
-            advance(); // consume escaped character
-        } else {
-            advance();
-        }
-    }
-    
-    if (peek() == '"') {
-        advance(); // consume '"'
-        iStringState_ = IStringState::NONE;
-        return makeToken(TokenType::I_STRING_END, start);
-    } else if (peek() == '{') {
-        advance(); // consume '{'
-        if (peek() == '}') {
-            advance(); // consume '}'
-            // Empty placeholder, continue as text
-            return lexIStringText(start);
-        } else {
-            current_--; // back up
-            position_.column--;
-            iStringState_ = IStringState::WAITING_FOR_COLON;
-            return makeToken(TokenType::I_STRING_TEXT, start);
-        }
-    }
-    
-    return makeToken(TokenType::I_STRING_TEXT, start);
-}
-
-Token Tokenizer::lexIStringExpression(const common::SourcePosition& start) {
-    if (iStringState_ == IStringState::IN_TEXT) {
-        return lexIStringText(start);
-    }
-    
-    if (iStringState_ == IStringState::IN_EXPRESSION) {
-        // Handle brace counting for nested expressions
-        char c = peek();
-        if (c == '{') {
-            iStringBraceDepth_++;
-        } else if (c == '}') {
-            iStringBraceDepth_--;
-            if (iStringBraceDepth_ == 0) {
-                advance(); // consume '}'
-                if (match(';')) {
-                    iStringState_ = IStringState::IN_TEXT;
-                    return makeToken(TokenType::I_STRING_EXPR_END, start);
-                } else {
-                    return makeErrorToken("Expected ';' after i-string expression", start);
-                }
-            }
-        }
-        
-        // Parse normal token within expression
-        iStringState_ = IStringState::NONE;
-        Token token = nextToken();
-        iStringState_ = IStringState::IN_EXPRESSION;
-        return token;
-    }
-    
-    return makeErrorToken("Invalid i-string state", start);
-}
-
-bool Tokenizer::isDigit(char c) const {
-    return c >= '0' && c <= '9';
-}
-
-bool Tokenizer::isHexDigit(char c) const {
-    return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-}
-
-bool Tokenizer::isBinaryDigit(char c) const {
-    return c == '0' || c == '1';
-}
-
-bool Tokenizer::isAlpha(char c) const {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
-}
-
-bool Tokenizer::isAlphaNumeric(char c) const {
-    return isAlpha(c) || isDigit(c);
-}
-
-bool Tokenizer::isWhitespace(char c) const {
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-}
-
-bool Tokenizer::parseInteger(std::string_view text, int64_t& result, int base) const {
-    const char* start = text.data();
-    const char* end = text.data() + text.size();
-    
-    auto [ptr, ec] = std::from_chars(start, end, result, base);
-    return ec == std::errc{} && ptr == end;
-}
-
-bool Tokenizer::parseFloat(std::string_view text, double& result) const {
-    const char* start = text.data();
-    const char* end = text.data() + text.size();
-    
-    auto [ptr, ec] = std::from_chars(start, end, result);
-    return ec == std::errc{} && ptr == end;
-}
-
-std::string Tokenizer::parseStringLiteral(std::string_view text) const {
-    std::string result;
-    result.reserve(text.size());
-    
-    const char* ptr = text.data() + 1; // Skip opening quote
-    const char* end = text.data() + text.size() - 1; // Skip closing quote
-    
-    while (ptr < end) {
-        if (*ptr == '\\') {
-            result += parseEscapeSequence(ptr);
-        } else {
-            result += *ptr++;
-        }
-    }
-    
-    return result;
-}
-
-char Tokenizer::parseEscapeSequence(const char*& ptr) const {
-    ++ptr; // Skip backslash
-    
-    switch (*ptr++) {
         case 'n': return '\n';
-        case 't': return '\t';
         case 'r': return '\r';
+        case 't': return '\t';
         case '\\': return '\\';
         case '"': return '"';
         case '\'': return '\'';
         case '0': return '\0';
+        case 'x': {
+            // Hex escape \xHH
+            if (!isAtEnd() && isHexDigit(currentChar())) {
+                char hex1 = currentChar();
+                advance();
+                if (!isAtEnd() && isHexDigit(currentChar())) {
+                    char hex2 = currentChar();
+                    advance();
+                    char hex_str[3] = {hex1, hex2, '\0'};
+                    return static_cast<char>(std::strtol(hex_str, nullptr, 16));
+                }
+            }
+            return 'x'; // Invalid hex escape
+        }
+        case 'u': {
+            // Unicode escape \uHHHH
+            char hex_chars[4];
+            bool valid = true;
+            for (int i = 0; i < 4; ++i) {
+                if (isAtEnd() || !isHexDigit(currentChar())) {
+                    valid = false;
+                    break;
+                }
+                hex_chars[i] = currentChar();
+                advance();
+            }
+            if (valid) {
+                char hex_str[5] = {hex_chars[0], hex_chars[1], hex_chars[2], hex_chars[3], '\0'};
+                int unicode_value = std::strtol(hex_str, nullptr, 16);
+                if (unicode_value < 128) {
+                    return static_cast<char>(unicode_value);
+                }
+            }
+            return 'u'; // Invalid unicode escape
+        }
         default:
-            --ptr; // Back up
-            return *ptr++; // Return the character as-is
+            return c; // Unknown escape, return as literal
     }
 }
 
-void Tokenizer::reportError(common::ErrorCode code, const char* message, const common::SourcePosition& position) {
-    // Convert position to output location
+Token Tokenizer::scanDataLiteral() {
+    size_t start_offset = current_offset_;
+    advance(); // Skip opening brace
+    
+    std::string bits;
+    while (!isAtEnd() && currentChar() != '}') {
+        if (currentChar() == '0' || currentChar() == '1') {
+            bits += currentChar();
+            advance();
+        } else if (currentChar() == ',' || isWhitespace(currentChar())) {
+            advance(); // Skip separator or whitespace
+        } else {
+            return makeErrorToken("Invalid character in data literal", start_offset, current_offset_);
+        }
+    }
+    
+    if (isAtEnd()) {
+        return makeErrorToken("Unterminated data literal", start_offset, current_offset_);
+    }
+    
+    advance(); // Skip closing brace
+    
+    return makeToken(TokenType::DATA_LITERAL, start_offset, current_offset_, bits);
+}
+
+Token Tokenizer::scanIString() {
+    size_t start_offset = current_offset_;
+    advance(); // Skip 'i'
+    
+    // Now we expect a string literal
+    Token string_token = scanString();
+    if (string_token.type != TokenType::STRING_LITERAL) {
+        return string_token; // Return the error
+    }
+    
+    // Check for colon
+    if (currentChar() != ':') {
+        return makeErrorToken("Expected ':' after i-string", start_offset, current_offset_);
+    }
+    advance();
+    
+    // Skip opening brace
+    if (currentChar() != '{') {
+        return makeErrorToken("Expected '{' after i-string ':'", start_offset, current_offset_);
+    }
+    advance();
+    
+    // Read expression list (simplified for now - just read until closing brace)
+    std::string expressions;
+    int brace_count = 1;
+    while (!isAtEnd() && brace_count > 0) {
+        if (currentChar() == '{') {
+            brace_count++;
+        } else if (currentChar() == '}') {
+            brace_count--;
+        }
+        if (brace_count > 0) {
+            expressions += currentChar();
+        }
+        advance();
+    }
+    
+    if (brace_count > 0) {
+        return makeErrorToken("Unterminated i-string expression list", start_offset, current_offset_);
+    }
+    
+    // Skip closing semicolon
+    if (currentChar() == ';') {
+        advance();
+    }
+    
+    Token token = makeToken(TokenType::I_STRING_LITERAL, start_offset, current_offset_, 
+                           string_token.processed_text);
+    // Store expressions in a separate field or process them later
+    return token;
+}
+
+Token Tokenizer::scanLineComment() {
+    size_t start_offset = current_offset_;
+    
+    // Skip "//"
+    advanceBy(2);
+    
+    // Read until end of line
+    while (!isAtEnd() && currentChar() != '\n') {
+        advance();
+    }
+    
+    return makeToken(TokenType::LINE_COMMENT, start_offset, current_offset_);
+}
+
+Token Tokenizer::scanBlockComment() {
+    size_t start_offset = current_offset_;
+    
+    // Skip "/*"
+    advanceBy(2);
+    
+    // Read until "*/"
+    while (!isAtEnd()) {
+        if (currentChar() == '*' && peekChar() == '/') {
+            advanceBy(2);
+            break;
+        }
+        advance();
+    }
+    
+    return makeToken(TokenType::BLOCK_COMMENT, start_offset, current_offset_);
+}
+
+Token Tokenizer::scanOperator() {
+    size_t start_offset = current_offset_;
+    char c = currentChar();
+    
+    advance();
+    
+    switch (c) {
+        case '+':
+            if (match('+')) return makeToken(TokenType::INCREMENT, start_offset, current_offset_);
+            if (match('=')) return makeToken(TokenType::ASSIGN_ADD, start_offset, current_offset_);
+            return makeToken(TokenType::PLUS, start_offset, current_offset_);
+            
+        case '-':
+            if (match('-')) return makeToken(TokenType::DECREMENT, start_offset, current_offset_);
+            if (match('=')) return makeToken(TokenType::ASSIGN_SUB, start_offset, current_offset_);
+            if (match('>')) return makeToken(TokenType::ARROW, start_offset, current_offset_);
+            return makeToken(TokenType::MINUS, start_offset, current_offset_);
+            
+        case '*':
+            if (match('*')) {
+                if (match('=')) return makeToken(TokenType::ASSIGN_POW, start_offset, current_offset_);
+                return makeToken(TokenType::POWER, start_offset, current_offset_);
+            }
+            if (match('=')) return makeToken(TokenType::ASSIGN_MUL, start_offset, current_offset_);
+            return makeToken(TokenType::MULTIPLY, start_offset, current_offset_);
+            
+        case '/':
+            if (match('=')) return makeToken(TokenType::ASSIGN_DIV, start_offset, current_offset_);
+            return makeToken(TokenType::DIVIDE, start_offset, current_offset_);
+            
+        case '%':
+            if (match('=')) return makeToken(TokenType::ASSIGN_MOD, start_offset, current_offset_);
+            return makeToken(TokenType::MODULO, start_offset, current_offset_);
+            
+        case '=':
+            if (match('=')) return makeToken(TokenType::EQUAL, start_offset, current_offset_);
+            return makeToken(TokenType::ASSIGN, start_offset, current_offset_);
+            
+        case '!':
+            if (match('=')) return makeToken(TokenType::NOT_EQUAL, start_offset, current_offset_);
+            return makeToken(TokenType::LOGICAL_NOT, start_offset, current_offset_);
+            
+        case '<':
+            if (match('<')) {
+                if (match('=')) return makeToken(TokenType::ASSIGN_SHL, start_offset, current_offset_);
+                return makeToken(TokenType::SHIFT_LEFT, start_offset, current_offset_);
+            }
+            if (match('=')) return makeToken(TokenType::LESS_EQUAL, start_offset, current_offset_);
+            return makeToken(TokenType::LESS_THAN, start_offset, current_offset_);
+            
+        case '>':
+            if (match('>')) {
+                if (match('=')) return makeToken(TokenType::ASSIGN_SHR, start_offset, current_offset_);
+                return makeToken(TokenType::SHIFT_RIGHT, start_offset, current_offset_);
+            }
+            if (match('=')) return makeToken(TokenType::GREATER_EQUAL, start_offset, current_offset_);
+            return makeToken(TokenType::GREATER_THAN, start_offset, current_offset_);
+            
+        case '&':
+            if (match('&')) return makeToken(TokenType::LOGICAL_AND, start_offset, current_offset_);
+            if (match('=')) return makeToken(TokenType::ASSIGN_AND, start_offset, current_offset_);
+            return makeToken(TokenType::BITWISE_AND, start_offset, current_offset_);
+            
+        case '|':
+            if (match('|')) return makeToken(TokenType::LOGICAL_OR, start_offset, current_offset_);
+            if (match('=')) return makeToken(TokenType::ASSIGN_OR, start_offset, current_offset_);
+            return makeToken(TokenType::BITWISE_OR, start_offset, current_offset_);
+            
+        case '^':
+            if (match('^')) {
+                if (match('=')) return makeToken(TokenType::ASSIGN_XOR, start_offset, current_offset_);
+                return makeToken(TokenType::BITWISE_XOR, start_offset, current_offset_);
+            }
+            if (match('=')) return makeToken(TokenType::ASSIGN_EXP, start_offset, current_offset_);
+            return makeToken(TokenType::EXPONENT, start_offset, current_offset_);
+            
+        case ':':
+            if (match(':')) return makeToken(TokenType::SCOPE_RESOLUTION, start_offset, current_offset_);
+            return makeToken(TokenType::COLON, start_offset, current_offset_);
+            
+        case '.':
+            if (match('.')) return makeToken(TokenType::RANGE, start_offset, current_offset_);
+            return makeToken(TokenType::MEMBER_ACCESS, start_offset, current_offset_);
+            
+        default:
+            return makeErrorToken("Unknown operator", start_offset, current_offset_);
+    }
+}
+
+void Tokenizer::skipWhitespace() {
+    while (!isAtEnd() && isWhitespace(currentChar())) {
+        advance();
+    }
+}
+
+bool Tokenizer::match(char expected) {
+    if (isAtEnd() || currentChar() != expected) {
+        return false;
+    }
+    advance();
+    return true;
+}
+
+bool Tokenizer::matchSequence(const char* sequence) {
+    size_t len = std::strlen(sequence);
+    for (size_t i = 0; i < len; ++i) {
+        if (isAtEnd(i) || peekChar(i) != sequence[i]) {
+            return false;
+        }
+    }
+    advanceBy(len);
+    return true;
+}
+
+void Tokenizer::reportError(common::ErrorCode code, const std::string& message) {
+    reportError(code, message, current_position_);
+}
+
+void Tokenizer::reportError(common::ErrorCode code, const std::string& message, 
+                           const common::SourcePosition& position) {
     output::SourceLocation location(
         source_->filename(),
         static_cast<int>(position.line),
         static_cast<int>(position.column)
     );
-    
-    errorCollector_.addError(code, message, location);
+    errors_.addError(code, message, location);
 }
 
-}
-}
+} // namespace lexer
+} // namespace flux

@@ -1,230 +1,300 @@
-// Comprehensive Flux program using all language keywords
+// Comprehensive Flux Language Example - Demonstrating All Keywords
+// This program showcases every keyword in the Flux programming language
 
+// Import statements with 'as' keyword
 import "std.fx" as std;
+import "math.fx";
 
-// Define basic data types
-data{8}[] string;
-signed data{32} i32;
-unsigned data{32} ui32;
-signed data{64} i64;
-unsigned data{64} ui64;
-signed data{64} float;
-unsigned data{64} ufloat;
+// Using statements to bring specific symbols into scope
+using std::io, std::types, std::memory;
 
-namespace Flux
+// Namespace declaration
+namespace graphics
 {
-    // Basic data types
-    signed data{32} Integer;
-    unsigned data{8} Byte;
-    signed data{1} Flag;
-
-    // Enum declaration
-    enum Color
+    // Template object with inheritance demonstration
+    object template <T> Point 
     {
-        RED = 0,
-        GREEN = 1,
-        BLUE = 2,
-    };
-
-    // Class definition with inheritance
-    class BaseWidget
-    {
-        const Integer VERSION = 1;
+        T x, y;
         
-        struct Dimensions
+        def __init(T x_val, T y_val) -> void
         {
-            Integer width;
-            Integer height;
-        };
-    };
-
-    class Widget<BaseWidget>
-    {
-        object Logger
-        {
-            def __init() -> void
-            {
-                this.enabled = true;
-                return;
-            };
-            
-            def log(string message) -> void
-            {
-                if (this.enabled)
-                {
-                    return;
-                };
-                return;
-            };
-            string x = "";
-            Flag enabled;
-        };
-    };
-
-    // Template function definition
-    template <T> max(T a, T b) -> T
-    {
-        return (a > b) ? a : b;
-    };
-
-    // Custom operator
-    operator(Integer x, Integer y)[pow] -> Integer
-    {
-        Integer result = 1;
-        
-        for (Integer i = 0; i < y; i += 1)
-        {
-            result *= x;
+            T this.x = x_val;
+            T this.y = y_val;
+            return;
         };
         
-        return result;
+        def __exit() -> void
+        {
+            return;
+        };
+        
+        def distance() -> T
+        {
+            return (this.x * this.x + this.y * this.y) ** 0.5;
+        };
     };
-
-    // Assembly block
-    asm {
-// Example assembly code
-mov eax, 1
-mov ebx, 0
-int 0x80
+    
+    // Inheritance with super keyword
+    object template <T> Point3D<Point<T>>
+    {
+        T z;
+        
+        def __init(T x_val, T y_val, T z_val) -> void
+        {
+            T super.Point<T> newPoint(x_val, y_val);
+            T this.z = z_val;
+            return;
+        };
+        
+        def distance3D() -> T
+        {
+            T base_dist = super.distance();
+            return (base_dist * base_dist + this.z * this.z) ** 0.5;
+        };
     };
 };
 
-// Define a helper function outside any other function
-def add(Flux.Integer x, Flux.Integer y) -> Flux.Integer
+// Struct definition with various data types
+struct HardwareRegister
 {
-    return x + y;
+    volatile const unsigned data{32} control_reg;
+    volatile const unsigned data{16} status_reg;
+    signed data{8} buffer_data;
+    const unsigned data{1} enable_bit;
 };
 
-// Define a pointer function outside any other function
-def swap(Flux.Integer *a, Flux.Integer *b) -> void
+// Custom operator definition
+operator(int x, int y)[pow] -> int
 {
-    Flux.Integer temp = *a;
-    *a = *b;
-    *b = temp;
+    int result = 1;
+    while (y > 0)
+    {
+        result = result * x;
+        y = y - 1;
+    };
+    return result;
+};
+
+// Template function demonstration
+template <T> max_value(T a, T b) -> T
+{
+    return (a > b) ? a : b;
+};
+
+// Function with exception handling
+def divide_safe(int numerator, int denominator) -> int
+{
+    try
+    {
+        assert(denominator != 0);
+        if (denominator is 0)
+        {
+            throw "Division by zero error";
+        };
+        return numerator / denominator;
+    }
+    catch
+    {
+        return 0;
+    };
+};
+
+// Function demonstrating various control structures
+def demonstrate_control_flow() -> void
+{
+    // Auto type deduction with destructuring
+    auto point = graphics::Point<int>(10, 20);
+    auto {x, y} = point;
+    
+    // Array with comprehension
+    int[] numbers = [i for (i in 1..10)];
+    int[] evens = [x for (x in numbers) if (x % 2 == 0)];
+    
+    // Dictionary demonstration
+    dict status_codes = {200: "OK", 404: "Not Found", 500: "Server Error"};
+    
+    // For loop with 'in' keyword
+    for (code, message in status_codes)
+    {
+        // Switch statement with case and default
+        switch (code)
+        {
+            case(200)
+            {
+                print("Success!");
+                continue;
+            };
+            case(404)
+            {
+                print("Resource not found");
+                break;
+            };
+            case(default)
+            {
+                print(i"Unknown status: {}":{code;});
+            };
+        };
+    };
+    
+    // While loop with logical operators
+    int counter = 0;
+    while (counter < 10 and not (counter > 5 or counter < 0))
+    {
+        counter++;
+        if (counter == 3)
+        {
+            continue;
+        };
+        
+        // XOR operation
+        unsigned data{8} xor_result = xor(counter, 0xFF);
+        
+        // Type checking and casting
+        if (typeof(counter) is typeof(int))
+        {
+            float converted = (float)counter;
+        };
+    };
+    
+    // Do-while equivalent using while
+    do
+    {
+        counter--;
+    } while (counter > 0);
+    
     return;
 };
 
-// Using statement at global scope
-using Flux;
-
-// Application object at global scope
-object Application
+// Function with inline assembly
+def low_level_operation() -> void
 {
-    def __init() -> void
-    {
-        this.running = true;
-        this.errorCode = 0;
-        return;
+    volatile const unsigned data{32}* mmio_register = @0x40000000;
+    
+    // Inline assembly block
+    asm {
+        mov eax, 1
+        mov ebx, 0
+        int 0x80
     };
     
-    def process(Integer value) -> Integer
-    {
-        // Using try-catch
-        try
-        {
-            if (value < 0)
-            {
-                throw("Negative value");
-            };
-            
-        }
-        catch(Error)
-        {
-            this.errorCode = 1;
-            return 0;
-        };
-    };
+    // Memory-mapped I/O access
+    *mmio_register = 0x12345678;
     
-    def run() -> void
-    {
-        Integer count = 5;
-        
-        while (count > 0 and this.running)
-        {
-            // If-else statement
-            if (count == 3)
-            {
-                continue;
-            }
-            else if (count == 1)
-            {
-                break;
-            };
-            
-            count -= 1;
-        };
-        
-        // Do-while loop
-        do
-        {
-            count += 1;
-            
-            // Logical operators
-            if (count > 10 or this.errorCode != 0)
-            {
-                this.running = false;
-            };
-            
-            // Bitwise operators
-            Integer flags = 0x01 | 0x02;
-            flags = flags & ~0x01;
-            flags = flags ^ 0x04;
-            flags = flags << 1;
-            flags = flags >> 1;
-            
-            // Using xor keyword
-            Flag test = xor(true,false);
-            
-            // Using not keyword
-            test = not test;
-            
-            // Empty statement
-            ;;;
-            
-        } while (this.running);
-        
-        return;
-    };
-    
-    Flag running;
-    Integer errorCode;
+    return;
 };
 
-// The main function
+// Function demonstrating sizeof and typeof
+def type_inspection() -> void
+{
+    signed data{64} large_int = 42;
+    unsigned data{8} byte_val = 255;
+    
+    print(i"Size of large_int: {} bits":{sizeof(large_int);});
+    print(i"Type of byte_val: {}":{typeof(byte_val);});
+    
+    // Const and volatile usage
+    const int constant_value = 100;
+    volatile int volatile_value = 200;
+    
+    return;
+};
+
+// Enum-like structure (using const values since enum isn't fully detailed)
+namespace Colors
+{
+    const unsigned data{8} RED = 0xFF;
+    const unsigned data{8} GREEN = 0x00;
+    const unsigned data{8} BLUE = 0x00;
+};
+
+// Main function - entry point
 def main() -> int
 {
-    // Object instantiation
-    Application{} app;
-    
-    // Function pointer declaration
-    Integer *func_ptr(Integer, Integer) = add;
-    
-    // Variables and pointers
-    Integer a = 5;
-    Integer b = 10;
-    Integer *ptr_a = @a;
+    try
+    {
+        // Object instantiation and usage
+        graphics::Point<float> origin(0.0, 0.0);
+        graphics::Point3D<int> space_point(1, 2, 3);
+        
+        // Function calls and operations
+        int result = divide_safe(10, 2);
+        int max_val = max_value<int>(25, 30);
+        
+        // Custom operator usage
+        int power_result = 2 pow 8;
+        
+        // Demonstrate control flow
+        demonstrate_control_flow();
+        
+        // Low-level operations
+        low_level_operation();
+        
+        // Type inspection
+        type_inspection();
+        
+        // Pointer operations with @ (address-of) and * (dereference)
+        int value = 42;
+        int* ptr_value = @value;
+        int deref_value = *ptr_value;
+        
+        // Array operations with various types
+        void[] mixed_array = [1, "hello", 3.14, true];
+        
+        // Function pointer demonstration
+        int *func_ptr(int, int) = @divide_safe;
+        int func_result = func_ptr(20, 4);
+        
+        print(i"Program completed successfully. Final result: {}":{result;});
+        
+        return 0;
+    }
+    catch
+    {
+        print("An error occurred during program execution");
+        return 1;
+    };
+};
 
-    int x = Integer:p;  // Casting fails
+// Template specialization example
+template <T> process_data(T* data_ptr, int size) -> void
+{
+    for (int i = 0; i < size; ++i)
+    {
+        // Process each element
+        if (data_ptr[i] is void)
+        {
+            continue;
+        };
+        
+        // Type-specific operations
+        typeof(T) element_type = typeof(*data_ptr);
+        
+        // Bitwise operations with data types
+        if (element_type is typeof(unsigned data{8}))
+        {
+            unsigned data{8} byte_data = (unsigned data{8})*data_ptr;
+            byte_data << 1;  // Left shift
+            byte_data >> 1;  // Right shift
+        };
+    };
     
-    // Call object method
-    app.run();
+    return;
+};
+
+// Anonymous function and lambda-like usage
+def functional_demo() -> void
+{
+    // Anonymous block execution
+    {
+        int local_var = 100;
+        print(i"Anonymous block executed with value: {}":{local_var;});
+    };
     
-    // Using sizeof
-    Integer size = sizeof(Integer);
+    // Function-like variable (anonymous function)
+    void func_var = {
+        print("Anonymous function called");
+        return;
+    };
     
-    // Type checking with typeof and is
-    Flag check = typeof(a) is Integer;
-    
-    // Ternary operator
-    string message = app.running ? "Running" : "Stopped";
-    
-    // Using op keyword for custom operator
-    Integer powered = op<2 pow 3>;
-    
-    // Super keyword is used in inheritance context
-    // This keyword is used in object methods
-    
-    // Void keyword in return type
-    // Return statement at the end
-    return 0;
+    return;
 };

@@ -1,10 +1,9 @@
 #pragma once
 
-#include "../common/source.h"
-#include "../common/arena.h"
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include "../common/source.h"
 
 namespace flux {
 namespace lexer {
@@ -18,193 +17,223 @@ enum class TokenType {
     INTEGER_LITERAL,
     FLOAT_LITERAL,
     STRING_LITERAL,
-    BINARY_LITERAL,
+    CHARACTER_LITERAL,
+    DATA_LITERAL,
+    I_STRING_LITERAL,
     
     // Identifiers
     IDENTIFIER,
     
-    // Keywords (from the specification keyword list)
-    AUTO,
-    AS,
-    ASM,
-    ASSERT,
-    AND,
-    BREAK,
-    CASE,
-    CATCH,
-    CONST,
-    CONTINUE,
-    DATA,
-    DEF,
-    DEFAULT,
-    DO,
-    ELSE,
-    ENUM,
-    FOR,
-    IF,
-    IMPORT,
-    IN,
-    IS,
-    NAMESPACE,
-    NOT,
-    OBJECT,
-    OPERATOR,
-    OR,
-    RETURN,
-    SIGNED,
-    SIZEOF,
-    STRUCT,
-    SUPER,
-    SWITCH,
-    TEMPLATE,
-    THIS,
-    THROW,
-    TRY,
-    TYPEOF,
-    UNSIGNED,
-    USING,
-    VOID,
-    VOLATILE,
-    WHILE,
-    XOR,
+    // Keywords
+    KEYWORD_AUTO,
+    KEYWORD_AS,
+    KEYWORD_ASM,
+    KEYWORD_ASSERT,
+    KEYWORD_AND,
+    KEYWORD_BREAK,
+    KEYWORD_CASE,
+    KEYWORD_CATCH,
+    KEYWORD_CONST,
+    KEYWORD_CONTINUE,
+    KEYWORD_DATA,
+    KEYWORD_DEF,
+    KEYWORD_DEFAULT,
+    KEYWORD_DO,
+    KEYWORD_ELSE,
+    KEYWORD_ENUM,
+    KEYWORD_FOR,
+    KEYWORD_IF,
+    KEYWORD_IMPORT,
+    KEYWORD_IN,
+    KEYWORD_IS,
+    KEYWORD_NAMESPACE,
+    KEYWORD_NOT,
+    KEYWORD_OBJECT,
+    KEYWORD_OPERATOR,
+    KEYWORD_OR,
+    KEYWORD_RETURN,
+    KEYWORD_SIGNED,
+    KEYWORD_SIZEOF,
+    KEYWORD_STRUCT,
+    KEYWORD_SUPER,
+    KEYWORD_SWITCH,
+    KEYWORD_TEMPLATE,
+    KEYWORD_THIS,
+    KEYWORD_THROW,
+    KEYWORD_TRY,
+    KEYWORD_TYPEOF,
+    KEYWORD_UNSIGNED,
+    KEYWORD_USING,
+    KEYWORD_VOID,
+    KEYWORD_VOLATILE,
+    KEYWORD_WHILE,
+    KEYWORD_XOR,
     
     // Operators
-    PLUS,           // +
-    MINUS,          // -
-    MULTIPLY,       // *
-    DIVIDE,         // /
-    MODULO,         // %
-    POWER,          // **
-    
     // Assignment operators
-    ASSIGN,         // =
-    PLUS_ASSIGN,    // +=
-    MINUS_ASSIGN,   // -=
-    MULTIPLY_ASSIGN, // *=
-    DIVIDE_ASSIGN,  // /=
-    MODULO_ASSIGN,  // %=
-    POWER_ASSIGN,   // **=
+    ASSIGN,                 // =
+    ASSIGN_ADD,             // +=
+    ASSIGN_SUB,             // -=
+    ASSIGN_MUL,             // *=
+    ASSIGN_DIV,             // /=
+    ASSIGN_MOD,             // %=
+    ASSIGN_AND,             // &=
+    ASSIGN_OR,              // |=
+    ASSIGN_XOR,             // ^^=
+    ASSIGN_SHL,             // <<=
+    ASSIGN_SHR,             // >>=
+    ASSIGN_POW,             // **=
+    ASSIGN_EXP,             // ^=
     
-    // Comparison operators
-    EQUAL,          // ==
-    NOT_EQUAL,      // !=
-    LESS_THAN,      // <
-    LESS_EQUAL,     // <=
-    GREATER_THAN,   // >
-    GREATER_EQUAL,  // >=
-    
-    // Logical operators
-    LOGICAL_AND,    // &&
-    LOGICAL_OR,     // ||
-    LOGICAL_NOT,    // !
-    
-    // Bitwise operators
-    BITWISE_AND,    // &
-    BITWISE_OR,     // |
-    BITWISE_XOR,    // ^
-    BITWISE_NOT,    // ~
-    SHIFT_LEFT,     // <<
-    SHIFT_RIGHT,    // >>
-    SHIFT_LEFT_ASSIGN,  // <<=
-    SHIFT_RIGHT_ASSIGN, // >>=
-    BITWISE_AND_ASSIGN, // &=
-    BITWISE_OR_ASSIGN,  // |=
-    BITWISE_XOR_ASSIGN, // ^=
+    // Arithmetic operators
+    PLUS,                   // +
+    MINUS,                  // -
+    MULTIPLY,               // *
+    DIVIDE,                 // /
+    MODULO,                 // %
+    POWER,                  // **
+    EXPONENT,               // ^
     
     // Increment/decrement
-    INCREMENT,      // ++
-    DECREMENT,      // --
+    INCREMENT,              // ++
+    DECREMENT,              // --
+    
+    // Comparison operators
+    EQUAL,                  // ==
+    NOT_EQUAL,              // !=
+    LESS_THAN,              // <
+    LESS_EQUAL,             // <=
+    GREATER_THAN,           // >
+    GREATER_EQUAL,          // >=
+    
+    // Logical operators
+    LOGICAL_AND,            // &&
+    LOGICAL_OR,             // ||
+    LOGICAL_NOT,            // !
+    
+    // Bitwise operators
+    BITWISE_AND,            // &
+    BITWISE_OR,             // |
+    BITWISE_XOR,            // ^^
+    BITWISE_NOT,            // ~
+    SHIFT_LEFT,             // <<
+    SHIFT_RIGHT,            // >>
+    
+    // Unary operators
+    ADDRESS_OF,             // @
+    DEREFERENCE,            // * (context-dependent)
+    
+    // Other operators
+    CONDITIONAL,            // ?
+    SCOPE_RESOLUTION,       // ::
+    MEMBER_ACCESS,          // .
     
     // Punctuation
-    SEMICOLON,      // ;
-    COMMA,          // ,
-    DOT,            // .
-    SCOPE_RESOLUTION, // ::
-    QUESTION,       // ?
-    COLON,          // :
-    ARROW,          // ->
+    SEMICOLON,              // ;
+    COLON,                  // :
+    COMMA,                  // ,
     
-    // Brackets and braces
-    LEFT_PAREN,     // (
-    RIGHT_PAREN,    // )
-    LEFT_BRACE,     // {
-    RIGHT_BRACE,    // }
-    LEFT_BRACKET,   // [
-    RIGHT_BRACKET,  // ]
+    // Brackets
+    PAREN_OPEN,             // (
+    PAREN_CLOSE,            // )
+    BRACE_OPEN,             // {
+    BRACE_CLOSE,            // }
+    BRACKET_OPEN,           // [
+    BRACKET_CLOSE,          // ]
     
-    // Pointer operators
-    ADDRESS_OF,     // @
-    DEREFERENCE,    // * (context-dependent with MULTIPLY)
+    // Special
+    ARROW,                  // ->
+    RANGE,                  // ..
     
-    // Special tokens for i-strings (injectable strings)
-    I_STRING_START, // i"
-    I_STRING_TEXT,  // text part of i-string
-    I_STRING_EXPR_START, // :{
-    I_STRING_EXPR_END,   // };
-    I_STRING_END,   // "
-    
-    // Comments
-    COMMENT,
-    
-    // Whitespace (usually skipped)
-    WHITESPACE,
-    NEWLINE,
+    // Comments (usually filtered out)
+    LINE_COMMENT,
+    BLOCK_COMMENT,
     
     // Error token
-    ERROR
+    ERROR,
+    
+    // Whitespace (usually filtered out)
+    WHITESPACE,
+    NEWLINE
 };
 
 // Token structure
 struct Token {
     TokenType type;
     std::string_view text;
-    common::SourceRange range;
+    common::SourcePosition position;
     
-    // Additional data for specific token types
+    // For numeric literals
     union {
-        int64_t intValue;
-        double floatValue;
+        long long integer_value;
+        double float_value;
     };
     
-    Token(TokenType t, std::string_view txt, const common::SourceRange& r)
-        : type(t), text(txt), range(r), intValue(0) {}
+    // For string literals (processed text without quotes/escapes)
+    std::string processed_text;
     
-    Token(TokenType t, std::string_view txt, const common::SourceRange& r, int64_t val)
-        : type(t), text(txt), range(r), intValue(val) {}
+    Token() : type(TokenType::ERROR), integer_value(0) {}
     
-    Token(TokenType t, std::string_view txt, const common::SourceRange& r, double val)
-        : type(t), text(txt), range(r), floatValue(val) {}
+    Token(TokenType t, std::string_view txt, const common::SourcePosition& pos)
+        : type(t), text(txt), position(pos), integer_value(0) {}
+    
+    // Check if token is a keyword
+    bool isKeyword() const;
+    
+    // Check if token is an operator
+    bool isOperator() const;
+    
+    // Check if token is a literal
+    bool isLiteral() const;
+    
+    // Check if token should be filtered out (whitespace, comments)
+    bool shouldFilter() const;
+    
+    // Get string representation of token type
+    std::string_view typeToString() const;
+    
+    // Get precedence for operators (0 = lowest, higher = higher precedence)
+    int getOperatorPrecedence() const;
+    
+    // Check if operator is right associative
+    bool isRightAssociative() const;
 };
 
-// Convert token type to string for debugging
+// Convert token type to string
 std::string_view tokenTypeToString(TokenType type);
 
-// Check if a token type is a keyword
-bool isKeyword(TokenType type);
+// Check if a string is a keyword and return the corresponding token type
+TokenType getKeywordType(std::string_view text);
 
-// Check if a token type is an operator
-bool isOperator(TokenType type);
+// Check if character is valid for identifier start
+bool isIdentifierStart(char c);
 
-// Check if a token type is a literal
-bool isLiteral(TokenType type);
+// Check if character is valid for identifier continuation
+bool isIdentifierContinue(char c);
 
-// Keyword lookup table
-class KeywordTable {
-public:
-    KeywordTable();
-    
-    // Look up a keyword by text
-    TokenType lookup(std::string_view text) const;
-    
-    // Check if text is a keyword
-    bool isKeyword(std::string_view text) const;
+// Check if character is a digit
+bool isDigit(char c);
 
-private:
-    std::unordered_map<std::string_view, TokenType> keywords_;
-};
+// Check if character is a hex digit
+bool isHexDigit(char c);
 
-// Global keyword table instance
-extern const KeywordTable keywordTable;
+// Check if character is a binary digit
+bool isBinaryDigit(char c);
+
+// Check if character is an octal digit
+bool isOctalDigit(char c);
+
+// Check if character is whitespace
+bool isWhitespace(char c);
+
+// Escape sequence processing
+std::string processEscapeSequences(std::string_view text);
+
+// Parse integer literal
+long long parseIntegerLiteral(std::string_view text, int base = 10);
+
+// Parse float literal
+double parseFloatLiteral(std::string_view text);
 
 } // namespace lexer
 } // namespace flux

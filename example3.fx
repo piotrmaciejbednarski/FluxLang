@@ -1,5 +1,5 @@
 import "std.fx" as std;
-using std.io, std.types;
+using std::io, std::types;
 
 // Define card object
 object Card {

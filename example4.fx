@@ -2,7 +2,7 @@
 namespace memory {
     object Arena {
         def __init(int size) -> void;
-        def __exit() -> void;
+        def __exit(Arena* arena) -> void {destroy_arena(*arena)};
         
         def allocate(int size) -> void*;
         def reset() -> void;
@@ -17,9 +17,6 @@ namespace memory {
     def create_arena(int size) -> Arena*;
     def destroy_arena(Arena* arena) -> void;
 };
-
-import "arena.fx" as arena;
-using memory;
 
 object memory::Arena {
     def __init(int size) -> void {

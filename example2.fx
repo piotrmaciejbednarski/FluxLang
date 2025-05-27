@@ -1,9 +1,9 @@
 import "std.fx" as std;
-using std.io, std.types;
+using std::io, std::types;
 
 // Define an Item object
 object Item {
-    def __init(int id, string name, float price, int stock) -> void {
+    def __init(i32 id, string name, float price, i32 stock) -> void {
         this.id = id;
         this.name = name;
         this.price = price;
@@ -14,12 +14,12 @@ object Item {
         print(i"Item {} destroyed":{this.id;});
     };
 
-    int id;
+    i32 id;
     string name;
     float price;
-    int stock;
+    i32 stock;
 
-    def sell(int quantity) -> bool {
+    def sell(i32 quantity) -> bool {
         if (this.stock >= quantity) {
             this.stock -= quantity;
             return true;
@@ -27,7 +27,7 @@ object Item {
         return false;
     };
 
-    def restock(int quantity) -> void {
+    def restock(i32 quantity) -> void {
         this.stock += quantity;
     };
 
@@ -49,16 +49,16 @@ object Inventory {
     };
 
     dict items;  // Dictionary to store items by ID
-    int next_id;
+    i32 next_id;
 
-    def add_item(string name, float price, int initial_stock) -> void {
-        Item{}(this.next_id, name, price, initial_stock) new_item;
+    def add_item(string name, float price, i32 initial_stock) -> void {
+        Item new_item(this.next_id, name, price, initial_stock);
         this.items[this.next_id] = @new_item;
         this.next_id += 1;
         print("Item added successfully!");
     };
 
-    def sell_item(int id, int quantity) -> bool {
+    def sell_item(i32 id, i32 quantity) -> bool {
         if (id not in this.items) {
             print("Item not found!");
             return false;
@@ -74,7 +74,7 @@ object Inventory {
         };
     };
 
-    def restock_item(int id, int quantity) -> void {
+    def restock_item(i32 id, i32 quantity) -> void {
         if (id not in this.items) {
             print("Item not found!");
             return;
@@ -102,7 +102,7 @@ object Inventory {
 };
 
 // Main CLI interface
-def main() -> int {
+def main() -> i32 {
     Inventory{} inventory;
     bool running = true;
 
@@ -117,21 +117,21 @@ def main() -> int {
         print("4. List all items");
         print("5. Exit");
 
-        int choice = input("Enter your choice: ") as int;
+        i32 choice = input("Enter your choice: ") as int;
 
         switch (choice) {
             case (1) {  // Add item
                 string name = input("Enter item name: ");
                 float price = input("Enter item price: ") as float;
-                int stock = input("Enter initial stock: ") as int;
+                i32 stock = input("Enter initial stock: ") as int;
                 inventory.add_item(name, price, stock);
             };
 
             case (2) {  // Sell item
                 inventory.list_items();
                 if (inventory.items.len() > 0) {
-                    int id = input("Enter item ID to sell: ") as int;
-                    int quantity = input("Enter quantity to sell: ") as int;
+                    i32 id = input("Enter item ID to sell: ") as int;
+                    i32 quantity = input("Enter quantity to sell: ") as int;
                     inventory.sell_item(id, quantity);
                 };
             };
@@ -139,8 +139,8 @@ def main() -> int {
             case (3) {  // Restock item
                 inventory.list_items();
                 if (inventory.items.len() > 0) {
-                    int id = input("Enter item ID to restock: ") as int;
-                    int quantity = input("Enter restock quantity: ") as int;
+                    i32 id = input("Enter item ID to restock: ") as int;
+                    i32 quantity = input("Enter restock quantity: ") as int;
                     inventory.restock_item(id, quantity);
                 };
             };
