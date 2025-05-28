@@ -1,6 +1,9 @@
 import "std.fx" as std;
 using std::io, std::types;
 
+signed data{32} i32;
+unsigned data{8}[] string;
+
 // Global object definitions
 object GlobalObj
 {
@@ -59,7 +62,7 @@ object ContainerObj
 
 struct myStruct
 {
-    int x, y;
+    i32 x, y;
 };
 
 def main() -> i32
@@ -89,7 +92,7 @@ object Child : Parent
 {
     def greet() -> void
     {
-        super.Parent.greet();
+        super.greet();
         print("Hello from Child");
         return;
     };
