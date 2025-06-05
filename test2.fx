@@ -5,3 +5,8 @@ object test
 
     };
 };
+
+async def myFunc() -> int
+{
+    return 0;
+};

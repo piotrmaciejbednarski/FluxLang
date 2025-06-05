@@ -326,7 +326,13 @@ class Parser:
             elif self.match("KW_SWITCH"):
                 return self.parse_switch_stmt()
             elif self.match("KW_ASYNC"):
-                return self.parse_template_def()
+                # Check what follows async
+                if self.peek(1) == "KW_TEMPLATE":
+                    return self.parse_template_def()  # async template
+                elif self.peek(1) == "KW_DEF":
+                    return self.parse_async_function_def()  # async def
+                else:
+                    self.error("Expected 'template' or 'def' after 'async'")
             elif self.match("KW_OPERATOR"):
                 if self.peek(1) == "KW_TEMPLATE":
                     return self.parse_template_def()  # parse_template_def handles operator templates
@@ -405,8 +411,54 @@ class Parser:
         self.expect("DELIM_R_BRACE")
         self.expect("DELIM_SEMICOLON")
         return NamespaceDefNode(name, body, self.line, self.col)
-    
+
     def parse_function_def(self) -> FunctionDefNode:
+        """Parse function definition"""
+        self.expect("KW_DEF")
+        name = self.expect_identifier()
+        self.expect("DELIM_L_PARENTHESIS")
+        
+        parameters = []
+        if not self.match("DELIM_R_PARENTHESIS"):
+            parameters = self.parse_parameter_list()
+        
+        self.expect("DELIM_R_PARENTHESIS")
+        self.expect("RETURN_ARROW")
+        return_type = self.parse_type_spec()
+        self.expect("DELIM_L_BRACE")
+        
+        body = self.parse_statement_list()
+        
+        self.expect("DELIM_R_BRACE")
+        self.expect("DELIM_SEMICOLON")
+        
+        return FunctionDefNode(name, parameters, return_type, body, self.line, self.col)
+    
+    def parse_async_function_def(self) -> FunctionDefNode:
+        """Parse async function definition"""
+        self.expect("KW_ASYNC")
+        self.expect("KW_DEF")
+        name = self.expect_identifier()
+        self.expect("DELIM_L_PARENTHESIS")
+        
+        parameters = []
+        if not self.match("DELIM_R_PARENTHESIS"):
+            parameters = self.parse_parameter_list()
+        
+        self.expect("DELIM_R_PARENTHESIS")
+        self.expect("RETURN_ARROW")
+        return_type = self.parse_type_spec()
+        self.expect("DELIM_L_BRACE")
+        
+        body = self.parse_statement_list()
+        
+        self.expect("DELIM_R_BRACE")
+        self.expect("DELIM_SEMICOLON")
+        
+        # Note: For now, we're using FunctionDefNode for async functions
+        # In a full implementation, you might want an AsyncFunctionDefNode
+        # but this works with the current AST structure
+        return FunctionDefNode(name, parameters, return_type, body, self.line, self.col)
         """Parse function definition"""
         self.expect("KW_DEF")
         name = self.expect_identifier()
@@ -537,11 +589,14 @@ class Parser:
         """Parse object member (variable, method, template, or nested object)"""
         if self.match("KW_DEF"):
             return self.parse_method_def()
+        elif self.match("KW_ASYNC") and self.peek(1) == "KW_DEF":
+            # FIXED: Handle async methods within objects
+            return self.parse_async_method_def()
         elif self.match("KW_OBJECT"):
             # Handle nested objects (both regular and template)
             return self.parse_nested_object_def()
         elif self.match("KW_ASYNC") and self.peek(1) == "KW_TEMPLATE":
-            # FIXED: Handle async template methods within objects
+            # Handle async template methods within objects
             return self.parse_async_template_in_object()
         elif self.match("KW_TEMPLATE"):
             # This is a function template within the object, not an object template
@@ -557,12 +612,45 @@ class Parser:
             is_volatile = True
             self.advance()  # consume KW_VOLATILE
             return self.parse_async_template_in_object(is_volatile)
+        elif self.match("KW_VOLATILE") and self.peek(1) == "KW_ASYNC" and self.peek(2) == "KW_DEF":
+            # Handle volatile async methods within objects
+            is_volatile = True
+            self.advance()  # consume KW_VOLATILE
+            return self.parse_async_method_def(is_volatile)
         elif self.is_type_specifier():
             var_decl = self.parse_variable_decl()
             self.expect("DELIM_SEMICOLON")
             return var_decl
         else:
             self.error(f"Expected object member, got {self.current_token}")
+
+    def parse_async_method_def(self, is_volatile: bool = False) -> MethodDefNode:
+        """Parse async method definition within an object"""
+        self.expect("KW_ASYNC")
+        self.expect("KW_DEF")
+        
+        # Check for magic method
+        name = self.expect_identifier()
+        is_magic = name.startswith("__")
+        
+        self.expect("DELIM_L_PARENTHESIS")
+        parameters = []
+        if not self.match("DELIM_R_PARENTHESIS"):
+            parameters = self.parse_parameter_list()
+        
+        self.expect("DELIM_R_PARENTHESIS")
+        self.expect("RETURN_ARROW")
+        return_type = self.parse_type_spec()
+        self.expect("DELIM_L_BRACE")
+        
+        body = self.parse_statement_list()
+        
+        self.expect("DELIM_R_BRACE")
+        self.expect("DELIM_SEMICOLON")
+        
+        # Note: Using MethodDefNode for async methods
+        # In a full implementation, you might want an AsyncMethodDefNode
+        return MethodDefNode(name, parameters, return_type, body, is_magic, self.line, self.col)
 
     def parse_async_template_in_object(self, is_volatile: bool = False) -> AsyncTemplateNode:
         """Parse an async template method within an object"""
@@ -2111,7 +2199,7 @@ def parse_flux_program(source_code: str) -> ProgramNode:
 if __name__ == "__main__":
     # Test with a Flux program from file
     try:
-        with open("./test2.fx", "r") as file:
+        with open("./master_example2.fx", "r") as file:
             source_code = file.read()
         
         ast = parse_flux_program(source_code)
