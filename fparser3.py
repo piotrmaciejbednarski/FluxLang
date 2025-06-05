@@ -387,30 +387,76 @@ class Parser:
         return NamespaceAccessNode(identifiers, self.line, self.col)
     
     def parse_namespace_def(self) -> NamespaceDefNode:
-        """Parse namespace definition"""
+        """Parse namespace definition - can contain any global item except imports/using"""
         self.expect("KW_NAMESPACE")
         name = self.expect_identifier()
         self.expect("DELIM_L_BRACE")
         
         body = []
         while not self.match("DELIM_R_BRACE") and not self.at_end():
-            # Handle both regular objects and object templates in namespaces
-            if self.match("KW_OBJECT"):
-                if self.peek(1) == "KW_TEMPLATE":
-                    # Object template
-                    obj_template = self.parse_object_template(False)
-                    body.append(obj_template)
-                else:
-                    # Regular object
-                    obj_def = self.parse_object_def()
-                    if obj_def:
-                        body.append(obj_def)
-            else:
-                self.error(f"Expected object definition in namespace, got {self.current_token}")
+            item = self.parse_namespace_item()
+            if item:
+                body.append(item)
         
         self.expect("DELIM_R_BRACE")
         self.expect("DELIM_SEMICOLON")
         return NamespaceDefNode(name, body, self.line, self.col)
+
+    def parse_namespace_item(self) -> Optional[GlobalItemNode]:
+        """Parse a namespace item (same as global items except imports/using)"""
+        if self.match("KW_NAMESPACE"):
+            return self.parse_namespace_def()
+        elif self.match("KW_DEF"):
+            return self.parse_function_def()
+        elif self.match("KW_OBJECT") and self.peek(1) == "KW_TEMPLATE":
+            return self.parse_object_template(is_volatile=False)
+        elif self.match("KW_OBJECT"):
+            return self.parse_object_def()
+        elif self.match("KW_STRUCT") and self.peek(1) == "KW_TEMPLATE":
+            return self.parse_struct_template(is_volatile=False)
+        elif self.match("KW_STRUCT"):
+            return self.parse_struct_def()
+        elif self.match("KW_TEMPLATE"):
+            return self.parse_template_def()
+        elif self.match("KW_VOLATILE"):
+            # Check if this is a volatile template or volatile variable declaration
+            next_token = self.peek(1)
+            if (next_token == "KW_TEMPLATE" or 
+                next_token == "KW_ASYNC" or 
+                next_token == "KW_OPERATOR" or
+                next_token == "KW_FOR" or
+                next_token == "KW_SWITCH" or
+                next_token == "KW_OBJECT" or
+                next_token == "KW_STRUCT"):
+                return self.parse_template_def()
+            else:
+                # Variable declaration with volatile qualifier
+                var_decl = self.parse_variable_decl()
+                self.expect("DELIM_SEMICOLON")
+                return var_decl
+        elif self.match("KW_ASYNC"):
+            # Check what follows async
+            if self.peek(1) == "KW_TEMPLATE":
+                return self.parse_template_def()  # async template
+            elif self.peek(1) == "KW_DEF":
+                return self.parse_async_function_def()  # async def
+            else:
+                self.error("Expected 'template' or 'def' after 'async'")
+        elif self.match("KW_OPERATOR"):
+            if self.peek(1) == "KW_TEMPLATE":
+                return self.parse_template_def()  # operator template
+            else:
+                return self.parse_operator_def()
+        elif self.match("KW_FOR") and self.peek(1) == "KW_TEMPLATE":
+            return self.parse_template_def()  # for template
+        else:
+            # Try parsing as variable declaration
+            if self.is_type_specifier():
+                var_decl = self.parse_variable_decl()
+                self.expect("DELIM_SEMICOLON")
+                return var_decl
+            else:
+                self.error(f"Unexpected token in namespace: {self.current_token}")
 
     def parse_function_def(self) -> FunctionDefNode:
         """Parse function definition"""
@@ -2199,7 +2245,7 @@ def parse_flux_program(source_code: str) -> ProgramNode:
 if __name__ == "__main__":
     # Test with a Flux program from file
     try:
-        with open("./master_example2.fx", "r") as file:
+        with open("./math.fx", "r") as file:
             source_code = file.read()
         
         ast = parse_flux_program(source_code)

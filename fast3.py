@@ -79,14 +79,13 @@ class NamespaceAccessNode(ASTNode):
 class NamespaceDefNode(GlobalItemNode):
     """Namespace definition node"""
     
-    def __init__(self, name: str, body: List[Union[ObjectDefNode, ObjectTemplateNode]], line: int = 0, col: int = 0):
+    def __init__(self, name: str, body: List[GlobalItemNode], line: int = 0, col: int = 0):
         super().__init__(line, col)
         self.name = name
         self.body = body
     
     def accept(self, visitor):
         return visitor.visit_namespace_def(self)
-
 
 class FunctionDefNode(GlobalItemNode):
     """Function definition node"""
