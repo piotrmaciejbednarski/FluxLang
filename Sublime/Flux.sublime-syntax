@@ -47,11 +47,11 @@ contexts:
           scope: constant.character.escape.flux
 
     # Keywords
-    - match: '\b(as|asm|and|break|case|catch|class|const|continue|data|def|default|do|else|enum|false|for|if|import|in|is|namespace|not|object|op|operator|or|return|signed|sizeof|struct|super|switch|template|this|throw|true|try|typeof|unsigned|using|void|while|xor)\b'
+    - match: '\b(as|asm|and|async|break|case|catch|char|class|const|continue|data|def|default|do|else|enum|false|for|if|import|in|is|namespace|not|object|op|operator|or|return|signed|sizeof|struct|super|switch|template|this|throw|true|try|typeof|unsigned|using|void|volatile|while|xor)\b'
       scope: keyword.control.flux
 
     # Types
-    - match: '\b(i32|ui32|i64|ui64|float|ufloat|string|bit|bool|void|data|dict|list|type|const)\b'
+    - match: '\b(int|float|void|data|const|volatile|char)\b'
       scope: storage.type.flux
 
     # Functions

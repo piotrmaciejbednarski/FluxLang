@@ -13,7 +13,7 @@ def name (parameters) -> return_type
 };
 
 // Example function
-def myAdd(i32 x, i32 y) -> int
+def myAdd(int x, int y) -> int
 {
 	return x + y;
 };
@@ -77,6 +77,70 @@ Definition: `object myObj {};`
 Instance: `myObj newObj;`
 Member access: `newObj.x`
 
+Magic Methods:
+```
+// `this` never needs to be a parameter as it is always local to its object.
+__new()        -> this
+__init()       -> this               Example: thisObj newObj();
+__exit()       -> void
+__expr()       -> // user-defined    Example: print(someObj);          // Result: user-defined gets printed
+__eq()         -> // user-defined =  Example: someObj newObj = oldObj; // Result: user-defined gets assigned to newObj
+__ee()         -> // user-defined ==
+__ne()         -> // user-defined !=
+__le()         -> // user-defined <=
+__ge()         -> // user-defined >=
+__lt()         -> // user-defined <
+__gt()         -> // user-defined >
+__add()        -> // user-defined +
+__sub()        -> // user-defined -
+__inc()        -> // user-defined ++
+__dec()        -> // user-defined --
+__mul()        -> // user-defined *
+__div()        -> // user-defined /
+__iadd()       -> // user-defined +=
+__isub()       -> // user-defined -=
+__imul()       -> // user-defined *=
+__idiv()       -> // user-defined /=
+__mod()        -> // user-defined %
+__pow()        -> // user-defined ^
+__imod()       -> // user-defined %=
+__ipow()       -> // user-defined ^=
+__ls()         -> // user-defined (left-shift)
+__rs()         -> // user-defined (right-shift)
+__and()        -> // user-defined && / and
+__or()         -> // user-defined || / or
+__xor()        -> // user-defined ^^ / xor
+__nand()
+__nor()
+__xand()
+__xnor()
+__xnand()
+__band()
+__bor()
+__bxor()
+__bnand()
+__bnor()
+__bxand()
+__bxnor()
+__bxnand()
+__andeq()
+__oreq()
+__xoreq()
+__nandeq()
+__noreq()
+__xandeq()
+__xnoreq()
+__xnandeq()
+__bandeq()
+__boreq()
+__bxoreq()
+__bnandeq()
+__bnoreq()
+__bxandeq()
+__bxnoreq()
+__bxnandeq()
+```
+
 Example usage:
 ```
 import "standard.fx" as std;
@@ -85,11 +149,12 @@ using std::io, std::types;
 
 object myObj
 {
-	def __init(i32 x, i32 y) -> this
+	int a, b;
+	def __init(int x, int y) -> this
 	{
-		i32 this.a = x;                           // __init is a special method, and is the constructor function
-		i32 this.b = y;                           // you must always specify "this" as the -> return type
-		return;                                   // but you do not need to return anything here.
+		this.a = x;                           // __init is a special method, and is the constructor function
+		this.b = y;                           // you must always specify "this" as the -> return type
+		return;                               // but you do not need to return anything here.
 	};
 
 	def __exit() -> void
@@ -104,7 +169,7 @@ myObj testObject(3,5);
 Inheritance:
 ```
 object anotherObj : myObj     // Exclusion would be !myObj, and you can include or exclude in the same list of identifiers separated
-{                             // by commas
+{                             // by commas, so you could do `object myObj : someObj, !thatObj, !otherObj {};`
 	def __init() -> this
 	{
 		myObj newObj(10,2);
@@ -120,11 +185,6 @@ object anotherObj : myObj     // Exclusion would be !myObj, and you can include 
 
 Objects cannot be defined inside of a function, they must be within a namespace, another object, or global scope.
 `__init` is always called on object instantiation. `__exit` is always called on object destruction, or called manually to destroy the object.
-
-Objects and structs cannot be defined inside of functions and this
-is to make functions cleanly written. You can define them globally,
-or organize them into a namespace, but not in functions. You can
-put instances of objects and structs in functions but no definitions of the two.
 
 Structs can contain instances of objects.
 Structs cannot contain functions, templates, or anonymous blocks, but they may contain pointers to functions and templates.
@@ -169,12 +229,13 @@ import "standard.fx" as std;
 using std::io, std::types;
 
 def bar() -> string { return "World"; };    // We get the basic string type from the types module
-print(i"Hello {} {}":
+print(i"Hello {} {}" : // whitespace is ignored
               {
               	bar() + "!";
                 "test";
-              };                            // Whitespace is ignored, this is just for positioning
+              }                             // Whitespace is ignored, this is just for positioning
      );
+x = i"Bar {}":{bar()};                      // Bar World!
 ```
 
 This allows you to write clean interpolated strings without strange formatting.
@@ -214,49 +275,44 @@ print(a);
 
 
 // Pointers to variables:
-i32 data = 0;
-i32 *p_data = @data;
+int idata = 0;
+int *p_idata = @idata;
 
-p_data += 3;
-print(data);  // 3
+*p_idata += 3;
+print(idata);  // 3
 
 
 // Pointers to functions:
-def add(i32 x, i32 y) -> i32
+def add(int x, int y) -> int
 {
 	return x + y;
 };
 
-def sub(i32 x, i32 y) -> i32
+def sub(int x, int y) -> int
 {
 	return x - y;
 };
 
-i32 *p_add(i32,i32) = @add;  // Similar to C++ syntax
-i32 *p_sub(i32,i32) = @sub;
+int *p_add(int,int) = @add;  // Similar to C++ syntax
+int *p_sub(int,int) = @sub;
 
-print(p_add(0,3)); // 3
-print(p_sub(5,2)); // -3
+print(*p_add(0,3)); // 3
+print(*p_sub(5,2)); // -3
 
-array func_list = [p_add,p_sub];
+// Function pointer array
+int[]* func_list = [*p_add,*p_sub];
 
+func_list[0](1,1);  // 2
 
-// Pointers to objects, structs, arrays, and dictionaries:
+// Pointers to objects, structs, arrays:
 object    myObj {};                 // Definition
 object* p_myObj = @myObj;           // Pointer
 
 struct    myStruct {};              // Definition
 struct* p_myStruct = @myStruct;     // Pointer
 
-i32[]   i_array;                    // Definition
-i32[]* pi_array = @i_array;         // Pointer
-
-// Base array type can contain any combination of element types.
-array    array;                     // Definition
-array* p_array = @array;            // Pointer
-
-dict    myDict;                     // Definition
-dict* p_myDict = @myDict;           // Pointer
+int[]   i_array;                    // Definition
+int[]* pi_array = @i_array;         // Pointer
 
 
 // Pointer Arithmetic:
@@ -264,20 +320,20 @@ import "standard.fx" as std;
 
 using std::io, std::types;
 
-def main() -> i32
+def main() -> int
 {
-    i32[] arr = [10, 20, 30, 40, 50];
-    i32 *ptr = arr;                         // ptr points to the first element of arr
+    int[] arr = [10, 20, 30, 40, 50];
+    int *ptr = arr;                         // ptr points to the first element of arr
     
     std::cout << "Value at ptr: " << *ptr << std::endl; // Output: 10
     
-    ptr++; // Increment ptr to point to the next element
+    ptr++;    // Increment ptr to point to the next element
     std::cout << "Value at ptr: " << *ptr << std::endl; // Output: 20
     
     ptr += 2; // Increment ptr by 2 positions
     std::cout << "Value at ptr: " << *ptr << std::endl; // Output: 40
     
-    i32 *ptr2 = &arr[4]; // ptr2 points to the last element of arr
+    int *ptr2 = &arr[4]; // ptr2 points to the last element of arr
     std::cout << "Elements between ptr and ptr2: " << ptr2 - ptr << std::endl; // Output: 1
     
     return 0;
@@ -287,7 +343,7 @@ def main() -> i32
 
 **Recursive function:**
 ```
-def rsub(i32 x, i32 y) -> i32
+def rsub(int x, int y) -> int
 {
 	if (x == 0 || y == 0) { return 0; };
 
@@ -306,79 +362,81 @@ using std::io, std::types;          // Only use `io` from standard.fx (standard.
 
 Example of the `data` type and casting:
 ```
-import "standard.fx" as std;   // `std` becomes an immutable identifier
-using std::types;         // Standard types like i32, ui32, float, ufloat, byte, sbyte, string, and so on.
+import "standard.fx" as std;                  // `std` becomes an immutable identifier
+using std::types;                             // Standard types like int, uint, and so on.
 
-byte someByte = {0, 1, 0, 0, 0, 0, 0, 1};     // "A" but in binary
-string somestring = i"{}":{someByte;};        // "A"
+byte someByte = 01000001b;                  // "A" but in binary
+string somestring = (string)((char)someByte); // "A"
 // Back to data
-somestring = (data)somestring;                // {0, 1, 0, 0, 0, 0, 0, 1}
-string anotherstring = "B";                   // {0, 1, 0, 0, 0, 0, 1, 0}
+somestring = (data)somestring;                // 01000001b
+string anotherstring = "B";                   // 01000010b
 
-somestring<<;                                 // {1, 0, 0, 0, 0, 1, 0, 0}  // Bit-shift left  (binary doubling)
-somestring>>;                                 // {0, 1, 0, 0, 0, 0, 1, 0}  // Bit-shift right (binary halving)
+somestring<<;                                 // 10000100b  // Bit-shift left  (binary doubling)
+somestring>>;                                 // 01000010b  // Bit-shift right (binary halving)
 
-string newstring = xor(somestring);           // {1, 0, 1, 1, 1, 1, 0, 1}  // Bit-flip (binary XOR)
-newstring = xor(somestring,anotherstring);    // {0, 0, 0, 0, 0, 0, 0, 0}  // XOR two or more values
+string newstring = flip(somestring);          // 10111101b  // flip method not provided but does bit flipping
+newstring = somestring xor anotherstring;     // 00000000b  // XOR two or more values
 
 // This 0's out all the data and re-casts back to data from void.
 // The temporary void casted type is the same width as the original type.
-data v = (void)somestring;                     // {1, 1, 1, 1, 1, 1, 1, 1}
+data v = (void)somestring;                    // 00000000b
+
+// We can write anything in the datafield
 
 object someObject
 {
-	string x = "Hello World!";                 // 12 bytes long (96 bits)
-	data {3} some3bitDatatype;                 // 3 bits long
+	string x = "Hello World!";                // 12 bytes long (96 bits)
+	data {3} some3bitDatatype;                // 3 bits long
 };
 
-data d_someObject = (void)someObject           // 99 bits long
+data d_someObject = (void)someObject          // 99 bits long
 
-someObject nulled = (void)o_newInst;           // You can only void instances of objects or structs
+someObject nulled = (void)o_newInst;          // You can only void instances of objects or structs
 
 // The same casting behavior applies to objects and structs
 ```
 
 Casting anything to `void` is the functional equivalent of nulling the memory occupied by that thing.
-If the width of the data type is 512 bits, that many bits will be nulled and freed.
+If the width of the data type is 512 bits, that many bits will be nulled.
 
 Data is a variable bit width, primitive binary data type. Anything can cast to it,
-and it can cast to any standard Flux type like string, int, float, etcetera.
+and it can cast to any literal Flux type like string, int, or float.
 It is intended to allow Flux programmers to build complex custom types to
 fit their needs that are flexible.
 
-All standard Flux types are built from the data type.
-These types are defined in the standard library:
 
-bit is defined as `unsigned data {1} bit;`
-bool is defined as `bit bool;`
-true is defined as `bool true = 1;`
-false is defined as `bool false = 0;`
-i32 is defined as `signed data {32} i32;`
-ui32 is defined as `unsigned data {32} ui32;`
-float is defined as `signed data {64} float;`
-ufloat is defined as `unsigned data {64} ufloat;`
-string is defined as `unsigned data{8}[] string;`
+**types.fx module:**
+// Included in `standard.fx`
+```
+// The standard types found in Flux that are not included keywords
+signed   data{32}  int;
+unsigned data{32} uint;
+int[]   inta;
+uint[] uinta;
+signed   data{64}  i64;
+unsigned data{64} ui64;
+i64[]   i64a;
+ui64[] ui64a;
+```
 
-Essentially you must include "standard.fx" and use std::types to have access to true and false,
-otherwise programmatically you would write 1 or 0 in place of them respectively.
 
 **typeof and sizeof:**
 ```
-print(typeof(bit));
-print(typeof(bool));
-print(typeof(i32));
+print(typeof(int));
 print(sizeof(bool));
-print(sizeof(i32));
+print(sizeof(int));
 print(sizeof(ufloat));
+//print(sizeof(int));   // Platform dependent
+//print(sizeof(float)); // Platform dependent
+print(sizeof(string));
 ```
 Result:
 ```
-unsigned data{1}
-bit
 signed data{32}
 1
 32
 64
+8
 ```
 
 
@@ -406,7 +464,7 @@ struct GPIORegisters {
 // Map to a fixed hardware address
 volatile const GPIORegisters* GPIO = @0x40000000;
 
-def main() -> i32 {
+def main() -> int {
     GPIO.control = 0x1;  // Write to control register (aligned access)
     asm { cli };         // Disable interrupts (assembly inline)
     return 0;
@@ -422,6 +480,33 @@ void x;
 ```
 
 
+Flux allows defining custom operators with `operator` and their use in code like any other operator.
+You cannot redefine Flux built-in operators (+,-,*,/,&,==,+=,++,-=,-- etc) unless they are overloaded
+meaning the parameter types of the left and right hand sides are different than the natural types.
+This allows for you to write `newObj = myObj1 + myObj2;` syntax without any errors being thrown
+You define operators in the following manner:
+```
+operator(int x, int y)[e+] -> float  // Or any return type
+{
+	return (x * (10 ^^ y))
+};
+
+operator(int x, int y)[e-] -> float
+{
+    return (x * (10 ^^ (y * -1)))
+};
+
+// To use an operator in code, you write:
+def main() -> int
+{
+	print(1 e+ 20); // Result of (1 * 10^20) - 1
+	return 0;
+};
+
+(1 e+ 20) e- (1 e+ 20);   // (1 * 10^20) * (10 ^ ((1 * 10^20) * -1)) equivalent
+```
+
+
 **Templates:**
 ```
 // Function templates
@@ -429,11 +514,15 @@ template <T> myMax(T x, T y) -> T
 {
     return (x > y) ? x : y;
 };
+// Usage
+k = myMax<int>(5,10);             // 10
 
 template <V,K,R> someFunc(V x, K y) -> R
 {
 	return (R)x*y;
 };
+// Usage
+n = someFunc<int,int,string>(5,10); // "50"
 
 // Pointer to template function:
 template* <T> tp_myMax(T,T) = @myMax;
@@ -445,18 +534,20 @@ object template <T> MyObject  // `<T>` declares template parameters
 	T value;  // Template-typed member
     def __init(T x) -> this
     {
-    	assert(typeof(T)==i32);
-        T this.value = x;
+    	assert(typeof(T)==int);
+        this.value = x;
         return;
     };
 };
 
 // Instantiation:
-MyObject<int> obj1;             // Explicit type binding
-MyObject<float> obj2;           // Another type
+MyObject<int>   obj1(4);              // obj1.value = 4    | typeof(int)
+MyObject<float> obj2(3.14);           // obj2.value = 3.14 | typeof(float)
 
 // Inheritance:
-object template <U> ChildObject : MyObject<U> // Inherit from templated object
+object template <U> ChildObject : MyObject<U>   // Explicit parameter binding to inheritance from templated object
+// object template <U> ChildObject : MyObject<> // Default parameter binding (U) to inheritance from templated object
+                                                // In the default cause, the number of parameters MUST be equal.
 {
 	U y;
 
@@ -477,15 +568,69 @@ object template <U> ChildObject : MyObject<U> // Inherit from templated object
     	return (U<x>)x;
     };
 };
-
 // Usage
-ChildObject<myObject<i32>> child(3, 4);  // `U` = `i32`, parent `T` = `i32`
+ChildObject<int> child(3, 4);  // `U` = `int`, parent `T` = `int`
 
 // Struct templates
 struct template <T> tStruct
 {
 	T x, y;
 };
+// Usage
+tStruct<i64> s = {x = 5, y = 10};
+
+// Operator templates
+operator template <T> (T x, T y) [v+] -> T
+{
+	// some custom operator template code
+};
+// Usage:
+int x = 3 v+<int> 5;
+
+// For templates
+// These are a bit different, for templates MUST have two syntactic parameters.
+// The first is your magic value of the loop, ie, some counter or conditional value
+// The second is a pointer to data you want this loop to have access to, because for templates are named and callable
+// In this example, U* is that pointer.
+for template<T> myForLoop(T x = 0; x < 10; x++) : U*    // T is primary and mandatory, U is secondary and mandatory
+{
+	// some custom for template loop
+	// U*: pointer to some data we want to have scope of
+};
+// Usage
+myForLoop<int> : *someData;    // Call the loop
+
+// Async templates
+async template <T> myAsyncTemplateFunc(T x) -> T
+{
+	// ... code ...
+	return x;	
+};
+// Usage
+int x = await myAsyncTemplateFunc<int>(100);
+
+// Switch templates
+switch template <T> mySwitch(T x) : U*            // T is primary and mandatory, U is secondary and optional
+{
+	case (0)
+	{...};
+	case (1)
+	{...};
+	case ()   // Empty case denotes default case
+	{...};
+};
+// Usage
+mySwitch<int>(someValue) : *y;
+
+// Volatile templates
+// Any template can be a volatile template
+//
+// volatile template<T> myMax(T x, T y) {};
+// volatile object template<T> myObj {};
+// volatile struct template<T> myStru {};
+// volatile operator template<T> (T x, T y) [vx+] -> T {};
+// volatile for template<T> myLoop(...) : U* -> T {};
+// volatile async template<T> myFunc(T x) -> T {};
 ```
 
 Template shadowing is allowed and there will be no warning for it. It is assumed you know
@@ -503,67 +648,26 @@ You can put object templates inside object templates, and functions inside objec
 or even templates inside of object templates, but no named functions inside of functions, ever.
 
 
-**Generic Hardware Register example:**
-```
-object template <T> Register {
-    volatile const T* address;
-    def read() -> T { return *address; };
-    def write(T val) -> void { *address = val; };
-};
-
-// Instantiate for a 32-bit MMIO register
-Register<data{32}> statusReg = @0x40000000;
-statusReg.write(0xFF);
-```
-
-
-Flux allows defining custom operators with `operator` and their use in code like any other operator.
-You cannot redefine Flux built-in operators (+,-,*,/,&,==,+=,++,-=,-- etc) unless they are overloaded
-meaning the parameter types of the left and right hand sides are different than the natural types.
-This allows for you to write `newObj = myObj1 + myObj2;` syntax without the type checker throwing an error.
-You define operators in the following manner:
-```
-operator(i32 x, i32 y)[e+] -> float  // Or any return type
-{
-	return (x * (10 ^^ y))
-};
-
-operator(i32 x, i32 y)[e-] -> float
-{
-    return (x * (10 ^^ (y * -1)))
-};
-
-// To use an operator in code, you write:
-def main() -> i32
-{
-	print(1 e+ 20); // Result of (1 * 10^20) - 1
-	return 0;
-};
-
-(1 e+ 20) e- (1 e+ 20);   // (1 * 10^20) * (10 ^ ((1 * 10^20) * -1)) equivalent
-```
-
-
 **Arrays:**
 ```
 import "standard.fx" as std;
 using std::io, std::types;
 
-i32[] ia_myArray = [3, 92, 14, 30, 6, 5, 11, 400];
+int[] ia_myArray = [3, 92, 14, 30, 6, 5, 11, 400];
 
-// i32 runtime_error_UB = ia_myArray[10];          // Length is only 8, accessing index 11
+// int undefined_behavior = ia_myArray[10];          // Length is only 8, accessing index 11
 
-i32[] ia_mySorted = []
-i32 tmp, lowest;
+int[] ia_mySorted = [];
+int tmp, lowest;
 
-def len(i32[] array) -> i32
+def len(int[] array) -> int
 {
 	return sizeof(array) / 32;
 }
 
 for (x in ia_myArray)
 {
-	if (x < _.next())   // Built-in next getter method for iterables (iterable denoted with `_`) represents ia_myArray
+	if (x < _.next())   // `_` denotes `ia_myArray` which is iterable
 	{
 		x in ia_mySorted ? continue : ia_mySorted.append(x);
 	};
@@ -582,112 +686,101 @@ for (x in ia_myArray)
 **Array Comprehension:**
 ```
 // Basic comprehension
-i32[] squares = [x ^^ 2 for (x in 1..10)];
+int[] squares = [x ^ 2 for (x in 1..10)];
 
 // With condition
-i32[] evens = [x for (x in 1..20) if (x % 2 == 0)];
+int[] evens = [x for (x in 1..20) if (x % 2 == 0)];
 
 // Multi-dimensional
-i32[][] matrix = [[i * j for (j in 1..5)] for (i in 1..5)];
+int[[]] matrix = [[i * j for (j in 1..5)] for (i in 1..5)];
+int[][] also2D = [i * j for (j in 10..50)][i * j for (j in 100..500)];
 
 // With type conversion
 float[] floats = [(float)x for (x in int_array)];
 ```
 
-**Dictionaries:**
-```
-dict myDict1 = {0: "First",
-                1: "Second",
-                2: "Third"}
-
-dict myDict2 = {"test_1": "Test phrase 1.",
-                "test_2": "The void stares back.",
-                "test_3": "Hello World!"}
-
-for (x,y in myDict1)
-{
-	switch (y)
-	{
-		case("Second")
-		{
-			print("Second!");
-		};
-		case(default)
-		{
-			print("Not the second index in this dictionary.");
-		};
-	};
-};
-```
-
 **Destructuring:**
 ```
-object Obj
-{
-	float p;
-	string j;
+struct Point { int x; int y; };
 
-	def __init(float p, string j)
-	{
-		this.p = p;
-		this.j = j;
-	};
-};
+Point myPoint = {x = 10, y = 20};
 
-struct Point { i32 x; i32 y; } q = {5,3};  // Can declare at the end of a definition like so
-
-Point p = {10, 20};
-Obj myObj(3.14,"pi");
-
-auto {x, y} = u;     // i32 x=10, i32 y=20
-auto {p, j} = myObj; // float p=3.14, string j="pi"
-print(q.x + q.y);    // 8
+auto {t, m} = myPoint{x,y};     // int   t=10,   int    m=20
 ```
 
 **Casting:**
 ```
-i32 x = 5;
+//(type)identifier
+
+int x = 5;
 string y = (string)x;   // "5"
 ```
 
-
-
 Keyword list:
-auto, as, asm, assert, and, break, case, catch, const, continue, data, def,
-default, do, else, enum, for, if, import, in, is, array, namespace, not, object,
-operator, or, return, signed, sizeof, struct, super, switch, template, this,
-throw, try, typeof, unsigned, using, void, volatile, while, xor
+```
+and, as, asm, assert, async, auto, await, break, case, catch, const, continue, data,
+def, default, do, else, enum, false, float, for, if, import, in, int, is, namespace,
+not, object, operator, or, return, signed, sizeof, struct, super, switch, template,
+this, throw, true, try, typeof, unsigned, using, void, volatile, while, xor
+```
 
 
 Literal types:
-array `[a,b,c,d,...]`, dictionary `{a:b,c:d,...}`, integer `5`, float `3.14`, string `"x"`
-
+int `5`, float `3.14`, char `"B"` /*66*/ - `65` /*'A'*/
 
 ================================================================================
                         FLUX OPERATOR PRECEDENCE TABLE
                               (Highest to Lowest)
 ================================================================================
 
-Level | Operators                                    | Assoc | Description
-------|----------------------------------------------|-------|------------------
-  1   | () [] . ::                                   | Left  | Primary expressions
-  2   | ++ -- (postfix)                              | Left  | Postfix inc/dec
-  3   | ++ -- (prefix) + - ! ~ @ * not sizeof typeof | Right | Unary operators
-  4   | (type)                                       | Right | Type casting
-  5   | ^^                                           | Right | Exponentiation
-  6   | * / %                                        | Left  | Multiplicative
-  7   | + -                                          | Left  | Additive
-  8   | << >>                                        | Left  | Bit shift
-  9   | < <= > >= in                                 | Left  | Relational
- 10   | == !=                                        | Left  | Equality
- 11   | is not as                                    | Left  | Identity
- 12   | &                                            | Left  | Bitwise AND
- 13   | ^ xor                                        | Left  | Bitwise XOR
- 14   | |                                            | Left  | Bitwise OR
- 15   | and &&                                       | Left  | Logical AND
- 16   | or ||                                        | Left  | Logical OR
- 17   | ?:                                           | Right | Conditional
- 18   | = += -= *= /= %= &= |= ^= <<= >>= ^^=        | Right | Assignment
- 19   | ,                                            | Left  | Comma
+Level | Operators                                                        | Assoc | Description
+------|------------------------------------------------------------------|-------|------------------
+  1   | () [] . ::                                                       | Left  | Primary expressions
+  2   | ++ -- (postfix)                                                  | Left  | Postfix inc/dec
+  3   | ++ -- (prefix) + - ! ~ @ * not sizeof typeof                     | Right | Unary operators
+  4   | (type)                                                           | Right | Type casting
+  5   | ^                                                                | Right | Exponentiation
+  6   | * / %                                                            | Left  | Multiplicative
+  7   | + -                                                              | Left  | Additive
+  8   | << >>                                                            | Left  | Bit shift
+  9   | < <= > >= in                                                     | Left  | Relational
+ 10   | == !=                                                            | Left  | Equality
+ 11   | is not as                                                        | Left  | Identity
+ 12   | & `&& `!& `^& `^!&                                               | Left  | Bitwise AND variants
+ 13   | ^^ xor `^^ `^!|                                                  | Left  | Bitwise XOR variants
+ 14   | | `| `!|                                                         | Left  | Bitwise OR variants
+ 15   | and && !&                                                        | Left  | Logical AND/NAND
+ 16   | or || !|                                                         | Left  | Logical OR/NOR
+ 17   | ?:                                                               | Right | Conditional
+ 18   | = += -= *= /= %= ^= &= |= ^^= <<= >>= `&&= `!&= `|= `!|= `^= `!= | Right | Assignment
+ 19   | ,                                                                | Left  | Comma
+
+================================================================================
+
+## Operator Details
+
+### Bitwise Operators (` prefix)
+- `&& - Bitwise AND
+- `!& - Bitwise NAND  
+- `| - Bitwise OR
+- `!| - Bitwise NOR
+- `^^ - Bitwise XOR
+- `^!| - Bitwise XNOR
+- `^& - Bitwise XAND
+- `^!& - Bitwise XNAND
+
+### Logical Operators
+- && / and - Logical AND
+- !& - Logical NAND
+- || / or - Logical OR  
+- !| - Logical NOR
+- ^^ / xor - Logical XOR
+- ! / not - Logical NOT
+
+### Assignment Operators
+- = - Basic assignment
+- += -= *= /= %= ^= - Arithmetic assignment
+- <<= >>= - Shift assignment
+- `&&= `!&= `|= `!|= `^= `!= - Bitwise assignment
 
 ================================================================================

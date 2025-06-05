@@ -1,501 +1,352 @@
-# Flux Language BNF Grammar and Decay Rules
+<program> ::= <global_item>*
 
-```bnf
-<program> ::= <translation-unit>
+<global_item> ::= <function_def>
+                | <namespace_def>
+                | <object_def>
+                | <struct_def>
+                | <template_def>
+                | <operator_def>
+                | <import_stmt>
+                | <using_stmt>
+                | <variable_decl> ";"
 
-<translation-unit> ::= <external-declaration>*
+<import_stmt> ::= "import" <string_literal> "as" <identifier> ";"
+                | "import" <string_literal> ";"
 
-<external-declaration> ::= <function-definition>
-                        | <object-definition>
-                        | <struct-definition>
-                        | <namespace-definition>
-                        | <template-declaration>
-                        | <operator-definition>
-                        | <enum-definition>
-                        | <module-definition>
-                        | <import-statement>
-                        | <using-statement>
-                        | <variable-declaration>
+<using_stmt> ::= "using" <using_list> ";"
 
-<import-statement> ::= "import" <string-literal> "as" <identifier> ";"
+<using_list> ::= <namespace_access> ("," <namespace_access>)*
 
-<using-statement> ::= "using" <qualified-id-list> ";"
+<namespace_access> ::= <identifier> ("::" <identifier>)*
 
-<qualified-id-list> ::= <qualified-id> ("," <qualified-id>)*
+<namespace_def> ::= "namespace" <identifier> "{" <namespace_body> "}" ";"
 
-<qualified-id> ::= <identifier> ("::" <identifier>)*
+<namespace_body> ::= <object_def>*
 
-<module-definition> ::= <visibility-specifier>? "module" <qualified-id> "{" <module-member>* "}" ";"
+<function_def> ::= "def" <identifier> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
 
-<module-member> ::= <external-declaration>
+<parameter_list> ::= <parameter> ("," <parameter>)*
 
-<visibility-specifier> ::= "public" | "private"
+<parameter> ::= <type_spec> <identifier>
 
-<namespace-definition> ::= "namespace" <identifier> "{" <namespace-member>* "}" ";"
+<object_def> ::= "object" <identifier> <inheritance>? "{" <object_body> "}" ";"
+               | "object" <identifier> ";"
 
-<namespace-member> ::= <object-definition>
-                    | <namespace-definition>
-                    | <function-definition>
-                    | <variable-declaration>
+<inheritance> ::= ":" <inheritance_list>
 
-<enum-definition> ::= <visibility-specifier>? "enum" <identifier> <template-prefix>? "{" <enum-member-list>? "}" ";"
+<inheritance_list> ::= <inheritance_item> ("," <inheritance_item>)*
 
-<enum-member-list> ::= <enum-member> ("," <enum-member>)*
+<inheritance_item> ::= <identifier>
+                     | "!" <identifier>
 
-<enum-member> ::= <identifier>
-               | <identifier> "(" <type-specifier-list> ")"
+<object_body> ::= <object_member>*
 
-<type-specifier-list> ::= <type-specifier> ("," <type-specifier>)*
+<object_member> ::= <variable_decl> ";"
+                  | <method_def>
 
-<function-definition> ::= <visibility-specifier>? <template-prefix>? "def" <identifier> "(" <parameter-list>? ")" "->" <return-type> <compound-statement> ";"
+<method_def> ::= "def" <magic_method> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
+               | "def" <identifier> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
 
-<return-type> ::= <type-specifier>
-               | "!" <type-specifier>  // Never returns
+<magic_method> ::= "__new" | "__init" | "__exit" | "__expr" | "__eq" | "__ee" | "__ne" | "__le" | "__ge" 
+                 | "__lt" | "__gt" | "__add" | "__sub" | "__inc" | "__dec" | "__mul" | "__div" | "__iadd"
+                 | "__isub" | "__imul" | "__idiv" | "__mod" | "__pow" | "__imod" | "__ipow" | "__ls" | "__rs"
+                 | "__and" | "__or" | "__xor" | "__nand" | "__nor" | "__xand" | "__xnor" | "__xnand"
+                 | "__band" | "__bor" | "__bxor" | "__bnand" | "__bnor" | "__bxand" | "__bxnor" | "__bxnand"
+                 | "__andeq" | "__oreq" | "__xoreq" | "__nandeq" | "__noreq" | "__xandeq" | "__xnoreq"
+                 | "__xnandeq" | "__bandeq" | "__boreq" | "__bxoreq" | "__bnandeq" | "__bnoreq"
+                 | "__bxandeq" | "__bxnoreq" | "__bxnandeq"
 
-<template-prefix> ::= "template" "<" <template-parameter-list> ">"
+<struct_def> ::= "struct" <identifier> "{" <struct_body> "}" ";"
 
-<template-parameter-list> ::= <template-parameter> ("," <template-parameter>)*
+<struct_body> ::= <struct_member>*
 
-<template-parameter> ::= <identifier>
-                      | <identifier> ":" <type-constraint>
+<struct_member> ::= <variable_decl> ";"
 
-<type-constraint> ::= <type-specifier>
+<template_def> ::= <function_template>
+                 | <object_template>
+                 | <struct_template>
+                 | <operator_template>
+                 | <for_template>
+                 | <async_template>
+                 | <switch_template>
 
-<parameter-list> ::= <parameter> ("," <parameter>)*
+<function_template> ::= <volatile>? "template" "<" <template_params> ">" <identifier> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
 
-<parameter> ::= <type-specifier> <identifier>
-             | <type-specifier> <identifier> "=" <expression>  // Default parameter
+<object_template> ::= <volatile>? "object" "template" "<" <template_params> ">" <identifier> <inheritance>? "{" <object_body> "}" ";"
 
-<object-definition> ::= <visibility-specifier>? <template-prefix>? "object" <identifier> <inheritance-clause>? "{" <object-member>* "}" ";"
+<struct_template> ::= <volatile>? "struct" "template" "<" <template_params> ">" <identifier> "{" <struct_body> "}" ";"
 
-<inheritance-clause> ::= ":" <inheritance-list>
+<operator_template> ::= <volatile>? "operator" "template" "<" <template_params> ">" "(" <parameter_list> ")" "[" <custom_op> "]" "->" <type_spec> "{" <stmt_list> "}" ";"
 
-<inheritance-list> ::= <inheritance-specifier> ("," <inheritance-specifier>)*
+<for_template> ::= <volatile>? "for" "template" "<" <template_params> ">" <identifier> "(" <for_init> ";" <expression> ";" <for_update> ")" ":" <template_param> "*" "{" <stmt_list> "}" ";"
 
-<inheritance-specifier> ::= <qualified-id>
-                         | "!" <qualified-id>
+<async_template> ::= <volatile>? "async" "template" "<" <template_params> ">" <identifier> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
 
-<object-member> ::= <function-definition>
-                 | <variable-declaration>
-                 | <object-definition>
-                 | <struct-definition>
-                 | <template-declaration>
-                 | <enum-definition>
+<switch_template> ::= <volatile>? "switch" "template" "<" <template_params> ">" <identifier> "(" <parameter_list> ")" ":" <template_param> "*" "{" <case_list> "}" ";"
 
-<struct-definition> ::= <visibility-specifier>? <template-prefix>? "struct" <identifier> "{" <struct-member>* "}" ";"
+<template_params> ::= <template_param> ("," <template_param>)*
 
-<struct-member> ::= <variable-declaration>
-                 | <struct-definition>
+<template_param> ::= <identifier>
 
-<operator-definition> ::= "operator" "(" <parameter-list> ")" "[" <operator-symbol> "]" <precedence-clause>? "->" <type-specifier> <compound-statement> ";"
+<volatile> ::= "volatile"
 
-<precedence-clause> ::= "precedence" "(" <precedence-level> ")"
+<operator_def> ::= "operator" "(" <parameter_list> ")" "[" <custom_op> "]" "->" <type_spec> "{" <stmt_list> "}" ";"
 
-<precedence-level> ::= <identifier> | <integer-literal>
+<custom_op> ::= <identifier>
 
-<operator-symbol> ::= <custom-operator-chars>+
+<type_spec> ::= <base_type>
+              | <pointer_type>
+              | <array_type>
+              | <template_type>
+              | <qualified_type>
 
-<custom-operator-chars> ::= <any-non-alphanumeric-except-reserved>
+<base_type> ::= "int" | "float" | "char" | "void" | "bool"
+              | "data" "{" <integer_literal> "}"
+              | <identifier>
 
-<template-declaration> ::= <template-prefix> <function-definition>
-                        | <template-prefix> <object-definition>
-                        | <template-prefix> <struct-definition>
+<pointer_type> ::= <type_spec> "*"
 
-<variable-declaration> ::= <visibility-specifier>? <storage-class>? <type-specifier> <declarator-list> ";"
+<array_type> ::= <type_spec> "[" "]"
+               | <type_spec> "[" "[" "]" "]"
 
-<storage-class> ::= "const" | "volatile" | "static"
+<template_type> ::= <identifier> "<" <type_list> ">"
 
-<declarator-list> ::= <declarator> ("," <declarator>)*
+<type_list> ::= <type_spec> ("," <type_spec>)*
 
-<declarator> ::= <identifier> <initializer>?
-              | <identifier> "[" <expression>? "]" <initializer>?
-              | "*" <declarator>
-              | "*" <identifier> "(" <parameter-list>? ")"  // Function pointer
+<qualified_type> ::= <type_qualifier> <type_spec>
 
-<initializer> ::= "=" <initializer-clause>
+<type_qualifier> ::= "const" | "volatile" | "signed" | "unsigned"
 
-<initializer-clause> ::= <expression>
-                      | <braced-init-list>
+<stmt_list> ::= <statement>*
 
-<braced-init-list> ::= "{" <initializer-list>? "}"
+<statement> ::= <expression_stmt>
+              | <variable_decl> ";"
+              | <if_stmt>
+              | <while_stmt>
+              | <do_while_stmt>
+              | <for_stmt>
+              | <switch_stmt>
+              | <break_stmt>
+              | <continue_stmt>
+              | <return_stmt>
+              | <try_catch_stmt>
+              | <throw_stmt>
+              | <assert_stmt>
+              | <asm_stmt>
+              | <block_stmt>
 
-<initializer-list> ::= <initializer-clause> ("," <initializer-clause>)*
+<expression_stmt> ::= <expression> ";"
 
-<type-specifier> ::= <simple-type-specifier>
-                  | <template-type-specifier>
-                  | <pointer-type-specifier>
-                  | <array-type-specifier>
-                  | <data-type-specifier>
+<variable_decl> ::= <type_spec> <variable_list>
+                  | "auto" "{" <identifier_list> "}" "=" <expression> "{" <identifier_list> "}"
 
-<simple-type-specifier> ::= <identifier>
-                         | <qualified-id>
-                         | "void"
-                         | "auto"
+<variable_list> ::= <variable_init> ("," <variable_init>)*
 
-<template-type-specifier> ::= <identifier> "<" <template-argument-list> ">"
+<variable_init> ::= <identifier>
+                  | <identifier> "=" <expression>
+                  | <identifier> "(" <argument_list>? ")"
 
-<template-argument-list> ::= <template-argument> ("," <template-argument>)*
+<identifier_list> ::= <identifier> ("," <identifier>)*
 
-<template-argument> ::= <type-specifier>
-                     | <expression>
+<if_stmt> ::= "if" "(" <expression> ")" "{" <stmt_list> "}" <else_clause>? ";"
 
-<pointer-type-specifier> ::= <type-specifier> "*" <cv-qualifier>*
-                          | <type-specifier> "*" "(" <parameter-list>? ")" // Function pointer
+<else_clause> ::= "else" <if_stmt>
+                | "else" "{" <stmt_list> "}"
 
-<cv-qualifier> ::= "const" | "volatile"
+<while_stmt> ::= "while" "(" <expression> ")" "{" <stmt_list> "}" ";"
 
-<array-type-specifier> ::= <type-specifier> "[" <expression>? "]"
+<do_while_stmt> ::= "do" "{" <stmt_list> "}" "while" "(" <expression> ")" ";"
 
-<data-type-specifier> ::= <signedness>? "data" "{" <expression> "}"
+<for_stmt> ::= "for" "(" <for_init> ";" <expression> ";" <for_update> ")" "{" <stmt_list> "}" ";"
+             | "for" "(" <identifier> "in" <expression> ")" "{" <stmt_list> "}" ";"
 
-<signedness> ::= "signed" | "unsigned"
+<for_init> ::= <variable_decl>
+             | <expression>
+             | ""
 
-<statement> ::= <expression-statement>
-             | <compound-statement>
-             | <selection-statement>
-             | <iteration-statement>
-             | <jump-statement>
-             | <variable-declaration>
-             | <inline-assembly>
-             | <try-statement>
-             | <throw-statement>
-             | <assert-statement>
-             | <defer-statement>
-             | <spawn-statement>
-             | <await-statement>
+<for_update> ::= <expression>
+               | ""
 
-<expression-statement> ::= <expression>? ";"
+<switch_stmt> ::= "switch" "(" <expression> ")" "{" <case_list> "}" ";"
 
-<compound-statement> ::= "{" <statement>* "}" ";"?
+<case_list> ::= <case_item>*
 
-<selection-statement> ::= <if-statement>
-                       | <switch-statement>
-                       | <match-statement>
+<case_item> ::= "case" "(" <expression> ")" "{" <stmt_list> "}" ";"
+              | "case" "(" ")" "{" <stmt_list> "}" ";"
+              | "default" "{" <stmt_list> "}" ";"
 
-<if-statement> ::= "if" "(" <expression> ")" <compound-statement> <else-clause>? ";"
+<break_stmt> ::= "break" ";"
 
-<else-clause> ::= "else" <compound-statement>
+<continue_stmt> ::= "continue" ";"
 
-<switch-statement> ::= "switch" "(" <expression> ")" "{" <switch-case>* "}" ";"
+<return_stmt> ::= "return" <expression>? ";"
 
-<switch-case> ::= <case-label> <compound-statement>
-               | <default-label> <compound-statement>
+<try_catch_stmt> ::= "try" "{" <stmt_list> "}" <catch_clause>+ ";"
 
-<case-label> ::= "case" "(" <expression> ")"
+<catch_clause> ::= "catch" "(" <parameter> ")" "{" <stmt_list> "}"
 
-<default-label> ::= "case" "(" "default" ")"
+<throw_stmt> ::= "throw" <expression> ";"
 
-<match-statement> ::= "match" <expression> "{" <match-arm>* "}" ";"
+<assert_stmt> ::= "assert" "(" <expression> ")" ";"
 
-<match-arm> ::= "case" <pattern> <guard-clause>? "=>" <expression> ","?
+<asm_stmt> ::= "asm" "{" <asm_code> "}" ";"
 
-<pattern> ::= <identifier>                          // Variable binding
-           | <literal-pattern>                      // Literal match
-           | <identifier> "(" <pattern-list>? ")"   // Constructor pattern
-           | "_"                                    // Wildcard pattern
-           | <destructuring-pattern>                // Destructuring
+<asm_code> ::= <any_characters>
 
-<pattern-list> ::= <pattern> ("," <pattern>)*
+<block_stmt> ::= "{" <stmt_list> "}" ";"
 
-<guard-clause> ::= "if" <expression>
+<expression> ::= <assignment_expr>
 
-<literal-pattern> ::= <literal>
+<assignment_expr> ::= <conditional_expr>
+                    | <unary_expr> <assignment_op> <assignment_expr>
 
-<iteration-statement> ::= <while-statement>
-                       | <do-statement>
-                       | <for-statement>
+<assignment_op> ::= "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^=" | "&=" | "|=" | "^^=" | "<<=" | ">>="
+                  | "`&&=" | "`!&=" | "`|=" | "`!|=" | "`^=" | "`!="
 
-<while-statement> ::= "while" "(" <expression> ")" <compound-statement> ";"
+<conditional_expr> ::= <logical_or_expr>
+                     | <logical_or_expr> "?" <expression> ":" <conditional_expr>
 
-<do-statement> ::= "do" <compound-statement> "while" "(" <expression> ")" ";"
+<logical_or_expr> ::= <logical_and_expr>
+                    | <logical_or_expr> <logical_or_op> <logical_and_expr>
 
-<for-statement> ::= "for" "(" <for-init>? ";" <expression>? ";" <for-increment>? ")" <compound-statement> ";"
-                 | "for" "(" <identifier> "in" <expression> ")" <compound-statement> ";"
-                 | "for" "(" <destructuring-pattern> "in" <expression> ")" <compound-statement> ";"
+<logical_or_op> ::= "or" | "||" | "!|"
 
-<for-init> ::= <variable-declaration>
-            | <expression>
+<logical_and_expr> ::= <bitwise_or_expr>
+                     | <logical_and_expr> <logical_and_op> <bitwise_or_expr>
 
-<for-increment> ::= <expression>
+<logical_and_op> ::= "and" | "&&" | "!&"
 
-<destructuring-pattern> ::= <identifier> "," <identifier>
-                         | "{" <field-pattern-list> "}"
-                         | "[" <element-pattern-list> "]"
+<bitwise_or_expr> ::= <bitwise_xor_expr>
+                    | <bitwise_or_expr> <bitwise_or_op> <bitwise_xor_expr>
 
-<field-pattern-list> ::= <field-pattern> ("," <field-pattern>)*
+<bitwise_or_op> ::= "|" | "`|" | "`!|"
 
-<field-pattern> ::= <identifier>
-                 | <identifier> ":" <pattern>
+<bitwise_xor_expr> ::= <bitwise_and_expr>
+                     | <bitwise_xor_expr> <bitwise_xor_op> <bitwise_and_expr>
 
-<element-pattern-list> ::= <pattern> ("," <pattern>)*
+<bitwise_xor_op> ::= "^^" | "xor" | "`^^" | "`^!|"
 
-<jump-statement> ::= "return" <expression>? ";"
-                  | "break" ";"
-                  | "continue" ";"
+<bitwise_and_expr> ::= <identity_expr>
+                     | <bitwise_and_expr> <bitwise_and_op> <identity_expr>
 
-<try-statement> ::= "try" <compound-statement> <catch-clause>+ <finally-clause>? ";"
+<bitwise_and_op> ::= "&" | "`&&" | "`!&" | "`^&" | "`^!&"
 
-<catch-clause> ::= "catch" "(" <type-specifier> <identifier>? ")" <compound-statement>
+<identity_expr> ::= <equality_expr>
+                  | <identity_expr> <identity_op> <equality_expr>
 
-<finally-clause> ::= "finally" <compound-statement>
+<identity_op> ::= "is" | "not" | "as"
 
-<throw-statement> ::= "throw" <expression>? ";"
+<equality_expr> ::= <relational_expr>
+                  | <equality_expr> <equality_op> <relational_expr>
 
-<assert-statement> ::= "assert" "(" <expression> ")" ";"
-                    | "assert" "(" <expression> "," <expression> ")" ";"  // With message
+<equality_op> ::= "==" | "!="
 
-<defer-statement> ::= "defer" <expression> ";"
+<relational_expr> ::= <shift_expr>
+                    | <relational_expr> <relational_op> <shift_expr>
 
-<spawn-statement> ::= "spawn" <expression> ";"
+<relational_op> ::= "<" | "<=" | ">" | ">=" | "in"
 
-<await-statement> ::= "await" <expression> ";"
+<shift_expr> ::= <additive_expr>
+               | <shift_expr> <shift_op> <additive_expr>
 
-<inline-assembly> ::= "asm" "{" <assembly-instruction>* "}" ";"
+<shift_op> ::= "<<" | ">>"
 
-<assembly-instruction> ::= <string-literal>
+<additive_expr> ::= <multiplicative_expr>
+                  | <additive_expr> <additive_op> <multiplicative_expr>
 
-<expression> ::= <assignment-expression>
+<additive_op> ::= "+" | "-"
 
-<assignment-expression> ::= <conditional-expression>
-                         | <unary-expression> <assignment-operator> <assignment-expression>
+<multiplicative_expr> ::= <exponential_expr>
+                        | <multiplicative_expr> <multiplicative_op> <exponential_expr>
 
-<assignment-operator> ::= "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" | "^^="
+<multiplicative_op> ::= "*" | "/" | "%"
 
-<conditional-expression> ::= <logical-or-expression>
-                          | <logical-or-expression> "?" <expression> ":" <conditional-expression>
+<exponential_expr> ::= <cast_expr>
+                     | <exponential_expr> "^" <cast_expr>
 
-<logical-or-expression> ::= <logical-and-expression>
-                         | <logical-or-expression> ("or" | "||") <logical-and-expression>
+<cast_expr> ::= <unary_expr>
+              | "(" <type_spec> ")" <cast_expr>
 
-<logical-and-expression> ::= <bitwise-or-expression>
-                          | <logical-and-expression> ("and" | "&&") <bitwise-or-expression>
+<unary_expr> ::= <postfix_expr>
+               | <unary_op> <unary_expr>
 
-<bitwise-or-expression> ::= <bitwise-xor-expression>
-                         | <bitwise-or-expression> "|" <bitwise-xor-expression>
+<unary_op> ::= "++" | "--" | "+" | "-" | "!" | "~" | "@" | "*" | "not" | "sizeof" | "typeof"
 
-<bitwise-xor-expression> ::= <bitwise-and-expression>
-                          | <bitwise-xor-expression> ("^" | "xor") <bitwise-and-expression>
+<postfix_expr> ::= <primary_expr>
+                 | <postfix_expr> "[" <expression> "]"
+                 | <postfix_expr> "(" <argument_list>? ")"
+                 | <postfix_expr> "." <identifier>
+                 | <postfix_expr> "::" <identifier>
+                 | <postfix_expr> "++"
+                 | <postfix_expr> "--"
 
-<bitwise-and-expression> ::= <equality-expression>
-                          | <bitwise-and-expression> "&" <equality-expression>
+<primary_expr> ::= <identifier>
+                 | <literal>
+                 | "(" <expression> ")"
+                 | <array_literal>
+                 | <array_comprehension>
+                 | <i_string>
+                 | <template_instantiation>
+                 | "this"
+                 | "_"
 
-<equality-expression> ::= <relational-expression>
-                       | <equality-expression> ("==" | "!=") <relational-expression>
+<template_instantiation> ::= <identifier> "<" <type_list> ">"
 
-<relational-expression> ::= <identity-expression>
-                         | <relational-expression> ("<" | ">" | "<=" | ">=") <identity-expression>
-                         | <relational-expression> "in" <identity-expression>
+<array_literal> ::= "[" <expression_list>? "]"
 
-<identity-expression> ::= <shift-expression>
-                       | <identity-expression> ("is" | "not" | "as") <shift-expression>
+<expression_list> ::= <expression> ("," <expression>)*
 
-<shift-expression> ::= <additive-expression>
-                    | <shift-expression> ("<<" | ">>") <additive-expression>
+<array_comprehension> ::= "[" <expression> "for" "(" <identifier> "in" <expression> ")" <comprehension_condition>? "]"
 
-<additive-expression> ::= <multiplicative-expression>
-                       | <additive-expression> ("+" | "-") <multiplicative-expression>
+<comprehension_condition> ::= "if" "(" <expression> ")"
 
-<multiplicative-expression> ::= <exponential-expression>
-                             | <multiplicative-expression> ("*" | "/" | "%") <exponential-expression>
+<i_string> ::= "i" <string_literal> ":" "{" <expression_list> "}" ";"
 
-<exponential-expression> ::= <cast-expression>
-                          | <exponential-expression> "^^" <cast-expression>
+<argument_list> ::= <expression> ("," <expression>)*
 
-<cast-expression> ::= <unary-expression>
-                   | "(" <type-specifier> ")" <cast-expression>
+<literal> ::= <integer_literal>
+            | <float_literal>
+            | <char_literal>
+            | <string_literal>
+            | <boolean_literal>
+            | <data_literal>
 
-<unary-expression> ::= <postfix-expression>
-                    | "++" <unary-expression>
-                    | "--" <unary-expression>
-                    | <unary-operator> <cast-expression>
-                    | "sizeof" <unary-expression>
-                    | "sizeof" "(" <type-specifier> ")"
-                    | "typeof" <unary-expression>
-                    | "typeof" "(" <type-specifier> ")"
+<integer_literal> ::= <digit>+ | "0x" <hex_digit>+ | <digit>+ "b"
 
-<unary-operator> ::= "+" | "-" | "!" | "~" | "@" | "*" | "not"
+<float_literal> ::= <digit>+ "." <digit>+ | <digit>+ "." | "." <digit>+
 
-<postfix-expression> ::= <primary-expression>
-                      | <postfix-expression> "[" <expression> "]"
-                      | <postfix-expression> "(" <argument-list>? ")"
-                      | <postfix-expression> "." <identifier>
-                      | <postfix-expression> "::" <identifier>
-                      | <postfix-expression> "++"
-                      | <postfix-expression> "--"
-                      | <postfix-expression> "." <iterator-method>
-                      | <custom-operator-expression>
+<char_literal> ::= "'" <character> "'"
 
-<iterator-method> ::= "next" "(" ")"
-                   | "setpos" "(" <expression> ")"
+<string_literal> ::= "\"" <string_content>* "\""
 
-<custom-operator-expression> ::= <postfix-expression> <custom-operator> <postfix-expression>
+<boolean_literal> ::= "true" | "false"
 
-<custom-operator> ::= <custom-operator-chars>+
+<data_literal> ::= <binary_digits> "b"
 
-<argument-list> ::= <expression> ("," <expression>)*
+<binary_digits> ::= ("0" | "1")+
 
-<primary-expression> ::= <identifier>
-                      | <literal>
-                      | "(" <expression> ")"
-                      | <i-string>
-                      | <f-string>
-                      | <array-comprehension>
-                      | <anonymous-block>
-                      | <range-expression>
-                      | <super-expression>
-                      | <this-expression>
-                      | "_"  // Iterator reference
+<identifier> ::= <letter> (<letter> | <digit>)*
 
-<super-expression> ::= "super" "." <identifier>
-                    | "super" "::" <identifier>
+<letter> ::= "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" 
+           | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z"
+           | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M"
+           | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
+           | "_"
 
-<this-expression> ::= "this" "." <identifier>
-                   | "this"
+<digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 
-<range-expression> ::= <expression> ".." <expression>
-                    | <expression> "..=" <expression>  // Inclusive range
+<hex_digit> ::= <digit> | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | "C" | "D" | "E" | "F"
 
-<literal> ::= <integer-literal>
-           | <floating-literal>
-           | <string-literal>
-           | <array-literal>
-           | <dictionary-literal>
-           | <binary-literal>
-           | <boolean-literal>
+<character> ::= <any_printable_character> | <escape_sequence>
 
-<boolean-literal> ::= "true" | "false"
+<escape_sequence> ::= "\\" | "\'" | "\"" | "\n" | "\t" | "\r" | "\0"
 
-<integer-literal> ::= <decimal-literal>
-                   | <hexadecimal-literal>
-                   | <binary-literal-int>
+<string_content> ::= <character> | <any_character_except_quote>
 
-<decimal-literal> ::= <decimal-digit>+
+<any_characters> ::= <any_character>*
 
-<hexadecimal-literal> ::= "0x" <hexadecimal-digit>+
+<any_character> ::= <letter> | <digit> | <symbol>
 
-<binary-literal-int> ::= "0b" <binary-digit>+
-
-<decimal-digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
-
-<hexadecimal-digit> ::= <decimal-digit> | "A" | "B" | "C" | "D" | "E" | "F" | "a" | "b" | "c" | "d" | "e" | "f"
-
-<binary-digit> ::= "0" | "1"
-
-<floating-literal> ::= <decimal-digit>+ "." <decimal-digit>*
-                    | <decimal-digit>* "." <decimal-digit>+
-                    | <decimal-digit>+ <exponent-part>
-                    | <decimal-digit>+ "." <decimal-digit>* <exponent-part>
-
-<exponent-part> ::= ("e" | "E") ("+" | "-")? <decimal-digit>+
-
-<string-literal> ::= "\"" <string-character>* "\""
-
-<string-character> ::= <any-character-except-quote-or-backslash>
-                    | <escape-sequence>
-
-<escape-sequence> ::= "\\" <any-character>
-
-<array-literal> ::= "[" <element-list>? "]"
-
-<element-list> ::= <expression> ("," <expression>)*
-
-<dictionary-literal> ::= "{" <key-value-list>? "}"
-
-<key-value-list> ::= <key-value-pair> ("," <key-value-pair>)*
-
-<key-value-pair> ::= <expression> ":" <expression>
-
-<binary-literal> ::= "{" <binary-digit-list> "}"
-
-<binary-digit-list> ::= <binary-digit> ("," <binary-digit>)*
-
-<i-string> ::= "i" <string-literal> ":" "{" <expression-list> "}" ";"
-
-<f-string> ::= "f" <string-literal>  // F-string with inline expressions
-
-<expression-list> ::= <expression> (";" <expression>)*
-
-<array-comprehension> ::= "[" <expression> "for" "(" <identifier> "in" <expression> ")" <comprehension-condition>* "]"
-
-<comprehension-condition> ::= "if" "(" <expression> ")"
-                           | "for" "(" <identifier> "in" <expression> ")"
-
-<anonymous-block> ::= "{" <statement>* <expression>? "}"
-
-<identifier> ::= <letter> (<letter> | <decimal-digit>)*
-
-<letter> ::= "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | 
-             "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" |
-             "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" |
-             "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "_"
-```
-
-## Decay Rules
-
-Based on C++ decay rules, adapted for Flux's type system:
-
-### 1. Array-to-Pointer Decay
-- **Rule**: Array types decay to pointer types when used in expressions (except when operand of `sizeof`, `typeof`, address-of `@`, or when initializing array references)
-- **Example**: `i32[] arr` → `i32*` when passed to functions or used in pointer arithmetic
-
-### 2. Function-to-Function Pointer Decay
-- **Rule**: Function names decay to function pointers when used in expressions (except when operand of address-of `@`)
-- **Example**: `def foo() -> void {}` → function name `foo` decays to `void*()`
-
-### 3. Template Function Decay
-- **Rule**: Template function names decay to template function pointers
-- **Example**: `template <T> myFunc(T x) -> T` → `template*<T> (T)`
-
-### 4. Object Instance Decay
-- **Rule**: Object instances decay to pointers when passed to functions expecting pointers
-- **Example**: `MyObject obj` → `MyObject*` in pointer contexts
-
-### 5. Data Type Decay
-- **Rule**: Specific `data{n}` types decay to generic `data` type in generic contexts
-- **Example**: `data{32} x` → `data` when type information is lost
-
-### 6. Const/Volatile Qualifier Decay
-- **Rule**: Top-level const and volatile qualifiers are ignored in function parameter types
-- **Example**: `const i32` parameter decays to `i32` for function matching
-
-### 7. Reference Collapse (for auto deduction)
-- **Rule**: When `auto` is used, reference-to-reference collapses
-- **Example**: `auto& x = someRef` where `someRef` is already a reference
-
-### 8. String Literal Decay
-- **Rule**: String literals decay to `data{8}*` (pointer to bytes)
-- **Example**: `"hello"` → `data{8}*`
-
-### 9. Binary Literal Decay
-- **Rule**: Binary literals `{0,1,0,1}` decay to `data{n}` where n is the bit count
-- **Example**: `{0,1,0,1,0,0,0,1}` → `data{8}`
-
-### 10. Template Parameter Decay
-- **Rule**: Template type parameters undergo standard decay when instantiated
-- **Example**: In `template <T> func(T x)`, if `T` is `i32[]`, it decays to `i32*`
-
-### 11. Namespace Scope Decay
-- **Rule**: Qualified names decay to unqualified names in their scope
-- **Example**: Within namespace `std`, `std::io` can decay to `io`
-
-### 12. Void Pointer Decay
-- **Rule**: All pointer types can decay to `void*` for generic storage
-- **Example**: `i32*` → `void*`, `MyObject*` → `void*`
-
-### 13. Inheritance Decay (Upcasting)
-- **Rule**: Derived object pointers decay to base object pointers
-- **Example**: `ChildObject*` → `ParentObject*` (implicit upcast)
-
-### 14. Array Comprehension Decay
-- **Rule**: Array comprehensions decay to their element type arrays
-- **Example**: `[x for x in range]` → appropriate array type based on expression type
-
-### Application Order
-1. Template instantiation decay (if applicable)
-2. Array/function decay
-3. Const/volatile decay
-4. Type promotion/conversion decay
-5. Pointer decay (if needed)
-
-These decay rules ensure type safety while allowing flexible usage patterns similar to C++,
-but adapted for Flux's unique features like the `data` type system and object model.
+<symbol> ::= "!" | "@" | "#" | "$" | "%" | "^" | "&" | "*" | "(" | ")" | "-" | "_" | "+"
+           | "=" | "{" | "}" | "[" | "]" | "|" | "\\" | ":" | ";" | "\"" | "'" | "<" | ">"
+           | "," | "." | "?" | "/" | "`" | "~" | " " | "\t" | "\n" | "\r"
