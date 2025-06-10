@@ -1,352 +1,386 @@
-<program> ::= <global_item>*
+# Flux Language BNF Grammar
 
-<global_item> ::= <function_def>
-                | <namespace_def>
-                | <object_def>
-                | <struct_def>
-                | <template_def>
-                | <operator_def>
-                | <import_stmt>
-                | <using_stmt>
-                | <variable_decl> ";"
+```bnf
+(* ====================================================================== *)
+(*                           FLUX LANGUAGE BNF                           *)
+(* ====================================================================== *)
 
-<import_stmt> ::= "import" <string_literal> "as" <identifier> ";"
-                | "import" <string_literal> ";"
+(* Program Structure *)
+<program> ::= <global_item>* <main_function>
 
-<using_stmt> ::= "using" <using_list> ";"
+<global_item> ::= <function_definition>
+                | <object_definition>
+                | <struct_definition>
+                | <namespace_definition>
+                | <template_definition>
+                | <import_statement>
+                | <using_statement>
+                | <variable_declaration>
 
-<using_list> ::= <namespace_access> ("," <namespace_access>)*
+<main_function> ::= "def" "main" "(" ")" "->" "int" "{" <statement_list> "}"
 
-<namespace_access> ::= <identifier> ("::" <identifier>)*
+(* Import and Using *)
+<import_statement> ::= "import" <string_literal> "as" <identifier> ";"
+                     | "import" <string_literal> ";"
 
-<namespace_def> ::= "namespace" <identifier> "{" <namespace_body> "}" ";"
+<using_statement> ::= "using" <namespace_path_list> ";"
 
-<namespace_body> ::= <object_def>*
+<namespace_path_list> ::= <namespace_path> ("," <namespace_path>)*
 
-<function_def> ::= "def" <identifier> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
+<namespace_path> ::= <identifier> ("::" <identifier>)*
+
+(* Function Definitions *)
+<function_definition> ::= <function_modifier>* "def" <identifier> "(" <parameter_list>? ")" "->" <type_specifier> "{" <statement_list> "}"
+
+<function_modifier> ::= "volatile"
 
 <parameter_list> ::= <parameter> ("," <parameter>)*
 
-<parameter> ::= <type_spec> <identifier>
+<parameter> ::= <type_specifier> <identifier>
 
-<object_def> ::= "object" <identifier> <inheritance>? "{" <object_body> "}" ";"
-               | "object" <identifier> ";"
+(* Template Definitions *)
+<template_definition> ::= <template_modifier>* "template" "<" <template_parameter_list> ">" <identifier> "(" <parameter_list>? ")" "->" <type_specifier> "{" <statement_list> "}"
 
-<inheritance> ::= ":" <inheritance_list>
+<template_modifier> ::= "volatile"
 
-<inheritance_list> ::= <inheritance_item> ("," <inheritance_item>)*
+<template_parameter_list> ::= <identifier> ("," <identifier>)*
 
-<inheritance_item> ::= <identifier>
-                     | "!" <identifier>
+(* Object Definitions *)
+<object_definition> ::= "object" <identifier> <inheritance>? "{" <object_member_list>? "}"
 
-<object_body> ::= <object_member>*
+<inheritance> ::= ":" <identifier> ("," <identifier>)*
 
-<object_member> ::= <variable_decl> ";"
-                  | <method_def>
+<object_member_list> ::= <object_member>*
 
-<method_def> ::= "def" <magic_method> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
-               | "def" <identifier> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
+<object_member> ::= <variable_declaration>
+                  | <function_definition>
+                  | <magic_method_definition>
+                  | <object_definition>
 
-<magic_method> ::= "__new" | "__init" | "__exit" | "__expr" | "__eq" | "__ee" | "__ne" | "__le" | "__ge" 
-                 | "__lt" | "__gt" | "__add" | "__sub" | "__inc" | "__dec" | "__mul" | "__div" | "__iadd"
-                 | "__isub" | "__imul" | "__idiv" | "__mod" | "__pow" | "__imod" | "__ipow" | "__ls" | "__rs"
-                 | "__and" | "__or" | "__xor" | "__nand" | "__nor" | "__xand" | "__xnor" | "__xnand"
-                 | "__band" | "__bor" | "__bxor" | "__bnand" | "__bnor" | "__bxand" | "__bxnor" | "__bxnand"
-                 | "__andeq" | "__oreq" | "__xoreq" | "__nandeq" | "__noreq" | "__xandeq" | "__xnoreq"
-                 | "__xnandeq" | "__bandeq" | "__boreq" | "__bxoreq" | "__bnandeq" | "__bnoreq"
-                 | "__bxandeq" | "__bxnoreq" | "__bxnandeq"
+<magic_method_definition> ::= "def" <magic_method_name> "(" <parameter_list>? ")" "->" <type_specifier> "{" <statement_list> "}"
 
-<struct_def> ::= "struct" <identifier> "{" <struct_body> "}" ";"
+<magic_method_name> ::= "__new" | "__init" | "__exit" | "__expr" | "__eq" | "__ee" | "__ne" 
+                      | "__le" | "__ge" | "__lt" | "__gt" | "__add" | "__sub" | "__inc" | "__dec"
+                      | "__mul" | "__div" | "__iadd" | "__isub" | "__imul" | "__idiv" | "__mod"
+                      | "__pow" | "__imod" | "__ipow" | "__ls" | "__rs" | "__and" | "__or" | "__xor"
+                      | "__nand" | "__nor" | "__xand" | "__xnor" | "__xnand" | "__band" | "__bor"
+                      | "__bxor" | "__bnand" | "__bnor" | "__bxand" | "__bxnor" | "__bxnand"
+                      | "__andeq" | "__oreq" | "__xoreq" | "__nandeq" | "__noreq" | "__xandeq"
+                      | "__xnoreq" | "__xnandeq" | "__bandeq" | "__boreq" | "__bxoreq"
+                      | "__bnandeq" | "__bnoreq" | "__bxandeq" | "__bxnoreq" | "__bxnandeq"
 
-<struct_body> ::= <struct_member>*
+(* Struct Definitions *)
+<struct_definition> ::= "struct" <identifier> "{" <struct_member_list>? "}"
 
-<struct_member> ::= <variable_decl> ";"
+<struct_member_list> ::= <struct_member>*
 
-<template_def> ::= <function_template>
-                 | <object_template>
-                 | <struct_template>
-                 | <operator_template>
-                 | <for_template>
-                 | <async_template>
-                 | <switch_template>
+<struct_member> ::= <variable_declaration>
 
-<function_template> ::= <volatile>? "template" "<" <template_params> ">" <identifier> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
+(* Namespace Definitions *)
+<namespace_definition> ::= "namespace" <identifier> "{" <namespace_member_list>? "}"
 
-<object_template> ::= <volatile>? "object" "template" "<" <template_params> ">" <identifier> <inheritance>? "{" <object_body> "}" ";"
+<namespace_member_list> ::= <namespace_member>*
 
-<struct_template> ::= <volatile>? "struct" "template" "<" <template_params> ">" <identifier> "{" <struct_body> "}" ";"
+<namespace_member> ::= <function_definition>
+                     | <object_definition>
+                     | <struct_definition>
+                     | <template_definition>
+                     | <variable_declaration>
 
-<operator_template> ::= <volatile>? "operator" "template" "<" <template_params> ">" "(" <parameter_list> ")" "[" <custom_op> "]" "->" <type_spec> "{" <stmt_list> "}" ";"
+(* Type Specifiers *)
+<type_specifier> ::= <basic_type>
+                   | <data_type>
+                   | <array_type>
+                   | <pointer_type>
+                   | <function_pointer_type>
+                   | <template_pointer_type>
+                   | <identifier>
+                   | "this"
+                   | "void"
+                   | "auto"
 
-<for_template> ::= <volatile>? "for" "template" "<" <template_params> ">" <identifier> "(" <for_init> ";" <expression> ";" <for_update> ")" ":" <template_param> "*" "{" <stmt_list> "}" ";"
+<basic_type> ::= "int" | "float" | "char" | "bool" | "string"
 
-<async_template> ::= <volatile>? "async" "template" "<" <template_params> ">" <identifier> "(" <parameter_list>? ")" "->" <type_spec> "{" <stmt_list> "}" ";"
+<data_type> ::= <signedness>? "data" "{" <integer_literal> "}"
 
-<switch_template> ::= <volatile>? "switch" "template" "<" <template_params> ">" <identifier> "(" <parameter_list> ")" ":" <template_param> "*" "{" <case_list> "}" ";"
+<signedness> ::= "signed" | "unsigned"
 
-<template_params> ::= <template_param> ("," <template_param>)*
+<array_type> ::= <type_specifier> "[" "]"
 
-<template_param> ::= <identifier>
+<pointer_type> ::= <type_specifier> "*"
+                 | <array_type> "*"
 
-<volatile> ::= "volatile"
+<function_pointer_type> ::= <type_specifier> "(" "*" <identifier> ")" "(" <type_list>? ")"
 
-<operator_def> ::= "operator" "(" <parameter_list> ")" "[" <custom_op> "]" "->" <type_spec> "{" <stmt_list> "}" ";"
+<template_pointer_type> ::= "template" "*" <identifier>
 
-<custom_op> ::= <identifier>
+<type_list> ::= <type_specifier> ("," <type_specifier>)*
 
-<type_spec> ::= <base_type>
-              | <pointer_type>
-              | <array_type>
-              | <template_type>
-              | <qualified_type>
+(* Variable Declarations *)
+<variable_declaration> ::= <type_specifier> <variable_declarator_list> ";"
 
-<base_type> ::= "int" | "float" | "char" | "void" | "bool"
-              | "data" "{" <integer_literal> "}"
-              | <identifier>
+<variable_declarator_list> ::= <variable_declarator> ("," <variable_declarator>)*
 
-<pointer_type> ::= <type_spec> "*"
+<variable_declarator> ::= <identifier> <initializer>?
 
-<array_type> ::= <type_spec> "[" "]"
-               | <type_spec> "[" "[" "]" "]"
+<initializer> ::= "=" <expression>
+                | "(" <expression_list>? ")"
+                | "{" <field_initializer_list>? "}"
 
-<template_type> ::= <identifier> "<" <type_list> ">"
+<field_initializer_list> ::= <field_initializer> ("," <field_initializer>)*
 
-<type_list> ::= <type_spec> ("," <type_spec>)*
+<field_initializer> ::= <identifier> "=" <expression>
 
-<qualified_type> ::= <type_qualifier> <type_spec>
+(* Statements *)
+<statement_list> ::= <statement>*
 
-<type_qualifier> ::= "const" | "volatile" | "signed" | "unsigned"
+<statement> ::= <expression_statement>
+              | <compound_statement>
+              | <if_statement>
+              | <switch_statement>
+              | <while_statement>
+              | <for_statement>
+              | <try_statement>
+              | <return_statement>
+              | <throw_statement>
+              | <break_statement>
+              | <continue_statement>
+              | <variable_declaration>
+              | <assembly_block>
 
-<stmt_list> ::= <statement>*
+<expression_statement> ::= <expression>? ";"
 
-<statement> ::= <expression_stmt>
-              | <variable_decl> ";"
-              | <if_stmt>
-              | <while_stmt>
-              | <do_while_stmt>
-              | <for_stmt>
-              | <switch_stmt>
-              | <break_stmt>
-              | <continue_stmt>
-              | <return_stmt>
-              | <try_catch_stmt>
-              | <throw_stmt>
-              | <assert_stmt>
-              | <asm_stmt>
-              | <block_stmt>
+<compound_statement> ::= "{" <statement_list> "}"
 
-<expression_stmt> ::= <expression> ";"
+<if_statement> ::= "if" "(" <expression> ")" <statement> <else_clause>?
 
-<variable_decl> ::= <type_spec> <variable_list>
-                  | "auto" "{" <identifier_list> "}" "=" <expression> "{" <identifier_list> "}"
+<else_clause> ::= "else" <statement>
+                | "else" <if_statement>
 
-<variable_list> ::= <variable_init> ("," <variable_init>)*
+<switch_statement> ::= "switch" "(" <expression> ")" "{" <case_list>? <default_clause>? "}"
 
-<variable_init> ::= <identifier>
-                  | <identifier> "=" <expression>
-                  | <identifier> "(" <argument_list>? ")"
+<case_list> ::= <case_clause>*
 
-<identifier_list> ::= <identifier> ("," <identifier>)*
+<case_clause> ::= "case" "(" <expression> ")" "{" <statement_list> "}"
 
-<if_stmt> ::= "if" "(" <expression> ")" "{" <stmt_list> "}" <else_clause>? ";"
+<default_clause> ::= "default" "{" <statement_list> "}"
 
-<else_clause> ::= "else" <if_stmt>
-                | "else" "{" <stmt_list> "}"
+<while_statement> ::= "while" "(" <expression> ")" <statement>
 
-<while_stmt> ::= "while" "(" <expression> ")" "{" <stmt_list> "}" ";"
+<for_statement> ::= "for" "(" <identifier> "in" <expression> ")" <statement>
 
-<do_while_stmt> ::= "do" "{" <stmt_list> "}" "while" "(" <expression> ")" ";"
+<try_statement> ::= "try" <compound_statement> <catch_clause_list>
 
-<for_stmt> ::= "for" "(" <for_init> ";" <expression> ";" <for_update> ")" "{" <stmt_list> "}" ";"
-             | "for" "(" <identifier> "in" <expression> ")" "{" <stmt_list> "}" ";"
+<catch_clause_list> ::= <catch_clause>+
 
-<for_init> ::= <variable_decl>
-             | <expression>
-             | ""
+<catch_clause> ::= "catch" "(" <catch_parameter> ")" <compound_statement>
 
-<for_update> ::= <expression>
-               | ""
+<catch_parameter> ::= <type_specifier> <identifier>
+                    | "auto" <identifier>
 
-<switch_stmt> ::= "switch" "(" <expression> ")" "{" <case_list> "}" ";"
+<return_statement> ::= "return" <expression>? ";"
 
-<case_list> ::= <case_item>*
+<throw_statement> ::= "throw" "(" <expression> ")" ";"
 
-<case_item> ::= "case" "(" <expression> ")" "{" <stmt_list> "}" ";"
-              | "case" "(" ")" "{" <stmt_list> "}" ";"
-              | "default" "{" <stmt_list> "}" ";"
+<break_statement> ::= "break" ";"
 
-<break_stmt> ::= "break" ";"
+<continue_statement> ::= "continue" ";"
 
-<continue_stmt> ::= "continue" ";"
+<assembly_block> ::= "asm" "{" <assembly_instruction>* "}"
 
-<return_stmt> ::= "return" <expression>? ";"
+<assembly_instruction> ::= <identifier> <assembly_operand_list>?
 
-<try_catch_stmt> ::= "try" "{" <stmt_list> "}" <catch_clause>+ ";"
+<assembly_operand_list> ::= <assembly_operand> ("," <assembly_operand>)*
 
-<catch_clause> ::= "catch" "(" <parameter> ")" "{" <stmt_list> "}"
+<assembly_operand> ::= <identifier> | <integer_literal> | <register_name>
 
-<throw_stmt> ::= "throw" <expression> ";"
+(* Expressions - Following Precedence Table *)
+<expression> ::= <conditional_expression>
 
-<assert_stmt> ::= "assert" "(" <expression> ")" ";"
+<conditional_expression> ::= <logical_or_expression> ("?" <expression> ":" <conditional_expression>)?
 
-<asm_stmt> ::= "asm" "{" <asm_code> "}" ";"
+<logical_or_expression> ::= <logical_and_expression> (<logical_or_operator> <logical_and_expression>)*
 
-<asm_code> ::= <any_characters>
+<logical_or_operator> ::= "or" | "||" | "!|"
 
-<block_stmt> ::= "{" <stmt_list> "}" ";"
+<logical_and_expression> ::= <bitwise_or_expression> (<logical_and_operator> <bitwise_or_expression>)*
 
-<expression> ::= <assignment_expr>
+<logical_and_operator> ::= "and" | "&&" | "!&"
 
-<assignment_expr> ::= <conditional_expr>
-                    | <unary_expr> <assignment_op> <assignment_expr>
+<bitwise_or_expression> ::= <bitwise_xor_expression> (<bitwise_or_operator> <bitwise_xor_expression>)*
 
-<assignment_op> ::= "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^=" | "&=" | "|=" | "^^=" | "<<=" | ">>="
-                  | "`&&=" | "`!&=" | "`|=" | "`!|=" | "`^=" | "`!="
+<bitwise_or_operator> ::= "|" | "`|" | "`!|"
 
-<conditional_expr> ::= <logical_or_expr>
-                     | <logical_or_expr> "?" <expression> ":" <conditional_expr>
+<bitwise_xor_expression> ::= <bitwise_and_expression> (<bitwise_xor_operator> <bitwise_and_expression>)*
 
-<logical_or_expr> ::= <logical_and_expr>
-                    | <logical_or_expr> <logical_or_op> <logical_and_expr>
+<bitwise_xor_operator> ::= "^^" | "xor" | "`^^" | "`^!|" | "`^!&"
 
-<logical_or_op> ::= "or" | "||" | "!|"
+<bitwise_and_expression> ::= <identity_expression> (<bitwise_and_operator> <identity_expression>)*
 
-<logical_and_expr> ::= <bitwise_or_expr>
-                     | <logical_and_expr> <logical_and_op> <bitwise_or_expr>
+<bitwise_and_operator> ::= "&" | "`&&" | "`!&" | "`^&"
 
-<logical_and_op> ::= "and" | "&&" | "!&"
+<identity_expression> ::= <equality_expression> (<identity_operator> <equality_expression>)*
 
-<bitwise_or_expr> ::= <bitwise_xor_expr>
-                    | <bitwise_or_expr> <bitwise_or_op> <bitwise_xor_expr>
+<identity_operator> ::= "is" | "not" | "as"
 
-<bitwise_or_op> ::= "|" | "`|" | "`!|"
+<equality_expression> ::= <relational_expression> (<equality_operator> <relational_expression>)*
 
-<bitwise_xor_expr> ::= <bitwise_and_expr>
-                     | <bitwise_xor_expr> <bitwise_xor_op> <bitwise_and_expr>
+<equality_operator> ::= "==" | "!="
 
-<bitwise_xor_op> ::= "^^" | "xor" | "`^^" | "`^!|"
+<relational_expression> ::= <shift_expression> (<relational_operator> <shift_expression>)*
 
-<bitwise_and_expr> ::= <identity_expr>
-                     | <bitwise_and_expr> <bitwise_and_op> <identity_expr>
+<relational_operator> ::= "<" | "<=" | ">" | ">=" | "in"
 
-<bitwise_and_op> ::= "&" | "`&&" | "`!&" | "`^&" | "`^!&"
+<shift_expression> ::= <additive_expression> (<shift_operator> <additive_expression>)*
 
-<identity_expr> ::= <equality_expr>
-                  | <identity_expr> <identity_op> <equality_expr>
+<shift_operator> ::= "<<" | ">>"
 
-<identity_op> ::= "is" | "not" | "as"
+<additive_expression> ::= <multiplicative_expression> (<additive_operator> <multiplicative_expression>)*
 
-<equality_expr> ::= <relational_expr>
-                  | <equality_expr> <equality_op> <relational_expr>
+<additive_operator> ::= "+" | "-"
 
-<equality_op> ::= "==" | "!="
+<multiplicative_expression> ::= <exponential_expression> (<multiplicative_operator> <exponential_expression>)*
 
-<relational_expr> ::= <shift_expr>
-                    | <relational_expr> <relational_op> <shift_expr>
+<multiplicative_operator> ::= "*" | "/" | "%"
 
-<relational_op> ::= "<" | "<=" | ">" | ">=" | "in"
+<exponential_expression> ::= <cast_expression> ("^" <exponential_expression>)?
 
-<shift_expr> ::= <additive_expr>
-               | <shift_expr> <shift_op> <additive_expr>
+<cast_expression> ::= "(" <type_specifier> ")" <unary_expression>
+                    | <unary_expression>
 
-<shift_op> ::= "<<" | ">>"
+<unary_expression> ::= <unary_operator> <unary_expression>
+                     | <postfix_expression>
 
-<additive_expr> ::= <multiplicative_expr>
-                  | <additive_expr> <additive_op> <multiplicative_expr>
+<unary_operator> ::= "++" | "--" | "+" | "-" | "!" | "~" | "@" | "*" | "not" | "sizeof" | "typeof"
 
-<additive_op> ::= "+" | "-"
+<postfix_expression> ::= <primary_expression> <postfix_operator>*
 
-<multiplicative_expr> ::= <exponential_expr>
-                        | <multiplicative_expr> <multiplicative_op> <exponential_expr>
+<postfix_operator> ::= "[" <expression> "]"
+                     | "(" <expression_list>? ")"
+                     | "." <identifier>
+                     | "::" <identifier>
+                     | "++"
+                     | "--"
+                     | "<" <template_argument_list> ">"
 
-<multiplicative_op> ::= "*" | "/" | "%"
+<template_argument_list> ::= <type_specifier> ("," <type_specifier>)*
 
-<exponential_expr> ::= <cast_expr>
-                     | <exponential_expr> "^" <cast_expr>
+<primary_expression> ::= <identifier>
+                       | <literal>
+                       | <i_string>
+                       | <array_literal>
+                       | <array_comprehension>
+                       | <destructuring_assignment>
+                       | "(" <expression> ")"
+                       | "this"
+                       | "super" ("." <identifier>)?
 
-<cast_expr> ::= <unary_expr>
-              | "(" <type_spec> ")" <cast_expr>
+(* Literals *)
+<literal> ::= <integer_literal>
+            | <float_literal>
+            | <char_literal>
+            | <string_literal>
+            | <binary_literal>
+            | <boolean_literal>
 
-<unary_expr> ::= <postfix_expr>
-               | <unary_op> <unary_expr>
+<integer_literal> ::= <digit>+
 
-<unary_op> ::= "++" | "--" | "+" | "-" | "!" | "~" | "@" | "*" | "not" | "sizeof" | "typeof"
+<float_literal> ::= <digit>+ "." <digit>+
 
-<postfix_expr> ::= <primary_expr>
-                 | <postfix_expr> "[" <expression> "]"
-                 | <postfix_expr> "(" <argument_list>? ")"
-                 | <postfix_expr> "." <identifier>
-                 | <postfix_expr> "::" <identifier>
-                 | <postfix_expr> "++"
-                 | <postfix_expr> "--"
+<char_literal> ::= "\"" <character> "\""
 
-<primary_expr> ::= <identifier>
-                 | <literal>
-                 | "(" <expression> ")"
-                 | <array_literal>
-                 | <array_comprehension>
-                 | <i_string>
-                 | <template_instantiation>
-                 | "this"
-                 | "_"
+<string_literal> ::= "\"" <character>* "\""
 
-<template_instantiation> ::= <identifier> "<" <type_list> ">"
+<binary_literal> ::= <binary_digit>+ "b"
 
+<boolean_literal> ::= "true" | "false"
+
+(* I-strings *)
+<i_string> ::= "i" <string_literal> ":" "{" <expression_list> "}"
+
+<expression_list> ::= <expression> (";" <expression>)*
+
+(* Array Literals and Comprehensions *)
 <array_literal> ::= "[" <expression_list>? "]"
-
-<expression_list> ::= <expression> ("," <expression>)*
 
 <array_comprehension> ::= "[" <expression> "for" "(" <identifier> "in" <expression> ")" <comprehension_condition>? "]"
 
 <comprehension_condition> ::= "if" "(" <expression> ")"
 
-<i_string> ::= "i" <string_literal> ":" "{" <expression_list> "}" ";"
+(* Destructuring *)
+<destructuring_assignment> ::= "auto" "{" <identifier_list> "}" "=" <identifier> "{" <identifier_list> "}"
 
-<argument_list> ::= <expression> ("," <expression>)*
+<identifier_list> ::= <identifier> ("," <identifier>)*
 
-<literal> ::= <integer_literal>
-            | <float_literal>
-            | <char_literal>
-            | <string_literal>
-            | <boolean_literal>
-            | <data_literal>
+(* Assignment Expressions *)
+<assignment_expression> ::= <logical_or_expression> <assignment_operator> <expression>
+                           | <logical_or_expression>
 
-<integer_literal> ::= <digit>+ | "0x" <hex_digit>+ | <digit>+ "b"
+<assignment_operator> ::= "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^=" | "&=" | "|=" | "^^=" 
+                        | "<<=" | ">>=" | "`&&=" | "`!&=" | "`|=" | "`!|=" | "`^=" | "`!="
 
-<float_literal> ::= <digit>+ "." <digit>+ | <digit>+ "." | "." <digit>+
-
-<char_literal> ::= "'" <character> "'"
-
-<string_literal> ::= "\"" <string_content>* "\""
-
-<boolean_literal> ::= "true" | "false"
-
-<data_literal> ::= <binary_digits> "b"
-
-<binary_digits> ::= ("0" | "1")+
-
-<identifier> ::= <letter> (<letter> | <digit>)*
-
-<letter> ::= "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" 
-           | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z"
-           | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M"
-           | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
-           | "_"
+(* Lexical Elements *)
+<identifier> ::= <letter> (<letter> | <digit> | "_")*
 
 <digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 
-<hex_digit> ::= <digit> | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | "C" | "D" | "E" | "F"
+<binary_digit> ::= "0" | "1"
 
-<character> ::= <any_printable_character> | <escape_sequence>
+<letter> ::= "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m"
+           | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z"
+           | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M"
+           | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
 
-<escape_sequence> ::= "\\" | "\'" | "\"" | "\n" | "\t" | "\r" | "\0"
+<character> ::= <letter> | <digit> | <special_character> | <escape_sequence>
 
-<string_content> ::= <character> | <any_character_except_quote>
+<special_character> ::= " " | "!" | "#" | "$" | "%" | "&" | "'" | "(" | ")" | "*" | "+"
+                      | "," | "-" | "." | "/" | ":" | ";" | "<" | "=" | ">" | "?" | "@"
+                      | "[" | "]" | "^" | "_" | "`" | "{" | "|" | "}" | "~"
 
-<any_characters> ::= <any_character>*
+<escape_sequence> ::= "\\" <escape_character>
 
-<any_character> ::= <letter> | <digit> | <symbol>
+<escape_character> ::= "n" | "t" | "r" | "\\" | "\"" | "'" | "0"
 
-<symbol> ::= "!" | "@" | "#" | "$" | "%" | "^" | "&" | "*" | "(" | ")" | "-" | "_" | "+"
-           | "=" | "{" | "}" | "[" | "]" | "|" | "\\" | ":" | ";" | "\"" | "'" | "<" | ">"
-           | "," | "." | "?" | "/" | "`" | "~" | " " | "\t" | "\n" | "\r"
+<register_name> ::= "eax" | "ebx" | "ecx" | "edx" | "esi" | "edi" | "esp" | "ebp"
+                  | "ax" | "bx" | "cx" | "dx" | "si" | "di" | "sp" | "bp"
+                  | "al" | "bl" | "cl" | "dl" | "ah" | "bh" | "ch" | "dh"
+
+(* Keywords *)
+<keyword> ::= "and" | "as" | "asm" | "assert" | "auto" | "break" | "bool" | "case" | "catch"
+            | "const" | "continue" | "data" | "def" | "default" | "do" | "else" | "enum"
+            | "false" | "float" | "for" | "if" | "import" | "in" | "int" | "is" | "namespace"
+            | "not" | "object" | "or" | "return" | "signed" | "sizeof" | "struct" | "super"
+            | "switch" | "template" | "this" | "throw" | "true" | "try" | "typeof" | "unsigned"
+            | "using" | "void" | "volatile" | "while" | "xor"
+
+(* Comments - Lexical Analysis Level *)
+<line_comment> ::= "//" <character>* <newline>
+
+<block_comment> ::= "/*" <any_character>* "*/"
+
+<newline> ::= "\n" | "\r\n" | "\r"
+
+<any_character> ::= <character> | <newline>
+```
+
+## Notes
+
+1. **Precedence**: The expression grammar follows the precedence table exactly as specified in the language spec, from lowest (conditional) to highest (primary expressions).
+
+2. **Operators**: All the special bitwise operators with backtick prefixes are included (`` `&& ``, `` `!& ``, etc.).
+
+3. **Magic Methods**: All magic method names are enumerated as terminals.
+
+4. **Templates**: Template instantiation syntax `<type>` is included in postfix expressions.
+
+5. **I-strings**: Special interpolated string syntax is captured with expression lists.
+
+6. **Error Handling**: Complete try/catch with multiple catch clauses and auto-typing.
+
+7. **Function Pointers**: C++-style function pointer syntax is properly captured.
+
+8. **Inheritance**: Object inheritance with `super` keyword access.
+
+9. **Assembly**: Inline assembly blocks with instruction syntax.
+
+10. **Data Types**: Variable-width data types with bit specifications.

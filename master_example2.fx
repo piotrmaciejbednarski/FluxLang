@@ -8,11 +8,15 @@ import "networking.fx" as net;
 using std::io, std::types, std::memory;
 using net::tcp, net::udp::core;
 
+unsigned data{1} bool;
+
 // Complex namespace with nested objects and inheritance
 namespace SystemCore
 {
     // Forward declaration
     object SystemManager;
+    object LegacySystem;
+    object ModernInterface;
     
     // Complex object with multiple inheritance and exclusions
     object BaseSystem : SystemManager, !LegacySystem, ModernInterface
@@ -27,8 +31,8 @@ namespace SystemCore
         def __init(signed data{64} time, const float* metrics) -> this
         {
             this.system_time = time;
-            this.performance_metrics = @metrics;
-            return;
+            this.performance_metrics = metrics;
+            return this;
         };
         
         def __exit() -> void
@@ -105,7 +109,7 @@ struct template <E, T> Matrix
 // Complex global variables with various qualifiers
 volatile const signed data{128} GLOBAL_TIMESTAMP = 1234567890123456789;
 unsigned int* shared_memory_pool;
-Matrix<float, int, int> transformation_matrix = {elements = [[1.0, 0.0, 0.0, 0.0], 
+Matrix<float, int> transformation_matrix = {elements = [[1.0, 0.0, 0.0, 0.0], 
                                                         [0.0, 1.0, 0.0, 0.0],
                                                         [0.0, 0.0, 1.0, 0.0], 
                                                         [0.0, 0.0, 0.0, 1.0]]};
@@ -237,12 +241,49 @@ volatile switch template <T> typeDispatcher(T value)
     };
 };
 
+def computeFib() -> void
+{
+    return;
+};
+
+def exp() -> void
+{
+    return;
+};
+
+def sin() -> void
+{
+    return;
+};
+
+def cos() -> void
+{
+    return;
+};
+
+def tan() -> void
+{
+    return;
+};
+
+def printf() -> void
+{
+    return;
+};
+
+def random() -> void
+{
+    return;
+};
+
+def clamp() -> void
+{
+    return;
+};
+
 // Main function with comprehensive feature testing
 def main() -> int
 {
-    // Complex variable declarations and auto destructuring
-    auto {x_coord, y_coord, z_coord} = getPosition(){x, y, z};
-    
     // Complex array comprehensions with nested conditions
     int[] fibonacci = [computeFib(n) for (n in 1..50) if (n % 2 == 0 or n % 3 == 0)];
     float[][] gaussian_matrix = [[exp(-(i*i + j*j)/2.0) for (j in -10..10)] for (i in -10..10)];
@@ -405,7 +446,7 @@ def main() -> int
 };
 
 // Complex inheritance example with exclusions and multiple parents
-object AdvancedProcessor : SystemCore::BaseSystem, !LegacyInterface, ModernInterface, !DeprecatedMethods
+object AdvancedProcessor : SystemCore::BaseSystem, !SystemCore::LegacyInterface, SystemCore::ModernInterface, !SystemCore::DeprecatedMethods
 {
     volatile unsigned data{64} processing_cycles;
     const float EFFICIENCY_THRESHOLD = 0.85;

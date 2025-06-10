@@ -582,7 +582,7 @@ class Parser:
         # For now, we'll create a variable declaration that represents the nested object
         # This is a workaround - ideally the AST should support nested objects directly
         object_type = BaseTypeNode(nested_obj.name, None, self.line, self.col)
-        var_init = VariableInitNode(nested_obj.name.lower() + "_nested", None, None, self.line, self.col)
+        var_init = VariableInitNode(nested_obj.name + "_nested", None, None, self.line, self.col)
         return VariableDeclNode(object_type, [var_init], False, None, None, None, self.line, self.col)
     
     def parse_nested_object_def(self) -> ObjectDefNode:
@@ -1185,10 +1185,10 @@ class Parser:
             width_expr = self.parse_expression()
             self.expect("DELIM_R_BRACE")
             return BaseTypeNode("data", width_expr, self.line, self.col)
-        elif self.current_token.startswith("IDENTIFIER_") and "CHAR" in self.current_token.upper():
+        elif self.current_token.startswith("IDENTIFIER_") and "CHAR" in self.current_token:
             self.advance()
             return BaseTypeNode("char", None, self.line, self.col)
-        elif self.current_token.startswith("IDENTIFIER_") and "BOOL" in self.current_token.upper():
+        elif self.current_token.startswith("IDENTIFIER_") and "BOOL" in self.current_token:
             self.advance()
             return BaseTypeNode("bool", None, self.line, self.col)
         elif self.current_token.startswith("IDENTIFIER_"):
@@ -2051,7 +2051,7 @@ class Parser:
         elif self.match("KW_INT", "KW_FLOAT", "KW_VOID", "KW_DATA"):
             # Type keywords can be used as identifiers in certain expression contexts
             # like: typeof(x) is float, sizeof(int), etc.
-            type_name = self.current_token.replace("KW_", "").lower()
+            type_name = self.current_token.replace("KW_", "")
             self.advance()
             return IdentifierExprNode(type_name, self.line, self.col)
         elif self.consume("DELIM_L_BRACE"):
@@ -2203,12 +2203,12 @@ class Parser:
             self.error(f"Expected identifier, got {self.current_token}")
         
         # Extract identifier name from token
-        identifier = self.current_token.replace("IDENTIFIER_", "").lower()
+        identifier = self.current_token.replace("IDENTIFIER_", "")
         self.advance()
         return identifier
 
 
-def parse_flux_program(source_code: str) -> ProgramNode:
+def parse(source_code: str) -> ProgramNode:
     """Parse Flux source code and return AST"""
     # Tokenize and capture position information
     lexer = Lexer(source_code)
@@ -2245,10 +2245,10 @@ def parse_flux_program(source_code: str) -> ProgramNode:
 if __name__ == "__main__":
     # Test with a Flux program from file
     try:
-        with open("./math.fx", "r") as file:
+        with open("./master_example2.fx", "r") as file:
             source_code = file.read()
         
-        ast = parse_flux_program(source_code)
+        ast = parse(source_code)
         print("Parsing successful!")
         print(f"AST has {len(ast.global_items)} global items")
         

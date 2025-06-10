@@ -360,7 +360,7 @@ def d_tokens_map(token: str) -> str:
 	if token == "EOF":
 		return "== END OF FILE =="
 	
-	return f"IDENTIFIER_{token.upper()}"
+	return f"IDENTIFIER_{token}"
 
 
 keywords = ['and', 'as', 'asm', 'assert', 'auto', 'break', 'case', 'catch', 'const',

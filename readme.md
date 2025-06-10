@@ -237,20 +237,18 @@ this, throw, true, try, typeof, unsigned, using, void, volatile, while, xor
 - [x] AST generation
 - [ ] Type checking and semantic analysis
 
-### Phase 2: Code Generation
-- [ ] Bytecode generation
-- [ ] Virtual machine implementation
-- [ ] Standard library
-
-### Phase 3: Optimization
+### Phase 2: Optimization
 - [ ] LLVM backend integration
+
+### Phase 3: Code Generation
+- [ ] Standard library
+- [ ] Documentation
 - [ ] Self-hosting compiler
 - [ ] Performance optimizations
 
 ### Phase 4: Ecosystem
 - [ ] Package manager
-- [ ] IDE tooling and language server
-- [ ] Documentation generator
+- [ ] IDE tooling [VysualPy](https://github.com/kvthweatt/VysualPy) and language server
 - [ ] Testing framework
 
 ---
@@ -298,19 +296,7 @@ Check out the comprehensive language test in [`master_example2.fx`](master_examp
 
 ## 🔧 Development Setup
 
-```bash
-# Development dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-python -m pytest tests/
-
-# Type checking
-mypy flux/
-
-# Code formatting
-black flux/
-```
+- Will update
 
 ---
 

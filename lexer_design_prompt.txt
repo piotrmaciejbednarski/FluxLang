@@ -1,0 +1,10 @@
+Lexer design prompt for the Flux Programming Language:
+
+Flux has templates, and supports nested templates.
+Nested templates were a known issue in C++ requiring a space between two '>' tokens.
+The lexer should not handle context awareness. It will produce a right-shift ('>>') token.
+The parser will deal with context awareness.
+
+Since this is the case, we must make the token stream flexible so that the parser can use a lexer function to break the right-shift into two greater-than tokens.
+
+The lexer should completely ignore whitespace during token generation and focus purely on token generation.
