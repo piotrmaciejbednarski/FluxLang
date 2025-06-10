@@ -1,9 +1,0 @@
-Parser design prompt for the Flux Programming Language:
-
-The parser should be fully context-aware, meaning it should:
-
-Track all braces, brackets, angle brackets, and parenthesis.
-Track scope and depth.
-Understand if it's in a template declaration or template call to track the angle brackets '<','>' in the event it needs to split a right-shift '>>' into two greater-than tokens.
-
-The parser should parse through an entire source file without stopping, listing all errors instead of failing at and listing only 1 error.
