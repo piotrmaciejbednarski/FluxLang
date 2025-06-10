@@ -24,7 +24,7 @@ def myAdd(int x, int y) -> int
 def myAdd(float x, float y) -> float
 {
 	return x + y;
-}
+};
 ```
 
 **Namespaces:**
@@ -157,7 +157,7 @@ Example usage:
 ```
 import "standard.fx";
 
-using std::io, std::types;
+using standard::io, standard::types;
 
 object myObj
 {
@@ -226,6 +226,7 @@ object obj1 : anotherObj, myObj
 	// __init() is not defined in this object
 	// We inherit the __init() from anotherObj (first in the inheritance list)
 	// If we want to inherit __init() from myObj, we put myObj first in the inheritance list.
+	// If __init() was defined here, obj1 uses that __init()
 
 	object obj2
 	{
@@ -285,7 +286,7 @@ to the statements' position in the statement array.
 ```
 import "standard.fx";
 
-using std::io;
+using standard::io;
 
 unsigned data{8}[] string;
 
@@ -310,7 +311,7 @@ Example 2:
 ```
 import "standard.fx";
 
-using std::io;
+using standard::io;
 
 unsigned data{8}[] string;
 
@@ -379,7 +380,7 @@ int[]* pi_array = @i_array;         // Pointer
 // Pointer Arithmetic:
 import "standard.fx";
 
-using std::io, std::types;
+using standard::io, standard::types;
 
 def main() -> int
 {
@@ -437,18 +438,21 @@ else
 // This is to prevent binary bloat after compilation
 ```
 import "standard.fx";
-using std::io, std::types;          // Only use `io` and `types` namespaces from the `std` namespace.
+using standard::io, standard::types;          // Only use `io` and `types` namespaces from the `std` namespace.
 ```
 
 
 **The `data` keyword:**
 //
+// Data is a variable bit width, primitive binary data type. Anything can cast to it,
+// and it can cast to any literal Flux type like char, int, or float.
+// It is intended to allow Flux programmers to build complex flexible custom types to fit their needs.
 // Data types use big-endian byte order by default.
 // Use bit manipulation operators to reorder as needed.
 //
 // When declaring an identifier with `data`, if it is not initialized it is treated as a new type.
 // `unsigned data{32} ui32;` is the C++ equivalent of `typedef unsigned int uint;`
-// However, if I assign anything TO ui32, then ui32 becomes a variable of type `unsigned data{32}`
+// However, if I assign anything to ui32, then ui32 becomes a variable of type `unsigned data{32}`
 // Meaning if I wanted to make a custom boolean type called `boolean` I would do:
 // `unsigned data{1} boolean; boolean myTrue = 1, myFalse = 0;`
 // In this context, boolean is a type. However if I did the following:
@@ -503,11 +507,9 @@ You cannot do the reverse with objects or structs unless **ALL** of their member
 Casting anything to `void` is the functional equivalent of freeing the memory occupied by that thing.
 If the width of the data type is 512 bits, that many bits will be freed.
 This is dangerous on purpose, the compiler will throw very verbose warnings at you.
-It is expected you know what you're doing.
-
-Data is a variable bit width, primitive binary data type. Anything can cast to it,
-and it can cast to any literal Flux type like char, int, or float.
-It is intended to allow Flux programmers to build complex flexible custom types to fit their needs.
+This goes for functions which return void.
+If you try to return data with the `return` statement and the function definition declares the return type as void, your data will be cast as void.
+It is expected the programmer understands this and know what they're doing.
 
 
 **types.fx module:**
@@ -551,6 +553,7 @@ struct myStruct1
     unsigned data {32} address;
 };  // This struct is exactly 40 bits wide
 
+// This struct has padding because we specified alignment in our data types, introducing padding.
 struct myStruct2
 {
     unsigned data {8:16} status;
@@ -617,13 +620,13 @@ volatile template<T> myMax(T x, T y) {};
 Template shadowing is allowed and there will be no warning for it. It is assumed you know
 what you are doing. Any inner T refers to the nearest outer T, if none exists and is not
 used in code somewhere, then and only then is it a compiler error because T won't exist.
-You do not need to use `super.T;`.
+You do not need to use `super.T`.
 
 
 **Arrays:**
 ```
 import "standard.fx" as std;
-using std::io, std::types;
+using standard::io, standard::types;
 
 int[] ia_myArray = [3, 92, 14, 30, 6, 5, 11, 400];
 
@@ -635,7 +638,7 @@ int tmp, lowest;
 def len(int[] array) -> int
 {
 	return sizeof(array) / sizeof(int);
-}
+};
 ```
 
 **Array Comprehension:**
@@ -684,7 +687,7 @@ struct Point { int x; int y; };
 
 Point myPoint = {x = 10, y = 20};
 
-auto {t, m} = myPoint{x,y};     // int   t=10,   int    m=20
+auto {t, m} = myPoint{x,y};     // int t=10, int m=20
 ```
 
 **Casting:**
@@ -755,12 +758,12 @@ def main() -> int
 		}
 		catch (string x)  // Only catch a primitive string (unsigned data{8}[]) thrown
 		{
-		};
+		}   // No semicolon here because this is not the last catch in the try statement
 		catch (auto x)    // Receive myE thrown from function myErr(), automatically typed e as ERR
 		{
 			string err = x.e;    // "Custom error from object myE"
 			throw("Thrown from nested try-catch block.");
-		};
+		};  // Semicolon follows because it's the last catch in the try statement.
 	}
 	catch (string x)
 	{

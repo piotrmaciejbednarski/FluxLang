@@ -28,15 +28,7 @@ Flux is a revolutionary programming language designed for systems programming, p
 ### 🏗️ **Object-Oriented Programming**
 - **Multiple inheritance** with inclusion/exclusion syntax
 - **Magic methods** for operator overloading
-- **Template objects** for generic programming
 - **Nested objects** and complex hierarchies
-
-### ⚡ **Advanced Templates**
-- **Function templates** with multiple type parameters
-- **Object templates** for generic data structures
-- **Operator templates** for custom operator definitions
-- **Control flow templates**: `for template`, `switch template`
-- **Async templates** for concurrent programming
 
 ### 🛠️ **Systems Programming**
 - **Inline assembly** support
@@ -49,7 +41,6 @@ Flux is a revolutionary programming language designed for systems programming, p
 - **Interpolated strings**: `i"Hello {}":{name;}`
 - **Array comprehensions**: `[x^2 for (x in 1..10)]`
 - **Destructuring assignment**: `auto {x, y} = point{x, y}`
-- **Custom operators**: Define your own operators like `matrix_mul`
 - **Async/await** for concurrent programming
 
 ---
@@ -60,7 +51,7 @@ Flux is a revolutionary programming language designed for systems programming, p
 
 ```flux
 import "standard.fx" as std;
-using std::io, std::types;
+using standard::io, standard::types;
 
 def main() -> int
 {
@@ -119,20 +110,6 @@ template <T> findMax(T[] array) -> T
 int[] numbers = [5, 2, 8, 1, 9];
 int maximum = findMax<int>(numbers);
 ```
-
-### Custom Operators
-
-```flux
-operator(Matrix a, Matrix b)[matrix_mul] -> Matrix
-{
-    // Matrix multiplication implementation
-    return multiply(a, b);
-};
-
-// Usage
-Matrix result = matrixA matrix_mul matrixB;
-```
-
 ---
 
 ## 🏗️ Architecture
@@ -207,10 +184,10 @@ print('Parsed successfully!')
 
 ### Keywords
 ```
-and, as, asm, assert, async, auto, await, break, case, catch, const, continue, data,
-def, default, do, else, enum, false, float, for, if, import, in, int, is, namespace,
-not, object, operator, or, return, signed, sizeof, struct, super, switch, template,
-this, throw, true, try, typeof, unsigned, using, void, volatile, while, xor
+alignof, and, asm, assert, auto, break, bool, case, catch, const, continue, data, def
+default, do, else, enum, false, float, for, if, import, in, int, is, namespace
+not, object, or, return, signed, sizeof, struct, super, switch, template, this,
+throw, true, try, typeof, unsigned, using, void, volatile, while, xor
 ```
 
 ### Built-in Types

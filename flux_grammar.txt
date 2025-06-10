@@ -59,7 +59,7 @@
 
 <magic_method_definition> ::= "def" <magic_method_name> "(" <parameter_list>? ")" "->" <type_specifier> "{" <statement_list> "}"
 
-<magic_method_name> ::= "__new" | "__init" | "__exit" | "__expr" | "__eq" | "__ee" | "__ne" 
+<magic_method_name> ::= "__init" | "__exit" | "__expr" | "__eq" | "__ee" | "__ne" 
                       | "__le" | "__ge" | "__lt" | "__gt" | "__add" | "__sub" | "__inc" | "__dec"
                       | "__mul" | "__div" | "__iadd" | "__isub" | "__imul" | "__idiv" | "__mod"
                       | "__pow" | "__imod" | "__ipow" | "__ls" | "__rs" | "__and" | "__or" | "__xor"
@@ -67,7 +67,7 @@
                       | "__bxor" | "__bnand" | "__bnor" | "__bxand" | "__bxnor" | "__bxnand"
                       | "__andeq" | "__oreq" | "__xoreq" | "__nandeq" | "__noreq" | "__xandeq"
                       | "__xnoreq" | "__xnandeq" | "__bandeq" | "__boreq" | "__bxoreq"
-                      | "__bnandeq" | "__bnoreq" | "__bxandeq" | "__bxnoreq" | "__bxnandeq"
+                      | "__bnandeq" | "__bnoreq" | "__bxandeq" | "__bxnoreq" | "__bxnandeq" | "__cast"
 
 (* Struct Definitions *)
 <struct_definition> ::= "struct" <identifier> "{" <struct_member_list>? "}"

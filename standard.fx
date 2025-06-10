@@ -1,7 +1,9 @@
-signed data{32} i32;
-unsigned data{8}[] string;
+import "types.fx";
+import "math.fx";
+import "vector.fx";
+import "matrix.fx";
+import "collections.fx";
 
-namespace std
+namespace standard
 {
-
 };
