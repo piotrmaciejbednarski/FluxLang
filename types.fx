@@ -43,7 +43,7 @@ namespace standard
             // Fixed-size arrays
             object array_i32
             {
-                i32[] data;
+                i32[] adata;
                 i32 capacity;
                 i32 length;
                 
@@ -76,7 +76,7 @@ namespace standard
                     {
                         throw("Array index out of bounds");
                     };
-                    return this.data[index];
+                    return this.adata[index];
                 };
                 
                 def push(i32 value) -> void
@@ -85,7 +85,7 @@ namespace standard
                     {
                         throw("Array capacity exceeded");
                     };
-                    this.data[this.length] = value;
+                    this.adata[this.length] = value;
                     this.length++;
                     return void;
                 };
@@ -97,7 +97,7 @@ namespace standard
                         throw("Cannot pop from empty array");
                     };
                     this.length--;
-                    return this.data[this.length];
+                    return this.adata[this.length];
                 };
             };
             
@@ -123,14 +123,14 @@ namespace standard
                 def append(noopstr str) -> void
                 {
                     // TODO: Resize if needed
-                    this.data = this.data + str;
+                    this.adata = this.adata + str;
                     this.length = this.length + (sizeof(str) / 8);
                     return void;
                 };
                 
                 def to_string() -> string
                 {
-                    return string(this.data);
+                    return string(this.adata);
                 };
             };
             
@@ -752,13 +752,13 @@ namespace standard
             // Type-erased value container
             object any_value
             {
-                void* data;
+                void* adata;
                 basic::ui32 type_id;
                 basic::ui32 size;
                 
                 def __init(void* ptr, basic::ui32 tid, basic::ui32 sz) -> this
                 {
-                    this.data = ptr;
+                    this.adata = ptr;
                     this.type_id = tid;
                     this.size = sz;
                     return this;
@@ -766,16 +766,16 @@ namespace standard
                 
                 def __exit() -> void
                 {
-                    if (this.data is !void)
+                    if (this.adata is !void)
                     {
-                        (void)this.data;  // Free the data
+                        (void)this.adata;  // Free the data
                     };
                     return void;
                 };
                 
                 def get_data() -> void*
                 {
-                    return this.data;
+                    return this.adata;
                 };
                 
                 def get_type() -> basic::ui32
@@ -858,10 +858,10 @@ namespace standard
             // Observer pattern
             object observer
             {
-                void (*notify)(void* data);
+                void (*notify)(void* adata);
                 void* user_data;
                 
-                def __init(void (*callback)(void*), void* data) -> this
+                def __init(void (*callback)(void*), void* adata) -> this
                 {
                     this.notify = callback;
                     this.user_data = data;

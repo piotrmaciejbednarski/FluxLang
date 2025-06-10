@@ -22,7 +22,7 @@ namespace standard
             // Generic n-dimensional vector
             object vector
             {
-                float* data;
+                float* adata;
                 basic::i32 dimensions;
                 basic::i32 capacity;
                 
@@ -33,7 +33,7 @@ namespace standard
                     // TODO: Allocate data array of size dim
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        this.data[i] = 0.0;
+                        this.adata[i] = 0.0;
                     };
                     return this;
                 };
@@ -42,15 +42,15 @@ namespace standard
                 {
                     this.dimensions = 0;
                     this.capacity = 0;
-                    this.data = void;
+                    this.adata = void;
                     return this;
                 };
                 
                 def __exit() -> void
                 {
-                    if (this.data is !void)
+                    if (this.adata is !void)
                     {
-                        (void)this.data;
+                        (void)this.adata;
                     };
                     return void;
                 };
@@ -76,7 +76,7 @@ namespace standard
                     {
                         throw("Vector index out of bounds");
                     };
-                    return this.data[index];
+                    return this.adata[index];
                 };
                 
                 def set(basic::i32 index, float value) -> void
@@ -85,7 +85,7 @@ namespace standard
                     {
                         throw("Vector index out of bounds");
                     };
-                    this.data[index] = value;
+                    this.adata[index] = value;
                     return void;
                 };
                 
@@ -93,9 +93,9 @@ namespace standard
                 {
                     if (new_dim > this.capacity)
                     {
-                        if (this.data is !void)
+                        if (this.adata is !void)
                         {
-                            (void)this.data;
+                            (void)this.adata;
                         };
                         // TODO: Allocate new data array
                         this.capacity = new_dim;
@@ -104,7 +104,7 @@ namespace standard
                     // Initialize new elements to zero
                     for (basic::i32 i = this.dimensions; i < new_dim; i++)
                     {
-                        this.data[i] = 0.0;
+                        this.adata[i] = 0.0;
                     };
                     
                     this.dimensions = new_dim;
@@ -115,7 +115,7 @@ namespace standard
                 {
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        this.data[i] = value;
+                        this.adata[i] = value;
                     };
                     return void;
                 };
@@ -131,7 +131,7 @@ namespace standard
                     this.resize(other.dimensions);
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        this.data[i] = other.data[i];
+                        this.adata[i] = other.adata[i];
                     };
                     return void;
                 };
@@ -151,7 +151,7 @@ namespace standard
                     
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        if (math::basic::abs(this.data[i] - other.data[i]) > math::constants::FLOAT_EPSILON)
+                        if (math::basic::abs(this.adata[i] - other.adata[i]) > math::constants::FLOAT_EPSILON)
                         {
                             return false;
                         };
@@ -175,7 +175,7 @@ namespace standard
                     vector result(this.dimensions);
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        result.data[i] = this.data[i] + other.data[i];
+                        result.adata[i] = this.adata[i] + other.adata[i];
                     };
                     
                     return result;
@@ -191,7 +191,7 @@ namespace standard
                     vector result(this.dimensions);
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        result.data[i] = this.data[i] - other.data[i];
+                        result.adata[i] = this.adata[i] - other.adata[i];
                     };
                     
                     return result;
@@ -202,7 +202,7 @@ namespace standard
                     vector result(this.dimensions);
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        result.data[i] = this.data[i] * scalar;
+                        result.adata[i] = this.adata[i] * scalar;
                     };
                     
                     return result;
@@ -218,7 +218,7 @@ namespace standard
                     vector result(this.dimensions);
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        result.data[i] = this.data[i] / scalar;
+                        result.adata[i] = this.adata[i] / scalar;
                     };
                     
                     return result;
@@ -233,7 +233,7 @@ namespace standard
                     
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        this.data[i] += other.data[i];
+                        this.adata[i] += other.adata[i];
                     };
                     
                     return this;
@@ -248,7 +248,7 @@ namespace standard
                     
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        this.data[i] -= other.data[i];
+                        this.adata[i] -= other.adata[i];
                     };
                     
                     return this;
@@ -258,7 +258,7 @@ namespace standard
                 {
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        this.data[i] *= scalar;
+                        this.adata[i] *= scalar;
                     };
                     
                     return this;
@@ -273,7 +273,7 @@ namespace standard
                     
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        this.data[i] /= scalar;
+                        this.adata[i] /= scalar;
                     };
                     
                     return this;
@@ -294,7 +294,7 @@ namespace standard
                     float result = 0.0;
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        result += this.data[i] * other.data[i];
+                        result += this.adata[i] * other.adata[i];
                     };
                     
                     return result;
@@ -336,7 +336,7 @@ namespace standard
                     
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        this.data[i] /= mag;
+                        this.adata[i] /= mag;
                     };
                     return void;
                 };
@@ -420,7 +420,7 @@ namespace standard
                     vector result(this.dimensions);
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        result.data[i] = (1.0 - t) * this.data[i] + t * other.data[i];
+                        result.adata[i] = (1.0 - t) * this.adata[i] + t * other.adata[i];
                     };
                     
                     return result;
@@ -460,10 +460,10 @@ namespace standard
                         throw("Cannot find max of empty vector");
                     };
                     
-                    float max_val = this.data[0];
+                    float max_val = this.adata[0];
                     for (basic::i32 i = 1; i < this.dimensions; i++)
                     {
-                        max_val = math::basic::max(max_val, this.data[i]);
+                        max_val = math::basic::max(max_val, this.adata[i]);
                     };
                     
                     return max_val;
@@ -476,10 +476,10 @@ namespace standard
                         throw("Cannot find min of empty vector");
                     };
                     
-                    float min_val = this.data[0];
+                    float min_val = this.adata[0];
                     for (basic::i32 i = 1; i < this.dimensions; i++)
                     {
-                        min_val = math::basic::min(min_val, this.data[i]);
+                        min_val = math::basic::min(min_val, this.adata[i]);
                     };
                     
                     return min_val;
@@ -490,7 +490,7 @@ namespace standard
                     float sum = 0.0;
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        sum += this.data[i];
+                        sum += this.adata[i];
                     };
                     return sum;
                 };
@@ -502,7 +502,7 @@ namespace standard
                     float product = 1.0;
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        product *= this.data[i];
+                        product *= this.adata[i];
                     };
                     return product;
                 };
@@ -512,7 +512,7 @@ namespace standard
                     vector result(this.dimensions);
                     for (basic::i32 i = 0; i < this.dimensions; i++)
                     {
-                        result.data[i] = math::basic::abs(this.data[i]);
+                        result.adata[i] = math::basic::abs(this.adata[i]);
                     };
                     return result;
                 };

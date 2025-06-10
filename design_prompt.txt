@@ -1,20 +1,26 @@
-Flux language interpreter design prompt.
+Flux Language master design prompt.
 
 Follow all instructions exactly. Do not deviate from instructions.
 Do not add types not defined in the keyword list.
 The keyword list only has the types `int`, `float`, `char`, `signed` or `unsigned` `data`, `volatile`, pointer, and `const` types.
 Do not add types like `i32`, `ufloat`, `byte`, `bit`, as these are user-defined types built from the `data` keyword.
-Only `int`, `float`, `char`, and `data` are valid built-in primitive types.
+Only `int`, `float`, `char`, `void`, and `data` are valid built-in primitive types.
+
+All keywords are reserved and identifiers/variables cannot be named after them.
+```
+int data;  // ILLEGAL
+int idata; // Good, no issues.
+```
 
 All statements, compound-statements, and code blocks end with semicolons. This eliminates semicolon position ambiguity.
 
 Examples of compound statements:
 `if (expr) {...} else (expr) {...};`
 `do {...} while (expr);`
-
-Templates are written as they're named.
+`try {...} catch (expr) {...} catch (expr) {...};`
 
 All components are to be designed simply, minimalistically, and imperatively; recursive design is to be avoided at all costs.
+Simple does not mean omit code for "to-do" placeholders. Simple means do not overcomplicate the solution to a problem.
 
 The components of this interpreter are:
 
@@ -26,17 +32,18 @@ LLVM                    - fllvm.py
 
 All programs should be written so they may take a file name as an argument from the command line.
 
-We will combine this with LLVM to be capable of compiling Flux.
-Once Flux can be compiled with LLVM, the native compiler will be written in Flux and ran on itself.
+We will combine the language components with LLVM to be capable of compiling Flux.
+Once Flux can be compiled with LLVM, the native compiler will be written in Flux and bootstrapped.
 
 The lexer produces a token list for the parser to consume.
 The parser produces the AST.
-The VM type checks, produces byte-code for itself from the AST, and then executes.
+The type checker performs two passes, the first generates a symbol table map, the second validates and produces a typed AST.
 
 All components should build off of the one before it in the chain of processing, such as:
 The Parser builds off of the AST, the Lexer, and the Grammar Rules.
 
-If it's not a keyword in the lexer list, it doesn't exist in Flux. Do not create new keywords for Flux during the design process.
+If it's not a keyword in the language specification list, it doesn't exist in Flux.
+Do not create new keywords for Flux during the design process.
 Use only features explicitly documented in the language specification.
 
 Ensure all explicitly documented features are implemented; do not omit, simplify, or stub code in the name of brevity.

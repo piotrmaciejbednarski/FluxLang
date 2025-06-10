@@ -19,14 +19,14 @@ namespace standard
         
         object array
         {
-            void* data;
+            void* adata;
             basic::i32 length;
             basic::i32 capacity;
             basic::ui32 element_size;
             
             def __init(basic::ui32 elem_size) -> this
             {
-                this.data = void;
+                this.adata = void;
                 this.length = 0;
                 this.capacity = 0;
                 this.element_size = elem_size;
@@ -35,9 +35,9 @@ namespace standard
             
             def __exit() -> void
             {
-                if (this.data is !void)
+                if (this.adata is !void)
                 {
-                    api::deallocate_memory(this.data, (basic::ui64)(this.capacity * this.element_size));
+                    api::deallocate_memory(this.adata, (basic::ui64)(this.capacity * this.element_size));
                 };
                 return void;
             };
@@ -59,10 +59,10 @@ namespace standard
                 void* new_data = api::allocate_memory((basic::ui64)(new_capacity * this.element_size));
                 if (new_data is void) { return false; };
                 
-                if (this.data is !void)
+                if (this.adata is !void)
                 {
                     // Copy existing data
-                    basic::ui8* src = (basic::ui8*)this.data;
+                    basic::ui8* src = (basic::ui8*)this.adata;
                     basic::ui8* dst = (basic::ui8*)new_data;
                     basic::ui64 copy_size = (basic::ui64)(this.length * this.element_size);
                     
@@ -71,10 +71,10 @@ namespace standard
                         dst[i] = src[i];
                     };
                     
-                    api::deallocate_memory(this.data, (basic::ui64)(this.capacity * this.element_size));
+                    api::deallocate_memory(this.adata, (basic::ui64)(this.capacity * this.element_size));
                 };
                 
-                this.data = new_data;
+                this.adata = new_data;
                 this.capacity = new_capacity;
                 return true;
             };
@@ -94,7 +94,7 @@ namespace standard
                 
                 // Copy element to array
                 basic::ui8* src = (basic::ui8*)element;
-                basic::ui8* dst = (basic::ui8*)this.data + (this.length * this.element_size);
+                basic::ui8* dst = (basic::ui8*)this.adata + (this.length * this.element_size);
                 
                 for (basic::ui32 i = 0; i < this.element_size; i++)
                 {
@@ -112,7 +112,7 @@ namespace standard
                 this.length--;
                 
                 // Copy element out
-                basic::ui8* src = (basic::ui8*)this.data + (this.length * this.element_size);
+                basic::ui8* src = (basic::ui8*)this.adata + (this.length * this.element_size);
                 basic::ui8* dst = (basic::ui8*)out_element;
                 
                 for (basic::ui32 i = 0; i < this.element_size; i++)
@@ -126,7 +126,7 @@ namespace standard
             def at(basic::i32 index) -> void*
             {
                 if (index >= this.length or index < 0) { return void; };
-                return (basic::ui8*)this.data + (index * this.element_size);
+                return (basic::ui8*)this.adata + (index * this.element_size);
             };
             
             def set(basic::i32 index, void* element) -> bool
@@ -134,7 +134,7 @@ namespace standard
                 if (index >= this.length or index < 0) { return false; };
                 
                 basic::ui8* src = (basic::ui8*)element;
-                basic::ui8* dst = (basic::ui8*)this.data + (index * this.element_size);
+                basic::ui8* dst = (basic::ui8*)this.adata + (index * this.element_size);
                 
                 for (basic::ui32 i = 0; i < this.element_size; i++)
                 {
@@ -368,13 +368,13 @@ namespace standard
         {
             object node
             {
-                void* data;
+                void* adata;
                 node* next;
                 node* prev;
                 
                 def __init() -> this
                 {
-                    this.data = void;
+                    this.adata = void;
                     this.next = void;
                     this.prev = void;
                     return this;
@@ -489,7 +489,7 @@ namespace standard
                 // Copy data out
                 if (out_element is !void)
                 {
-                    basic::ui8* src = (basic::ui8*)old_head.data;
+                    basic::ui8* src = (basic::ui8*)old_head.adata;
                     basic::ui8* dst = (basic::ui8*)out_element;
                     for (basic::ui32 i = 0; i < this.element_size; i++)
                     {
@@ -507,7 +507,7 @@ namespace standard
                     this.tail = void;
                 };
                 
-                api::deallocate_memory(old_head.data, this.element_size);
+                api::deallocate_memory(old_head.adata, this.element_size);
                 api::deallocate_memory(old_head, sizeof(node));
                 this.size--;
                 return true;
@@ -522,7 +522,7 @@ namespace standard
                 // Copy data out
                 if (out_element is !void)
                 {
-                    basic::ui8* src = (basic::ui8*)old_tail.data;
+                    basic::ui8* src = (basic::ui8*)old_tail.adata;
                     basic::ui8* dst = (basic::ui8*)out_element;
                     for (basic::ui32 i = 0; i < this.element_size; i++)
                     {
@@ -540,7 +540,7 @@ namespace standard
                     this.head = void;
                 };
                 
-                api::deallocate_memory(old_tail.data, this.element_size);
+                api::deallocate_memory(old_tail.adata, this.element_size);
                 api::deallocate_memory(old_tail, sizeof(node));
                 this.size--;
                 return true;
@@ -561,7 +561,7 @@ namespace standard
                 while (this.head is !void)
                 {
                     node* next = this.head.next;
-                    api::deallocate_memory(this.head.data, this.element_size);
+                    api::deallocate_memory(this.head.adata, this.element_size);
                     api::deallocate_memory(this.head, sizeof(node));
                     this.head = next;
                 };

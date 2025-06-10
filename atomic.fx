@@ -1320,12 +1320,12 @@ namespace standard
             object stack_node
             {
                 atomic_ptr next;
-                void* data;
+                void* adata;
                 
                 def __init(void* item) -> this
                 {
                     this.next = atomic_ptr(void);
-                    this.data = item;
+                    this.adata = item;
                     return this;
                 };
                 
@@ -1380,7 +1380,7 @@ namespace standard
                 } 
                 while (!this.head.compare_exchange_weak(@current_head, next_head, relaxed, relaxed));
                 
-                void* data = current_head->data;
+                void* adata = current_head->data;
                 (void)current_head;  // Free the node
                 return data;
             };
@@ -1397,12 +1397,12 @@ namespace standard
             object queue_node
             {
                 atomic_ptr next;
-                void* data;
+                void* adata;
                 
                 def __init(void* item) -> this
                 {
                     this.next = atomic_ptr(void);
-                    this.data = item;
+                    this.adata = item;
                     return this;
                 };
                 
@@ -1468,7 +1468,7 @@ namespace standard
                 queue_node* head_node;
                 queue_node* tail_node;
                 queue_node* next_node;
-                void* data;
+                void* adata;
                 
                 while (true)
                 {
