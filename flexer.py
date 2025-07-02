@@ -1,832 +1,862 @@
 #!/usr/bin/env python3
 """
-Flux Programming Language Lexer
-flexer.py - Tokenizes Flux source code into a stream of tokens
+Flux Language Lexer - Command Line Tool
 
-This lexer handles all Flux language constructs including:
-- Keywords and identifiers
-- Operators with special bitwise syntax
-- String literals and interpolated strings
-- Numeric literals
-- Comments
-- Template syntax (context-unaware for '>>' vs '>')
+Usage:
+    python3 flexer.py file.fx          # Basic token output
+    python3 flexer.py file.fx -v       # Verbose output with token positions
+    python3 flexer.py file.fx -c       # Show token count summary
+    python3 flexer.py file.fx -v -c    # Both verbose and count summary
 """
 
 import re
 from enum import Enum, auto
 from dataclasses import dataclass
-from typing import List, Optional, Union, Iterator
-
+from typing import List, Optional, Iterator
 
 class TokenType(Enum):
     # Literals
     INTEGER = auto()
     FLOAT = auto()
-    CHARACTER = auto()
+    CHAR = auto()
     STRING = auto()
-    INTERPOLATED_STRING = auto()
     BOOLEAN = auto()
     
-    # Identifiers and Keywords
+    # String interpolation
+    I_STRING = auto()
+    F_STRING = auto()
+    
+    # Identifiers and keywords
     IDENTIFIER = auto()
-    KEYWORD = auto()
     
-    # Primary expressions
-    LPAREN = auto()          # (
-    RPAREN = auto()          # )
-    LBRACKET = auto()        # [
-    RBRACKET = auto()        # ]
-    DOT = auto()             # .
-    SCOPE = auto()           # ::
+    # Keywords
+    ALIGNOF = auto()
+    AND = auto()
+    ASM = auto()
+    ASSERT = auto()
+    AUTO = auto()
+    BREAK = auto()
+    BOOL = auto()
+    CASE = auto()
+    CATCH = auto()
+    COMPT = auto()
+    CONST = auto()
+    CONTINUE = auto()
+    DATA = auto()
+    DEF = auto()
+    DEFAULT = auto()
+    DO = auto()
+    ELSE = auto()
+    ENUM = auto()
+    EXTERN = auto()
+    FALSE = auto()
+    FLOAT_KW = auto()
+    FOR = auto()
+    IF = auto()
+    IMPORT = auto()
+    IN = auto()
+    INT = auto()
+    IS = auto()
+    MATCH = auto()
+    NAMESPACE = auto()
+    NOT = auto()
+    OBJECT = auto()
+    OR = auto()
+    PRIVATE = auto()
+    PUBLIC = auto()
+    RETURN = auto()
+    SIGNED = auto()
+    SIZEOF = auto()
+    STRUCT = auto()
+    SUPER = auto()
+    SWITCH = auto()
+    THIS = auto()
+    THROW = auto()
+    TRUE = auto()
+    TRY = auto()
+    TYPEOF = auto()
+    UNSIGNED = auto()
+    USING = auto()
+    VIRTUAL = auto()
+    VOID = auto()
+    VOLATILE = auto()
+    WHILE = auto()
+    XOR = auto()
+    AS = auto()
     
-    # Postfix operators
-    INCREMENT = auto()       # ++
-    DECREMENT = auto()       # --
+    # Operators
+    PLUS = auto()           # +
+    MINUS = auto()          # -
+    MULTIPLY = auto()       # *
+    DIVIDE = auto()         # /
+    MODULO = auto()         # %
+    POWER = auto()          # ^
+    INCREMENT = auto()      # ++
+    DECREMENT = auto()      # --
     
-    # Unary operators
-    PLUS = auto()            # +
-    MINUS = auto()           # -
-    LOGICAL_NOT = auto()     # !
-    BITWISE_NOT = auto()     # ~
-    ADDRESS_OF = auto()      # @
-    DEREFERENCE = auto()     # *
-    SIZEOF = auto()          # sizeof
-    TYPEOF = auto()          # typeof
-    NOT = auto()             # not
+    # Comparison
+    EQUAL = auto()          # ==
+    NOT_EQUAL = auto()      # !=
+    LESS_THAN = auto()      # <
+    LESS_EQUAL = auto()     # <=
+    GREATER_THAN = auto()   # >
+    GREATER_EQUAL = auto()  # >=
     
-    # Type casting
-    # (handled by LPAREN/RPAREN)
+    # Logical
+    LOGICAL_AND = auto()    # &&
+    LOGICAL_OR = auto()     # ||
+    LOGICAL_NOT = auto()    # !
+    LOGICAL_NAND = auto()   # !&
+    LOGICAL_NOR = auto()    # !|
     
-    # Arithmetic operators
-    MULTIPLY = auto()        # *
-    DIVIDE = auto()          # /
-    MODULO = auto()          # %
-    POWER = auto()           # ^
+    # Bitwise
+    BITWISE_AND = auto()    # &
+    BITWISE_OR = auto()     # |
+    BITWISE_XOR = auto()    # ^^
+    BITWISE_NOT = auto()    # ~
+    BITWISE_B_AND = auto()      # `&
+    BITWISE_B_NAND = auto()     # `!&
+    BITWISE_B_OR = auto()       # `|
+    BITWISE_B_NOR = auto()      # `!|
+    BITWISE_B_XOR = auto()      # `^^
+    BITWISE_B_XNOR = auto()     # `^!|
+    BITWISE_B_XAND = auto()     # `^&
+    BITWISE_B_XNAND = auto()    # `^!&
     
-    # Additive operators  
-    # PLUS and MINUS already defined
+    # Shift
+    LEFT_SHIFT = auto()     # <<
+    RIGHT_SHIFT = auto()    # >>
     
-    # Shift operators
-    LEFT_SHIFT = auto()      # <<
-    RIGHT_SHIFT = auto()     # >>
-    
-    # Relational operators
-    LESS_THAN = auto()       # <
-    LESS_EQUAL = auto()      # <=
-    GREATER_THAN = auto()    # >
-    GREATER_EQUAL = auto()   # >=
-    IN = auto()              # in
-    
-    # Equality operators
-    EQUAL = auto()           # ==
-    NOT_EQUAL = auto()       # !=
-    
-    # Identity operators
-    IS = auto()              # is
-    AS = auto()              # as
-    
-    # Bitwise operators (standard)
-    BITWISE_AND = auto()     # &
-    BITWISE_XOR = auto()     # ^^
-    BITWISE_OR = auto()      # |
-    
-    # Bitwise operators (special ` prefix)
-    BIT_AND = auto()         # `&
-    BIT_NAND = auto()        # `!&
-    BIT_OR = auto()          # `|
-    BIT_NOR = auto()         # `!|
-    BIT_XOR = auto()         # `^^
-    BIT_XNOR = auto()        # `^!|
-    BIT_XAND = auto()        # `^&
-    BIT_XNAND = auto()       # `^!&
-    
-    # Logical operators
-    LOGICAL_AND = auto()     # && / and
-    LOGICAL_NAND = auto()    # !&
-    LOGICAL_OR = auto()      # || / or
-    LOGICAL_NOR = auto()     # !|
-    LOGICAL_XOR = auto()     # xor
-    LOGICAL_XAND = auto()    # ^&
-    LOGICAL_XNOR = auto()    # ^!|
-    LOGICAL_XNAND = auto()   # ^!&
-    
-    # Conditional operator
-    QUESTION = auto()        # ?
-    COLON = auto()           # :
-    
-    # Assignment operators
-    ASSIGN = auto()          # =
-    PLUS_ASSIGN = auto()     # +=
-    MINUS_ASSIGN = auto()    # -=
-    MULTIPLY_ASSIGN = auto() # *=
-    DIVIDE_ASSIGN = auto()   # /=
-    MODULO_ASSIGN = auto()   # %=
-    POWER_ASSIGN = auto()    # ^=
-    AND_ASSIGN = auto()      # &=
-    OR_ASSIGN = auto()       # |=
-    XOR_ASSIGN = auto()      # ^^=
+    # Assignment
+    ASSIGN = auto()         # =
+    PLUS_ASSIGN = auto()    # +=
+    MINUS_ASSIGN = auto()   # -=
+    MULTIPLY_ASSIGN = auto()# *=
+    DIVIDE_ASSIGN = auto()  # /=
+    MODULO_ASSIGN = auto()  # %=
+    POWER_ASSIGN = auto()   # ^=
+    AND_ASSIGN = auto()     # &=
+    OR_ASSIGN = auto()      # |=
+    XOR_ASSIGN = auto()     # ^^=
     LEFT_SHIFT_ASSIGN = auto()  # <<=
     RIGHT_SHIFT_ASSIGN = auto() # >>=
     
-    # Special bitwise assignment operators
-    BIT_AND_ASSIGN = auto()     # `&=
-    BIT_OR_ASSIGN = auto()      # `|=
-    BIT_XOR_ASSIGN = auto()     # `^|=
-    BIT_NAND_ASSIGN = auto()    # `!&=
-    BIT_NOR_ASSIGN = auto()     # `!|=
-    BIT_XAND_ASSIGN = auto()    # `^&=
-    BIT_XNOR_ASSIGN = auto()    # `^!|=
-    BIT_XNAND_ASSIGN = auto()   # `^!&=
+    # Bitwise assignment
+    B_AND_ASSIGN = auto()       # `&=
+    B_NAND_ASSIGN = auto()      # `!&=
+    B_OR_ASSIGN = auto()        # `|=
+    B_NOR_ASSIGN = auto()       # `!|=
+    B_XOR_ASSIGN = auto()       # `^=
+    B_NOT_ASSIGN = auto()       # `!=
     
     # Other operators
-    COMMA = auto()           # ,
-    SEMICOLON = auto()       # ;
-    LBRACE = auto()          # {
-    RBRACE = auto()          # }
+    ADDRESS_OF = auto()     # @
+    RANGE = auto()          # ..
+    SCOPE = auto()          # ::
+    QUESTION = auto()       # ?
+    COLON = auto()          # :
     
-    # Template syntax
-    TEMPLATE_OPEN = auto()   # <
-    TEMPLATE_CLOSE = auto()  # >
+    # Delimiters
+    LEFT_PAREN = auto()     # (
+    RIGHT_PAREN = auto()    # )
+    LEFT_BRACKET = auto()   # [
+    RIGHT_BRACKET = auto()  # ]
+    LEFT_BRACE = auto()     # {
+    RIGHT_BRACE = auto()    # }
+    SEMICOLON = auto()      # ;
+    COMMA = auto()          # ,
+    DOT = auto()            # .
     
-    # Special tokens
+    # Special
     EOF = auto()
     NEWLINE = auto()
-    COMMENT = auto()
-    
-    # Error token
-    ERROR = auto()
-
-
-@dataclass
-class SourceLocation:
-    """Represents a location in source code"""
-    line: int
-    column: int
-    filename: str = ""
-
 
 @dataclass
 class Token:
-    """Represents a single token in the source code"""
     type: TokenType
     value: str
-    location: SourceLocation
-    
-    def __repr__(self):
-        return f"Token({self.type.name}, '{self.value}', {self.location.line}:{self.location.column})"
-
-
-class LexerError(Exception):
-    """Exception raised when lexer encounters an error"""
-    def __init__(self, message: str, location: SourceLocation):
-        self.message = message
-        self.location = location
-        super().__init__(f"{message} at {location.line}:{location.column}")
-
+    line: int
+    column: int
 
 class FluxLexer:
-    """
-    Flux Programming Language Lexer
-    
-    Tokenizes Flux source code while remaining context-unaware for template parsing.
-    The parser will handle context-sensitive operations like breaking '>>' into '>' tokens.
-    """
-    
-    # Flux keywords
-    KEYWORDS = {
-        'alignof', 'and', 'asm', 'assert', 'auto', 'break', 'bool', 'case', 'catch',
-        'const', 'continue', 'data', 'def', 'default', 'do', 'else', 'enum', 'false',
-        'float', 'for', 'if', 'import', 'in', 'int', 'is', 'namespace', 'not', 'object',
-        'or', 'return', 'signed', 'sizeof', 'struct', 'super', 'switch', 'template',
-        'this', 'throw', 'true', 'try', 'typeof', 'unsigned', 'using', 'void',
-        'volatile', 'while', 'xor'
-    }
-    
-    def __init__(self, source: str, filename: str = "<input>"):
-        self.source = source
-        self.filename = filename
-        self.pos = 0
+    def __init__(self, source_code: str):
+        self.source = source_code
+        self.position = 0
         self.line = 1
         self.column = 1
-        self.tokens = []
+        self.length = len(source_code)
         
-    def current_location(self) -> SourceLocation:
-        """Get current source location"""
-        return SourceLocation(self.line, self.column, self.filename)
+        # Keywords mapping
+        self.keywords = {
+            'alignof': TokenType.ALIGNOF,
+            'and': TokenType.AND,
+            'asm': TokenType.ASM,
+            'assert': TokenType.ASSERT,
+            'auto': TokenType.AUTO,
+            'break': TokenType.BREAK,
+            'bool': TokenType.BOOL,
+            'case': TokenType.CASE,
+            'catch': TokenType.CATCH,
+            'compt': TokenType.COMPT,
+            'const': TokenType.CONST,
+            'continue': TokenType.CONTINUE,
+            'data': TokenType.DATA,
+            'def': TokenType.DEF,
+            'default': TokenType.DEFAULT,
+            'do': TokenType.DO,
+            'else': TokenType.ELSE,
+            'enum': TokenType.ENUM,
+            'extern': TokenType.EXTERN,
+            'false': TokenType.FALSE,
+            'float': TokenType.FLOAT_KW,
+            'for': TokenType.FOR,
+            'if': TokenType.IF,
+            'import': TokenType.IMPORT,
+            'in': TokenType.IN,
+            'int': TokenType.INT,
+            'is': TokenType.IS,
+            'match': TokenType.MATCH,
+            'namespace': TokenType.NAMESPACE,
+            'not': TokenType.NOT,
+            'object': TokenType.OBJECT,
+            'or': TokenType.OR,
+            'private': TokenType.PRIVATE,
+            'public': TokenType.PUBLIC,
+            'return': TokenType.RETURN,
+            'signed': TokenType.SIGNED,
+            'sizeof': TokenType.SIZEOF,
+            'struct': TokenType.STRUCT,
+            'super': TokenType.SUPER,
+            'switch': TokenType.SWITCH,
+            'this': TokenType.THIS,
+            'throw': TokenType.THROW,
+            'true': TokenType.TRUE,
+            'try': TokenType.TRY,
+            'typeof': TokenType.TYPEOF,
+            'unsigned': TokenType.UNSIGNED,
+            'using': TokenType.USING,
+            'virtual': TokenType.VIRTUAL,
+            'void': TokenType.VOID,
+            'volatile': TokenType.VOLATILE,
+            'while': TokenType.WHILE,
+            'xor': TokenType.XOR,
+            'as': TokenType.AS,
+        }
     
-    def peek(self, offset: int = 0) -> Optional[str]:
-        """Peek at character at current position + offset"""
-        pos = self.pos + offset
-        return self.source[pos] if pos < len(self.source) else None
-    
-    def advance(self) -> Optional[str]:
-        """Advance position and return current character"""
-        if self.pos >= len(self.source):
+    def current_char(self) -> Optional[str]:
+        if self.position >= self.length:
             return None
-        
-        char = self.source[self.pos]
-        self.pos += 1
-        
-        if char == '\n':
+        return self.source[self.position]
+    
+    def peek_char(self, offset: int = 1) -> Optional[str]:
+        pos = self.position + offset
+        if pos >= self.length:
+            return None
+        return self.source[pos]
+    
+    def advance(self) -> None:
+        if self.position < self.length and self.source[self.position] == '\n':
             self.line += 1
             self.column = 1
         else:
             self.column += 1
-            
-        return char
+        self.position += 1
     
-    def skip_whitespace(self):
-        """Skip whitespace characters"""
-        while self.peek() and self.peek().isspace():
+    def skip_whitespace(self) -> None:
+        while self.current_char() and self.current_char() in ' \t\r\n':
             self.advance()
     
-    def read_while(self, predicate) -> str:
-        """Read characters while predicate is true"""
-        result = ""
-        while self.peek() and predicate(self.peek()):
-            result += self.advance()
-        return result
-    
-    def match_string(self, string: str) -> bool:
-        """Check if current position matches string"""
-        for i, char in enumerate(string):
-            if self.peek(i) != char:
-                return False
-        return True
-    
-    def consume_string(self, string: str) -> bool:
-        """Consume string if it matches at current position"""
-        if self.match_string(string):
-            for _ in string:
+    def skip_comment(self) -> None:
+        if self.current_char() == '/' and self.peek_char() == '/':
+            # Skip until end of line
+            while self.current_char() and self.current_char() != '\n':
                 self.advance()
-            return True
-        return False
     
-    def add_token(self, token_type: TokenType, value: str, location: Optional[SourceLocation] = None):
-        """Add token to token list"""
-        if location is None:
-            location = self.current_location()
-        self.tokens.append(Token(token_type, value, location))
-    
-    def read_number(self) -> Token:
-        """Read numeric literal (integer or float)"""
-        location = self.current_location()
-        number = ""
-        
-        # Handle hex numbers
-        if self.peek() == '0' and self.peek(1) in 'xX':
-            number += self.advance()  # '0'
-            number += self.advance()  # 'x' or 'X'
-            hex_digits = self.read_while(lambda c: c.isdigit() or c.lower() in 'abcdef')
-            if not hex_digits:
-                raise LexerError("Invalid hexadecimal number", location)
-            number += hex_digits
-            return Token(TokenType.INTEGER, number, location)
-        
-        # Handle binary numbers
-        if self.peek() == '0' and self.peek(1) in 'bB':
-            number += self.advance()  # '0'
-            number += self.advance()  # 'b' or 'B'
-            bin_digits = self.read_while(lambda c: c in '01')
-            if not bin_digits:
-                raise LexerError("Invalid binary number", location)
-            number += bin_digits
-            return Token(TokenType.INTEGER, number, location)
-        
-        # Read integer part
-        number += self.read_while(lambda c: c.isdigit())
-        
-        # Check for decimal point
-        if self.peek() == '.' and self.peek(1) and self.peek(1).isdigit():
-            number += self.advance()  # '.'
-            number += self.read_while(lambda c: c.isdigit())
-            
-            # Check for exponent
-            if self.peek() and self.peek().lower() == 'e':
-                number += self.advance()  # 'e' or 'E'
-                if self.peek() in '+-':
-                    number += self.advance()
-                exp_digits = self.read_while(lambda c: c.isdigit())
-                if not exp_digits:
-                    raise LexerError("Invalid float exponent", location)
-                number += exp_digits
-            
-            return Token(TokenType.FLOAT, number, location)
-        
-        # Check for exponent on integer
-        if self.peek() and self.peek().lower() == 'e':
-            number += self.advance()  # 'e' or 'E'
-            if self.peek() in '+-':
-                number += self.advance()
-            exp_digits = self.read_while(lambda c: c.isdigit())
-            if not exp_digits:
-                raise LexerError("Invalid float exponent", location)
-            number += exp_digits
-            return Token(TokenType.FLOAT, number, location)
-        
-        return Token(TokenType.INTEGER, number, location)
-    
-    def read_string(self, quote_char: str) -> Token:
-        """Read string literal"""
-        location = self.current_location()
-        result = quote_char  # Include opening quote
+    def read_string(self, quote_char: str) -> str:
+        result = ""
         self.advance()  # Skip opening quote
         
-        while self.peek() and self.peek() != quote_char:
-            char = self.peek()
-            if char == '\\':
-                result += self.advance()  # backslash
-                if self.peek():
-                    result += self.advance()  # escaped character
+        while self.current_char() and self.current_char() != quote_char:
+            if self.current_char() == '\\':
+                self.advance()
+                escape_char = self.current_char()
+                if escape_char in 'ntr\\''"':
+                    escape_map = {'n': '\n', 't': '\t', 'r': '\r', '\\': '\\', "'": "'", '"': '"'}
+                    result += escape_map.get(escape_char, escape_char)
+                elif escape_char == 'x':
+                    # Hex escape
+                    self.advance()
+                    hex_digits = ""
+                    for _ in range(2):
+                        if self.current_char() and self.current_char() in '0123456789abcdefABCDEF':
+                            hex_digits += self.current_char()
+                            self.advance()
+                        else:
+                            break
+                    if hex_digits:
+                        result += chr(int(hex_digits, 16))
+                        continue
+                elif escape_char and escape_char.isdigit():
+                    # Octal escape
+                    octal_digits = escape_char
+                    self.advance()
+                    for _ in range(2):
+                        if self.current_char() and self.current_char() in '01234567':
+                            octal_digits += self.current_char()
+                            self.advance()
+                        else:
+                            break
+                    result += chr(int(octal_digits, 8))
+                    continue
+                else:
+                    result += escape_char if escape_char else '\\'
             else:
-                result += self.advance()
+                result += self.current_char()
+            self.advance()
         
-        if not self.peek():
-            raise LexerError(f"Unterminated string literal", location)
+        if self.current_char() == quote_char:
+            self.advance()  # Skip closing quote
         
-        result += self.advance()  # closing quote
-        
-        if quote_char == '"':
-            return Token(TokenType.STRING, result, location)
-        else:  # single quote
-            return Token(TokenType.CHARACTER, result, location)
+        return result
     
-    def read_interpolated_string(self) -> Token:
-        """Read interpolated string literal (i"...{...}...")"""
-        location = self.current_location()
-        result = "i"
-        self.advance()  # skip 'i'
+    def read_f_string(self) -> str:
+        """Read f-string with embedded expressions"""
+        result = ""
+        self.advance()  # Skip opening quote
         
-        if self.peek() != '"':
-            raise LexerError("Expected '\"' after 'i' for interpolated string", location)
-        
-        result += self.advance()  # opening quote
-        brace_depth = 0
-        
-        while self.peek():
-            char = self.peek()
-            
-            if char == '"' and brace_depth == 0:
-                result += self.advance()  # closing quote
-                break
-            elif char == '{':
-                brace_depth += 1
-                result += self.advance()
-            elif char == '}':
-                brace_depth -= 1
-                result += self.advance()
-            elif char == '\\':
-                result += self.advance()  # backslash
-                if self.peek():
-                    result += self.advance()  # escaped character
+        while self.current_char() and self.current_char() != '"':
+            if self.current_char() == '{':
+                # Start of embedded expression
+                result += self.current_char()
+                self.advance()
+                brace_count = 1
+                
+                while self.current_char() and brace_count > 0:
+                    if self.current_char() == '{':
+                        brace_count += 1
+                    elif self.current_char() == '}':
+                        brace_count -= 1
+                    result += self.current_char()
+                    self.advance()
+            elif self.current_char() == '\\':
+                self.advance()
+                escape_char = self.current_char()
+                if escape_char in 'ntr\\''"':
+                    escape_map = {'n': '\n', 't': '\t', 'r': '\r', '\\': '\\', "'": "'", '"': '"'}
+                    result += escape_map.get(escape_char, escape_char)
+                else:
+                    result += escape_char if escape_char else '\\'
+                self.advance()
             else:
-                result += self.advance()
+                result += self.current_char()
+                self.advance()
         
-        if brace_depth != 0 or not result.endswith('"'):
-            raise LexerError("Unterminated interpolated string literal", location)
+        if self.current_char() == '"':
+            self.advance()  # Skip closing quote
         
-        return Token(TokenType.INTERPOLATED_STRING, result, location)
+        return result
+    
+    def read_number(self) -> Token:
+        start_pos = (self.line, self.column)
+        result = ""
+        is_float = False
+        
+        # Handle hex (0x) and binary (0b) prefixes
+        if self.current_char() == '0':
+            result += self.current_char()
+            self.advance()
+            
+            if self.current_char() and self.current_char().lower() == 'x':
+                # Hexadecimal
+                result += self.current_char()
+                self.advance()
+                while self.current_char() and self.current_char() in '0123456789abcdefABCDEF':
+                    result += self.current_char()
+                    self.advance()
+                return Token(TokenType.INTEGER, result, start_pos[0], start_pos[1])
+            
+            elif self.current_char() and self.current_char().lower() == 'b':
+                # Binary
+                result += self.current_char()
+                self.advance()
+                while self.current_char() and self.current_char() in '01':
+                    result += self.current_char()
+                    self.advance()
+                return Token(TokenType.INTEGER, result, start_pos[0], start_pos[1])
+        
+        # Read decimal digits
+        while self.current_char() and self.current_char().isdigit():
+            result += self.current_char()
+            self.advance()
+        
+        # Check for decimal point
+        if self.current_char() == '.' and self.peek_char() and self.peek_char().isdigit():
+            is_float = True
+            result += self.current_char()
+            self.advance()
+            while self.current_char() and self.current_char().isdigit():
+                result += self.current_char()
+                self.advance()
+        
+
+        
+        token_type = TokenType.FLOAT if is_float else TokenType.INTEGER
+        return Token(token_type, result, start_pos[0], start_pos[1])
     
     def read_identifier(self) -> Token:
-        """Read identifier or keyword"""
-        location = self.current_location()
-        identifier = self.read_while(lambda c: c.isalnum() or c == '_')
+        start_pos = (self.line, self.column)
+        result = ""
+        
+        while (self.current_char() and 
+               (self.current_char().isalnum() or self.current_char() == '_')):
+            result += self.current_char()
+            self.advance()
         
         # Check if it's a keyword
-        if identifier in self.KEYWORDS:
-            # Special handling for boolean keywords
-            if identifier in ('true', 'false'):
-                return Token(TokenType.BOOLEAN, identifier, location)
-            else:
-                return Token(TokenType.KEYWORD, identifier, location)
+        token_type = self.keywords.get(result, TokenType.IDENTIFIER)
         
-        return Token(TokenType.IDENTIFIER, identifier, location)
+        # Special handling for boolean literals
+        if result == 'true' or result == 'false':
+            token_type = TokenType.BOOLEAN
+        
+        return Token(token_type, result, start_pos[0], start_pos[1])
     
-    def read_comment(self) -> Optional[Token]:
-        """Read comment (single-line // or multi-line /* */)"""
-        location = self.current_location()
+    def read_interpolation_string(self) -> Token:
+        """Read i-string format: i"string": {expr1; expr2; ...}"""
+        start_pos = (self.line, self.column)
         
-        if self.match_string('//'):
-            # Single-line comment
-            comment = ""
-            self.advance()  # first /
-            self.advance()  # second /
+        # Read the string part
+        string_part = self.read_string('"')
+        
+        # Skip whitespace and colon
+        self.skip_whitespace()
+        if self.current_char() == ':':
+            self.advance()
+        
+        # Read the interpolation block
+        self.skip_whitespace()
+        if self.current_char() == '{':
+            interpolation_part = ""
+            brace_count = 1
+            interpolation_part += self.current_char()
+            self.advance()
             
-            while self.peek() and self.peek() != '\n':
-                comment += self.advance()
+            while self.current_char() and brace_count > 0:
+                if self.current_char() == '{':
+                    brace_count += 1
+                elif self.current_char() == '}':
+                    brace_count -= 1
+                interpolation_part += self.current_char()
+                self.advance()
             
-            return Token(TokenType.COMMENT, '//' + comment, location)
+            result = f'i"{string_part}":{interpolation_part}'
+        else:
+            result = f'i"{string_part}"'
         
-        elif self.match_string('/*'):
-            # Multi-line comment
-            comment = ""
-            self.advance()  # /
-            self.advance()  # *
-            
-            while self.peek():
-                if self.match_string('*/'):
-                    self.advance()  # *
-                    self.advance()  # /
-                    break
-                comment += self.advance()
-            else:
-                raise LexerError("Unterminated multi-line comment", location)
-            
-            return Token(TokenType.COMMENT, '/*' + comment + '*/', location)
-        
-        return None
-    
-    def read_operator(self) -> Optional[Token]:
-        """Read operator tokens"""
-        location = self.current_location()
-        char = self.peek()
-        
-        # Three-character operators
-        if self.match_string('>>='):
-            self.consume_string('>>=')
-            return Token(TokenType.RIGHT_SHIFT_ASSIGN, '>>=', location)
-        elif self.match_string('<<='):
-            self.consume_string('<<=')
-            return Token(TokenType.LEFT_SHIFT_ASSIGN, '<<=', location)
-        elif self.match_string('^^='):
-            self.consume_string('^^=')
-            return Token(TokenType.XOR_ASSIGN, '^^=', location)
-        elif self.match_string('!&='):
-            self.consume_string('!&=')
-            return Token(TokenType.LOGICAL_NAND, '!&=', location)
-        elif self.match_string('!|='):
-            self.consume_string('!|=')
-            return Token(TokenType.LOGICAL_NOR, '!|=', location)
-        elif self.match_string('^&='):
-            self.consume_string('^&=')
-            return Token(TokenType.LOGICAL_XAND, '^&=', location)
-        elif self.match_string('^!|='):
-            self.consume_string('^!|=')
-            return Token(TokenType.LOGICAL_XNOR, '^!|=', location)
-        elif self.match_string('^!&='):
-            self.consume_string('^!&=')
-            return Token(TokenType.LOGICAL_XNAND, '^!&=', location)
-        
-        # Special bitwise operators with ` prefix
-        elif self.match_string('`^!|='):
-            self.consume_string('`^!|=')
-            return Token(TokenType.BIT_XNOR_ASSIGN, '`^!|=', location)
-        elif self.match_string('`^!&='):
-            self.consume_string('`^!&=')
-            return Token(TokenType.BIT_XNAND_ASSIGN, '`^!&=', location)
-        elif self.match_string('`^|='):
-            self.consume_string('`^|=')
-            return Token(TokenType.BIT_XOR_ASSIGN, '`^|=', location)
-        elif self.match_string('`!&='):
-            self.consume_string('`!&=')
-            return Token(TokenType.BIT_NAND_ASSIGN, '`!&=', location)
-        elif self.match_string('`!|='):
-            self.consume_string('`!|=')
-            return Token(TokenType.BIT_NOR_ASSIGN, '`!|=', location)
-        elif self.match_string('`^&='):
-            self.consume_string('`^&=')
-            return Token(TokenType.BIT_XAND_ASSIGN, '`^&=', location)
-        elif self.match_string('`&='):
-            self.consume_string('`&=')
-            return Token(TokenType.BIT_AND_ASSIGN, '`&=', location)
-        elif self.match_string('`|='):
-            self.consume_string('`|=')
-            return Token(TokenType.BIT_OR_ASSIGN, '`|=', location)
-        
-        # Four-character special bitwise operators
-        elif self.match_string('`^!|'):
-            self.consume_string('`^!|')
-            return Token(TokenType.BIT_XNOR, '`^!|', location)
-        elif self.match_string('`^!&'):
-            self.consume_string('`^!&')
-            return Token(TokenType.BIT_XNAND, '`^!&', location)
-        
-        # Three-character special bitwise operators  
-        elif self.match_string('`^^'):
-            self.consume_string('`^^')
-            return Token(TokenType.BIT_XOR, '`^^', location)
-        elif self.match_string('`^&'):
-            self.consume_string('`^&')
-            return Token(TokenType.BIT_XAND, '`^&', location)
-        elif self.match_string('`!&'):
-            self.consume_string('`!&')
-            return Token(TokenType.BIT_NAND, '`!&', location)
-        elif self.match_string('`!|'):
-            self.consume_string('`!|')
-            return Token(TokenType.BIT_NOR, '`!|', location)
-        
-        # Two-character special bitwise operators
-        elif self.match_string('`&'):
-            self.consume_string('`&')
-            return Token(TokenType.BIT_AND, '`&', location)
-        elif self.match_string('`|'):
-            self.consume_string('`|')
-            return Token(TokenType.BIT_OR, '`|', location)
-        
-        # Two-character operators
-        elif self.match_string('++'):
-            self.consume_string('++')
-            return Token(TokenType.INCREMENT, '++', location)
-        elif self.match_string('--'):
-            self.consume_string('--')
-            return Token(TokenType.DECREMENT, '--', location)
-        elif self.match_string('<<'):
-            self.consume_string('<<')
-            return Token(TokenType.LEFT_SHIFT, '<<', location)
-        elif self.match_string('>>'):
-            self.consume_string('>>')
-            return Token(TokenType.RIGHT_SHIFT, '>>', location)
-        elif self.match_string('<='):
-            self.consume_string('<=')
-            return Token(TokenType.LESS_EQUAL, '<=', location)
-        elif self.match_string('>='):
-            self.consume_string('>=')
-            return Token(TokenType.GREATER_EQUAL, '>=', location)
-        elif self.match_string('=='):
-            self.consume_string('==')
-            return Token(TokenType.EQUAL, '==', location)
-        elif self.match_string('!='):
-            self.consume_string('!=')
-            return Token(TokenType.NOT_EQUAL, '!=', location)
-        elif self.match_string('&&'):
-            self.consume_string('&&')
-            return Token(TokenType.LOGICAL_AND, '&&', location)
-        elif self.match_string('||'):
-            self.consume_string('||')
-            return Token(TokenType.LOGICAL_OR, '||', location)
-        elif self.match_string('^^'):
-            self.consume_string('^^')
-            return Token(TokenType.BITWISE_XOR, '^^', location)
-        elif self.match_string('!&'):
-            self.consume_string('!&')
-            return Token(TokenType.LOGICAL_NAND, '!&', location)
-        elif self.match_string('!|'):
-            self.consume_string('!|')
-            return Token(TokenType.LOGICAL_NOR, '!|', location)
-        elif self.match_string('^&'):
-            self.consume_string('^&')
-            return Token(TokenType.LOGICAL_XAND, '^&', location)
-        elif self.match_string('^!|'):
-            self.consume_string('^!|')
-            return Token(TokenType.LOGICAL_XNOR, '^!|', location)
-        elif self.match_string('^!&'):
-            self.consume_string('^!&')
-            return Token(TokenType.LOGICAL_XNAND, '^!&', location)
-        elif self.match_string('::'):
-            self.consume_string('::')
-            return Token(TokenType.SCOPE, '::', location)
-        elif self.match_string('+='):
-            self.consume_string('+=')
-            return Token(TokenType.PLUS_ASSIGN, '+=', location)
-        elif self.match_string('-='):
-            self.consume_string('-=')
-            return Token(TokenType.MINUS_ASSIGN, '-=', location)
-        elif self.match_string('*='):
-            self.consume_string('*=')
-            return Token(TokenType.MULTIPLY_ASSIGN, '*=', location)
-        elif self.match_string('/='):
-            self.consume_string('/=')
-            return Token(TokenType.DIVIDE_ASSIGN, '/=', location)
-        elif self.match_string('%='):
-            self.consume_string('%=')
-            return Token(TokenType.MODULO_ASSIGN, '%=', location)
-        elif self.match_string('^='):
-            self.consume_string('^=')
-            return Token(TokenType.POWER_ASSIGN, '^=', location)
-        elif self.match_string('&='):
-            self.consume_string('&=')
-            return Token(TokenType.AND_ASSIGN, '&=', location)
-        elif self.match_string('|='):
-            self.consume_string('|=')
-            return Token(TokenType.OR_ASSIGN, '|=', location)
-        
-        # Single-character operators
-        elif char == '(':
-            self.advance()
-            return Token(TokenType.LPAREN, '(', location)
-        elif char == ')':
-            self.advance()
-            return Token(TokenType.RPAREN, ')', location)
-        elif char == '[':
-            self.advance()
-            return Token(TokenType.LBRACKET, '[', location)
-        elif char == ']':
-            self.advance()
-            return Token(TokenType.RBRACKET, ']', location)
-        elif char == '{':
-            self.advance()
-            return Token(TokenType.LBRACE, '{', location)
-        elif char == '}':
-            self.advance()
-            return Token(TokenType.RBRACE, '}', location)
-        elif char == '.':
-            self.advance()
-            return Token(TokenType.DOT, '.', location)
-        elif char == ',':
-            self.advance()
-            return Token(TokenType.COMMA, ',', location)
-        elif char == ';':
-            self.advance()
-            return Token(TokenType.SEMICOLON, ';', location)
-        elif char == '?':
-            self.advance()
-            return Token(TokenType.QUESTION, '?', location)
-        elif char == ':':
-            self.advance()
-            return Token(TokenType.COLON, ':', location)
-        elif char == '+':
-            self.advance()
-            return Token(TokenType.PLUS, '+', location)
-        elif char == '-':
-            self.advance()
-            return Token(TokenType.MINUS, '-', location)
-        elif char == '*':
-            self.advance()
-            return Token(TokenType.MULTIPLY, '*', location)
-        elif char == '/':
-            self.advance()
-            return Token(TokenType.DIVIDE, '/', location)
-        elif char == '%':
-            self.advance()
-            return Token(TokenType.MODULO, '%', location)
-        elif char == '^':
-            self.advance()
-            return Token(TokenType.POWER, '^', location)
-        elif char == '&':
-            self.advance()
-            return Token(TokenType.BITWISE_AND, '&', location)
-        elif char == '|':
-            self.advance()
-            return Token(TokenType.BITWISE_OR, '|', location)
-        elif char == '~':
-            self.advance()
-            return Token(TokenType.BITWISE_NOT, '~', location)
-        elif char == '!':
-            self.advance()
-            return Token(TokenType.LOGICAL_NOT, '!', location)
-        elif char == '<':
-            self.advance()
-            return Token(TokenType.LESS_THAN, '<', location)
-        elif char == '>':
-            self.advance()
-            return Token(TokenType.GREATER_THAN, '>', location)
-        elif char == '=':
-            self.advance()
-            return Token(TokenType.ASSIGN, '=', location)
-        elif char == '@':
-            self.advance()
-            return Token(TokenType.ADDRESS_OF, '@', location)
-        
-        return None
+        return Token(TokenType.I_STRING, result, start_pos[0], start_pos[1])
     
     def tokenize(self) -> List[Token]:
-        """Tokenize the entire source code"""
-        self.tokens = []
+        tokens = []
         
-        while self.pos < len(self.source):
-            self.skip_whitespace()
-            
-            if self.pos >= len(self.source):
-                break
-            
-            location = self.current_location()
-            char = self.peek()
-            
-            # Handle newlines separately if needed
-            if char == '\n':
-                self.advance()
+        while self.position < self.length:
+            # Skip whitespace
+            if self.current_char() and self.current_char() in ' \t\r\n':
+                self.skip_whitespace()
                 continue
             
-            # Comments
-            if char == '/':
-                comment_token = self.read_comment()
-                if comment_token:
-                    self.add_token(comment_token.type, comment_token.value, comment_token.location)
-                    continue
+            # Skip comments
+            if self.current_char() == '/' and self.peek_char() == '/':
+                self.skip_comment()
+                continue
+            
+            start_pos = (self.line, self.column)
+            char = self.current_char()
+            
+            if not char:
+                break
+            
+            # String interpolation
+            if char == 'i' and self.peek_char() == '"':
+                self.advance()  # Skip 'i'
+                tokens.append(self.read_interpolation_string())
+                continue
+            
+            if char == 'f' and self.peek_char() == '"':
+                self.advance()  # Skip 'f'
+                f_string_content = self.read_f_string()
+                tokens.append(Token(TokenType.F_STRING, f'f"{f_string_content}"', start_pos[0], start_pos[1]))
+                continue
+            
+            # String literals
+            if char in '"\'':
+                if char == '"':
+                    content = self.read_string('"')
+                    tokens.append(Token(TokenType.STRING, content, start_pos[0], start_pos[1]))
+                else:
+                    content = self.read_string("'")
+                    tokens.append(Token(TokenType.CHAR, content, start_pos[0], start_pos[1]))
+                continue
             
             # Numbers
             if char.isdigit():
-                token = self.read_number()
-                self.add_token(token.type, token.value, token.location)
-                continue
-            
-            # Strings and characters
-            if char == '"':
-                token = self.read_string('"')
-                self.add_token(token.type, token.value, token.location)
-                continue
-            elif char == "'":
-                token = self.read_string("'")
-                self.add_token(token.type, token.value, token.location)
-                continue
-            
-            # Interpolated strings
-            if char == 'i' and self.peek(1) == '"':
-                token = self.read_interpolated_string()
-                self.add_token(token.type, token.value, token.location)
+                tokens.append(self.read_number())
                 continue
             
             # Identifiers and keywords
             if char.isalpha() or char == '_':
-                token = self.read_identifier()
-                self.add_token(token.type, token.value, token.location)
+                tokens.append(self.read_identifier())
                 continue
             
-            # Operators and punctuation
-            operator_token = self.read_operator()
-            if operator_token:
-                self.add_token(operator_token.type, operator_token.value, operator_token.location)
+            # Multi-character operators (order matters - longest first)
+            if char == '<' and self.peek_char() == '<' and self.peek_char(2) == '=':
+                tokens.append(Token(TokenType.LEFT_SHIFT_ASSIGN, '<<=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                self.advance()
                 continue
             
-            # Unknown character
-            raise LexerError(f"Unexpected character '{char}'", location)
+            if char == '>' and self.peek_char() == '>' and self.peek_char(2) == '=':
+                tokens.append(Token(TokenType.RIGHT_SHIFT_ASSIGN, '>>=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '^' and self.peek_char() == '^' and self.peek_char(2) == '=':
+                tokens.append(Token(TokenType.XOR_ASSIGN, '^^=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                self.advance()
+                continue
+            
+            # Bitwise operators with backtick prefix
+            if char == '`':
+                next_char = self.peek_char()
+                third_char = self.peek_char(2)
+                fourth_char = self.peek_char(3)
+                
+                # 4-character bitwise operators
+                if next_char == '^' and third_char == '!' and fourth_char in '&|':
+                    if fourth_char == '&':
+                        if self.peek_char(4) == '=':
+                            tokens.append(Token(TokenType.B_NOT_ASSIGN, '`^!&=', start_pos[0], start_pos[1]))
+                            for _ in range(5): self.advance()
+                        else:
+                            tokens.append(Token(TokenType.BITWISE_B_XNAND, '`^!&', start_pos[0], start_pos[1]))
+                            for _ in range(4): self.advance()
+                    else:  # fourth_char == '|'
+                        if self.peek_char(4) == '=':
+                            tokens.append(Token(TokenType.B_NOT_ASSIGN, '`^!|=', start_pos[0], start_pos[1]))
+                            for _ in range(5): self.advance()
+                        else:
+                            tokens.append(Token(TokenType.BITWISE_B_XNOR, '`^!|', start_pos[0], start_pos[1]))
+                            for _ in range(4): self.advance()
+                    continue
+                
+                # 3-character bitwise operators
+                if next_char == '!' and third_char in '&|':
+                    if third_char == '&':
+                        if self.peek_char(3) == '=':
+                            tokens.append(Token(TokenType.B_NAND_ASSIGN, '`!&=', start_pos[0], start_pos[1]))
+                            for _ in range(4): self.advance()
+                        else:
+                            tokens.append(Token(TokenType.BITWISE_B_NAND, '`!&', start_pos[0], start_pos[1]))
+                            for _ in range(3): self.advance()
+                    else:  # third_char == '|'
+                        if self.peek_char(3) == '=':
+                            tokens.append(Token(TokenType.B_NOR_ASSIGN, '`!|=', start_pos[0], start_pos[1]))
+                            for _ in range(4): self.advance()
+                        else:
+                            tokens.append(Token(TokenType.BITWISE_B_NOR, '`!|', start_pos[0], start_pos[1]))
+                            for _ in range(3): self.advance()
+                    continue
+                
+                if next_char == '^' and third_char == '&':
+                    if self.peek_char(3) == '=':
+                        tokens.append(Token(TokenType.B_AND_ASSIGN, '`^&=', start_pos[0], start_pos[1]))
+                        for _ in range(4): self.advance()
+                    else:
+                        tokens.append(Token(TokenType.BITWISE_B_XAND, '`^&', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    continue
+                
+                if next_char == '^' and third_char == '^':
+                    if self.peek_char(3) == '=':
+                        tokens.append(Token(TokenType.B_XOR_ASSIGN, '`^=', start_pos[0], start_pos[1]))
+                        for _ in range(4): self.advance()
+                    else:
+                        tokens.append(Token(TokenType.BITWISE_B_XOR, '`^^', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    continue
+                
+                # 2-character bitwise operators
+                if next_char == '&':
+                    if third_char == '=':
+                        tokens.append(Token(TokenType.B_AND_ASSIGN, '`&=', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    else:
+                        tokens.append(Token(TokenType.BITWISE_B_AND, '`&', start_pos[0], start_pos[1]))
+                        self.advance()
+                        self.advance()
+                    continue
+                
+                if next_char == '|':
+                    if third_char == '=':
+                        tokens.append(Token(TokenType.B_OR_ASSIGN, '`|=', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    else:
+                        tokens.append(Token(TokenType.BITWISE_B_OR, '`|', start_pos[0], start_pos[1]))
+                        self.advance()
+                        self.advance()
+                    continue
+                
+                if next_char == '!':
+                    if third_char == '=':
+                        tokens.append(Token(TokenType.B_NOT_ASSIGN, '`!=', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    continue
+            
+            # Two-character operators
+            if char == '=' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.EQUAL, '==', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '!' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.NOT_EQUAL, '!=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '<' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.LESS_EQUAL, '<=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '>' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.GREATER_EQUAL, '>=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '<' and self.peek_char() == '<':
+                tokens.append(Token(TokenType.LEFT_SHIFT, '<<', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '>' and self.peek_char() == '>':
+                tokens.append(Token(TokenType.RIGHT_SHIFT, '>>', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '&' and self.peek_char() == '&':
+                tokens.append(Token(TokenType.LOGICAL_AND, '&&', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '|' and self.peek_char() == '|':
+                tokens.append(Token(TokenType.LOGICAL_OR, '||', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '!' and self.peek_char() == '&':
+                tokens.append(Token(TokenType.LOGICAL_NAND, '!&', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '!' and self.peek_char() == '|':
+                tokens.append(Token(TokenType.LOGICAL_NOR, '!|', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '^' and self.peek_char() == '^':
+                tokens.append(Token(TokenType.BITWISE_XOR, '^^', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '+' and self.peek_char() == '+':
+                tokens.append(Token(TokenType.INCREMENT, '++', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '-' and self.peek_char() == '-':
+                tokens.append(Token(TokenType.DECREMENT, '--', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '+' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.PLUS_ASSIGN, '+=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '-' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.MINUS_ASSIGN, '-=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '*' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.MULTIPLY_ASSIGN, '*=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '/' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.DIVIDE_ASSIGN, '/=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '%' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.MODULO_ASSIGN, '%=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '^' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.POWER_ASSIGN, '^=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '&' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.AND_ASSIGN, '&=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '|' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.OR_ASSIGN, '|=', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == '.' and self.peek_char() == '.':
+                tokens.append(Token(TokenType.RANGE, '..', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            if char == ':' and self.peek_char() == ':':
+                tokens.append(Token(TokenType.SCOPE, '::', start_pos[0], start_pos[1]))
+                self.advance()
+                self.advance()
+                continue
+            
+            # Single-character operators and delimiters
+            single_char_tokens = {
+                '+': TokenType.PLUS,
+                '-': TokenType.MINUS,
+                '*': TokenType.MULTIPLY,
+                '/': TokenType.DIVIDE,
+                '%': TokenType.MODULO,
+                '^': TokenType.POWER,
+                '<': TokenType.LESS_THAN,
+                '>': TokenType.GREATER_THAN,
+                '&': TokenType.BITWISE_AND,
+                '|': TokenType.BITWISE_OR,
+                '!': TokenType.LOGICAL_NOT,
+                '~': TokenType.BITWISE_NOT,
+                '@': TokenType.ADDRESS_OF,
+                '=': TokenType.ASSIGN,
+                '?': TokenType.QUESTION,
+                ':': TokenType.COLON,
+                '(': TokenType.LEFT_PAREN,
+                ')': TokenType.RIGHT_PAREN,
+                '[': TokenType.LEFT_BRACKET,
+                ']': TokenType.RIGHT_BRACKET,
+                '{': TokenType.LEFT_BRACE,
+                '}': TokenType.RIGHT_BRACE,
+                ';': TokenType.SEMICOLON,
+                ',': TokenType.COMMA,
+                '.': TokenType.DOT,
+            }
+            
+            if char in single_char_tokens:
+                tokens.append(Token(single_char_tokens[char], char, start_pos[0], start_pos[1]))
+                self.advance()
+                continue
+            
+            # Unknown character - skip it or raise error (depending on preference)
+            self.advance()
         
         # Add EOF token
-        self.add_token(TokenType.EOF, "", self.current_location())
-        return self.tokens
-    
-    def split_right_shift(self, token_index: int) -> bool:
-        """
-        Split a RIGHT_SHIFT token into two GREATER_THAN tokens for template parsing.
-        This method is called by the parser when it needs to handle '>>' as '> >' in template context.
-        Returns True if split was successful, False otherwise.
-        """
-        if (token_index >= len(self.tokens) or 
-            self.tokens[token_index].type != TokenType.RIGHT_SHIFT):
-            return False
-        
-        original_token = self.tokens[token_index]
-        location = original_token.location
-        
-        # Replace the '>>' token with two '>' tokens
-        first_gt = Token(TokenType.GREATER_THAN, '>', location)
-        second_location = SourceLocation(location.line, location.column + 1, location.filename)
-        second_gt = Token(TokenType.GREATER_THAN, '>', second_location)
-        
-        # Replace the original token with the two new tokens
-        self.tokens[token_index:token_index+1] = [first_gt, second_gt]
-        return True
-    
-    def get_tokens(self) -> List[Token]:
-        """Get the list of tokens (for parser access)"""
-        return self.tokens
-    
-    def print_tokens(self):
-        """Print all tokens for debugging"""
-        for token in self.tokens:
-            print(token)
+        tokens.append(Token(TokenType.EOF, '', self.line, self.column))
+        return tokens
 
-
-def main():
-    """Run the lexer on a Flux source file"""
-    import sys
-    
-    if len(sys.argv) != 2:
-        print("Usage: python flexer.py <source_file.fx>")
-        print("Example: python flexer.py example.fx")
-        sys.exit(1)
-    
-    filename = sys.argv[1]
-    
-    try:
-        # Read the source file
-        with open(filename, 'r', encoding='utf-8') as file:
-            source_code = file.read()
-    except FileNotFoundError:
-        print(f"Error: File '{filename}' not found.")
-        sys.exit(1)
-    except IOError as e:
-        print(f"Error reading file '{filename}': {e}")
-        sys.exit(1)
-    
-    # Create lexer and tokenize
-    lexer = FluxLexer(source_code, filename)
-    try:
-        tokens = lexer.tokenize()
-        
-        # Print results
-        print(f"=== Tokenizing {filename} ===")
-        lexer.print_tokens()
-        print(f"\n=== Summary ===")
-        print(f"Successfully tokenized {len(tokens)} tokens from {filename}")
-        
-        # Print token type statistics
-        token_counts = {}
-        for token in tokens:
-            token_type = token.type.name
-            token_counts[token_type] = token_counts.get(token_type, 0) + 1
-        
-        print(f"\nToken type counts:")
-        for token_type, count in sorted(token_counts.items()):
-            print(f"  {token_type}: {count}")
-            
-    except LexerError as e:
-        print(f"Lexer error in {filename}: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        sys.exit(1)
-
-
+# Example usage and testing
 if __name__ == "__main__":
+    import sys
+    import argparse
+    
+    def main():
+        parser = argparse.ArgumentParser(description='Flux Language Lexer (flexer.py)')
+        parser.add_argument('file', help='Flux source file to tokenize (.fx)')
+        parser.add_argument('-v', '--verbose', action='store_true', 
+                          help='Show detailed token information')
+        parser.add_argument('-c', '--count', action='store_true',
+                          help='Show token count summary')
+        
+        args = parser.parse_args()
+        
+        try:
+            with open(args.file, 'r', encoding='utf-8') as f:
+                source_code = f.read()
+        except FileNotFoundError:
+            print(f"Error: File '{args.file}' not found.", file=sys.stderr)
+            sys.exit(1)
+        except IOError as e:
+            print(f"Error reading file '{args.file}': {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        lexer = FluxLexer(source_code)
+        
+        try:
+            tokens = lexer.tokenize()
+        except Exception as e:
+            print(f"Lexer error: {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        # Filter out EOF token for cleaner output unless verbose
+        display_tokens = tokens[:-1] if not args.verbose else tokens
+        
+        if args.count:
+            # Token count summary
+            token_counts = {}
+            for token in tokens:
+                if token.type != TokenType.EOF:
+                    token_counts[token.type.name] = token_counts.get(token.type.name, 0) + 1
+            
+            print(f"=== Token Summary for {args.file} ===")
+            print(f"Total tokens: {len(tokens) - 1}")  # Exclude EOF
+            print(f"Token types: {len(token_counts)}")
+            print("\nToken counts:")
+            for token_type, count in sorted(token_counts.items()):
+                print(f"  {token_type:20} : {count:4}")
+            print()
+        
+        if args.verbose:
+            print(f"=== Detailed Tokens for {args.file} ===")
+            for i, token in enumerate(display_tokens):
+                print(f"{i+1:4}: {token.type.name:20} | {repr(token.value):25} | Line {token.line:3}, Col {token.column:3}")
+        else:
+            print(f"=== Tokens for {args.file} ===")
+            for token in display_tokens:
+                if token.value.strip():  # Only show tokens with non-empty values
+                    print(f"{token.type.name:20} | {repr(token.value):20} | L{token.line}:C{token.column}")
+                else:
+                    print(f"{token.type.name:20} | {'<empty>':20} | L{token.line}:C{token.column}")
+    
     main()

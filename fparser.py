@@ -1,1257 +1,2304 @@
 #!/usr/bin/env python3
 """
-Flux Programming Language Parser
-fparser.py - Parses token streams into AST
+Flux Language Parser - fparser.py
 
-This parser is fully context-aware and handles:
-- Template angle bracket disambiguation
-- Operator precedence (19 levels)
-- Context tracking for scopes and templates
-- All Flux language constructs
+Complete recursive descent parser for the Flux programming language.
+Transforms token stream from flexer.py into AST using fast.py node definitions.
+
+Usage:
+    python3 fparser.py file.fx          # Basic parsing
+    python3 fparser.py file.fx -v       # Verbose output with AST details
+    python3 fparser.py file.fx -a       # Show AST tree structure
+    python3 fparser.py file.fx -c       # Count AST nodes
 """
 
 import sys
-from typing import List, Optional, Union, Dict, Set, Tuple, Any
-from enum import Enum
+from typing import List, Optional, Union, Dict, Tuple, Any
 from dataclasses import dataclass
 
-# Import lexer and AST components
-from flexer import FluxLexer, Token, TokenType, LexerError, SourceLocation
+# Import the lexer and AST modules
+from flexer import FluxLexer, Token, TokenType
 from fast import *
 
-
 class ParseError(Exception):
-    """Exception raised when parser encounters an error"""
-    def __init__(self, message: str, location: SourceLocation, token: Optional[Token] = None):
+    """Exception raised when parsing fails"""
+    def __init__(self, message: str, token: Optional[Token] = None):
         self.message = message
-        self.location = location
         self.token = token
-        super().__init__(f"{message} at {location.line}:{location.column}")
-
-
-class ContextKind(Enum):
-    """Types of parsing contexts"""
-    GLOBAL = "global"
-    NAMESPACE = "namespace"
-    OBJECT = "object"
-    STRUCT = "struct"
-    FUNCTION = "function"
-    BLOCK = "block"
-    TEMPLATE_DECLARATION = "template_declaration"
-    TEMPLATE_INSTANTIATION = "template_instantiation"
-    EXPRESSION = "expression"
-
-
-@dataclass
-class ParseContext:
-    """Tracks parsing context and scope"""
-    kind: ContextKind
-    depth: int
-    brace_count: int = 0
-    paren_count: int = 0
-    bracket_count: int = 0
-    angle_count: int = 0
-    template_depth: int = 0
-    is_template_context: bool = False
-
+        super().__init__(self.format_message())
+    
+    def format_message(self) -> str:
+        if self.token:
+            return f"Parse error at line {self.token.line}, column {self.token.column}: {self.message}"
+        return f"Parse error: {self.message}"
 
 class FluxParser:
-    """
-    Flux Programming Language Parser
+    """Recursive descent parser for Flux language"""
     
-    Parses token streams into AST while maintaining full context awareness
-    for proper template parsing and scope tracking.
-    """
-    
-    # Operator precedence table (19 levels, highest to lowest)
-    PRECEDENCE = {
-        # Level 1: Primary expressions (handled separately)
-        
-        # Level 2: Postfix inc/dec
-        '++': 18, '--': 18,
-        
-        # Level 3: Unary operators (handled in unary parsing)
-        
-        # Level 4: Type casting (handled separately)
-        
-        # Level 5: Exponentiation
-        '^': 17,
-        
-        # Level 6: Multiplicative
-        '*': 16, '/': 16, '%': 16,
-        
-        # Level 7: Additive
-        '+': 15, '-': 15,
-        
-        # Level 8: Bit shift
-        '<<': 14, '>>': 14,
-        
-        # Level 9: Relational
-        '<': 13, '<=': 13, '>': 13, '>=': 13, 'in': 13,
-        
-        # Level 10: Equality
-        '==': 12, '!=': 12,
-        
-        # Level 11: Identity
-        'is': 11, 'not': 11, 'as': 11,
-        
-        # Level 12: Bitwise AND variants
-        '&': 10, '`&': 10, '`!&': 10, '`^&': 10, '`^!&': 10,
-        
-        # Level 13: Bitwise XOR variants
-        '^^': 9, 'xor': 9, '`^^': 9, '`^!|': 9,
-        
-        # Level 14: Bitwise OR variants
-        '|': 8, '`|': 8, '`!|': 8,
-        
-        # Level 15: Logical AND/NAND
-        'and': 7, '&&': 7, '!&': 7,
-        
-        # Level 16: Logical OR/NOR
-        'or': 6, '||': 6, '!|': 6,
-        
-        # Level 17: Conditional (handled separately)
-        
-        # Level 18: Assignment operators
-        '=': 2, '+=': 2, '-=': 2, '*=': 2, '/=': 2, '%=': 2, '^=': 2,
-        '&=': 2, '|=': 2, '^^=': 2, '<<=': 2, '>>=': 2,
-        '`&=': 2, '`|=': 2, '`^|=': 2, '`!&=': 2, '`!|=': 2,
-        '`^&=': 2, '`^!|=': 2, '`^!&=': 2,
-        
-        # Level 19: Comma
-        ',': 1,
-    }
-    
-    # Right-associative operators
-    RIGHT_ASSOCIATIVE = {'^', '=', '+=', '-=', '*=', '/=', '%=', '^=', '&=', '|=', '^^=', 
-                        '<<=', '>>=', '`&=', '`|=', '`^|=', '`!&=', '`!|=', '`^&=', 
-                        '`^!|=', '`^!&='}
-    
-    def __init__(self, tokens: List[Token], filename: str = "<input>"):
+    def __init__(self, tokens: List[Token]):
         self.tokens = tokens
-        self.filename = filename
-        self.pos = 0
-        self.context_stack: List[ParseContext] = [ParseContext(ContextKind.GLOBAL, 0)]
-        self.errors: List[ParseError] = []
-        self.lexer: Optional[FluxLexer] = None  # Set by caller for '>>' splitting
-        
-        # Track template context for angle bracket disambiguation
-        self.template_depth = 0
-        self.in_template_args = False
-        
-        # Skip any initial comments
-        self.skip_comments()
+        self.current = 0
+        self.length = len(tokens)
     
-    def skip_comments(self) -> None:
-        """Skip comment tokens"""
-        while (self.pos < len(self.tokens) and 
-               self.tokens[self.pos].type == TokenType.COMMENT):
-            self.pos += 1
+    def current_token(self) -> Optional[Token]:
+        """Get current token"""
+        if self.current >= self.length:
+            return None
+        return self.tokens[self.current]
     
-    def current_token(self) -> Token:
-        """Get current token (skipping comments)"""
-        self.skip_comments()
-        if self.pos >= len(self.tokens):
-            return self.tokens[-1]  # EOF token
-        return self.tokens[self.pos]
-    
-    def peek_token(self, offset: int = 1) -> Token:
-        """Peek at token at current position + offset (skipping comments)"""
-        temp_pos = self.pos
-        
-        # Skip comments at current position
-        while (temp_pos < len(self.tokens) and 
-               self.tokens[temp_pos].type == TokenType.COMMENT):
-            temp_pos += 1
-        
-        # Advance by offset, skipping comments each time
-        for _ in range(offset):
-            temp_pos += 1
-            while (temp_pos < len(self.tokens) and 
-                   self.tokens[temp_pos].type == TokenType.COMMENT):
-                temp_pos += 1
-        
-        return self.tokens[temp_pos] if temp_pos < len(self.tokens) else self.tokens[-1]
+    def peek_token(self, offset: int = 1) -> Optional[Token]:
+        """Peek ahead at token"""
+        pos = self.current + offset
+        if pos >= self.length:
+            return None
+        return self.tokens[pos]
     
     def advance(self) -> Token:
-        """Advance to next token and return current (skipping comments)"""
-        token = self.current_token()  # Get current non-comment token
-        self.pos += 1  # Move past it
+        """Advance to next token and return current"""
+        token = self.current_token()
+        if self.current < self.length:
+            self.current += 1
         return token
     
     def match(self, *token_types: TokenType) -> bool:
         """Check if current token matches any of the given types"""
-        return self.current_token().type in token_types
+        current = self.current_token()
+        if not current:
+            return False
+        return current.type in token_types
     
-    def match_keyword(self, keyword: str) -> bool:
-        """Check if current token is a specific keyword"""
-        return (self.current_token().type == TokenType.KEYWORD and 
-                self.current_token().value == keyword)
-    
-    def consume(self, token_type: TokenType, error_msg: str = None) -> Token:
+    def consume(self, token_type: TokenType, message: str = "") -> Token:
         """Consume token of expected type or raise error"""
-        if not self.match(token_type):
-            if error_msg is None:
-                error_msg = f"Expected {token_type.name}, got {self.current_token().type.name}"
-            raise ParseError(error_msg, self.current_token().location, self.current_token())
+        current = self.current_token()
+        if not current or current.type != token_type:
+            if not message:
+                message = f"Expected {token_type.name}"
+            raise ParseError(message, current)
         return self.advance()
     
-    def consume_keyword(self, keyword: str) -> Token:
-        """Consume specific keyword or raise error"""
-        if not self.match_keyword(keyword):
-            raise ParseError(f"Expected keyword '{keyword}', got '{self.current_token().value}'", 
-                           self.current_token().location, self.current_token())
-        return self.advance()
-    
-    def push_context(self, kind: ContextKind) -> None:
-        """Push new parsing context"""
-        current = self.context_stack[-1]
-        new_context = ParseContext(
-            kind=kind,
-            depth=current.depth + 1,
-            brace_count=current.brace_count,
-            paren_count=current.paren_count,
-            bracket_count=current.bracket_count,
-            angle_count=current.angle_count,
-            template_depth=current.template_depth,
-            is_template_context=kind in (ContextKind.TEMPLATE_DECLARATION, ContextKind.TEMPLATE_INSTANTIATION)
-        )
-        self.context_stack.append(new_context)
-    
-    def pop_context(self) -> ParseContext:
-        """Pop current parsing context"""
-        if len(self.context_stack) <= 1:
-            raise ParseError("Cannot pop global context", self.current_token().location)
-        return self.context_stack.pop()
-    
-    def current_context(self) -> ParseContext:
-        """Get current parsing context"""
-        return self.context_stack[-1]
-    
-    def is_in_template_context(self) -> bool:
-        """Check if we're in a template context"""
-        return any(ctx.is_template_context for ctx in self.context_stack)
-    
-    def handle_angle_brackets(self) -> None:
-        """Handle angle bracket tracking for template disambiguation"""
-        current = self.current_context()
+    def synchronize(self) -> None:
+        """Synchronize after parse error by finding next statement boundary"""
+        while self.current_token() and not self.match(
+            TokenType.SEMICOLON, TokenType.LEFT_BRACE, TokenType.RIGHT_BRACE,
+            TokenType.DEF, TokenType.OBJECT, TokenType.STRUCT, TokenType.NAMESPACE,
+            TokenType.IF, TokenType.WHILE, TokenType.FOR, TokenType.RETURN,
+            TokenType.EOF
+        ):
+            self.advance()
         
-        if self.match(TokenType.LESS_THAN):
-            if self.is_in_template_context():
-                current.angle_count += 1
-                self.template_depth += 1
-        elif self.match(TokenType.GREATER_THAN):
-            if self.is_in_template_context() and current.angle_count > 0:
-                current.angle_count -= 1
-                self.template_depth -= 1
-        elif self.match(TokenType.RIGHT_SHIFT):
-            # Check if we need to split '>>' into '>' '>'
-            if self.is_in_template_context() and current.angle_count > 1:
-                if self.lexer:
-                    # Split the '>>' token into two '>' tokens
-                    if self.lexer.split_right_shift(self.pos):
-                        # Token was split, handle as single '>'
-                        current.angle_count -= 1
-                        self.template_depth -= 1
-    
-    def sync_to_next_statement(self) -> None:
-        """Synchronize parser to next statement for error recovery"""
-        while not self.match(TokenType.EOF):
-            self.skip_comments()  # Skip comments during error recovery
-            
-            if self.match(TokenType.SEMICOLON):
-                self.advance()
-                return
-            
-            if self.match_keyword('def') or self.match_keyword('object') or \
-               self.match_keyword('struct') or self.match_keyword('namespace'):
-                return
-            
+        # Consume synchronization tokens to avoid getting stuck
+        if self.match(TokenType.SEMICOLON, TokenType.RIGHT_BRACE):
             self.advance()
     
-    def parse_module(self) -> ModuleNode:
-        """Parse complete module (top-level entry point)"""
-        location = self.current_token().location
-        module = ModuleNode(location, self.filename)
-        
-        try:
-            while not self.match(TokenType.EOF):
-                if self.match_keyword('import'):
-                    module.imports.append(self.parse_import())
-                elif self.match_keyword('using'):
-                    module.using_declarations.append(self.parse_using())
-                else:
-                    decl = self.parse_declaration()
-                    if decl:
-                        module.declarations.append(decl)
-        except ParseError as e:
-            self.errors.append(e)
-            self.sync_to_next_statement()
-        
-        return module
+    # ============================================================================
+    # Top-level parsing
+    # ============================================================================
     
-    def parse_import(self) -> ImportNode:
-        """Parse import declaration"""
-        location = self.current_token().location
-        self.consume_keyword('import')
+    def parse(self) -> Program:
+        """Parse the entire program"""
+        program = Program()
         
-        module_path_token = self.consume(TokenType.STRING)
-        module_path = module_path_token.value.strip('"')
+        while not self.match(TokenType.EOF):
+            try:
+                global_item = self.parse_global_item()
+                if global_item:
+                    program.global_items.append(global_item)
+            except ParseError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                self.synchronize()
+        
+        return program
+    
+    def parse_global_item(self) -> Optional[GlobalItem]:
+        """Parse a global item"""
+        current = self.current_token()
+        if not current:
+            return None
+        
+        # Skip unexpected right braces (likely from malformed blocks)
+        if self.match(TokenType.RIGHT_BRACE):
+            self.advance()
+            return None
+        
+        # Import statement
+        if self.match(TokenType.IMPORT):
+            return self.parse_import_stmt()
+        
+        # Using statement
+        elif self.match(TokenType.USING):
+            return self.parse_using_stmt()
+        
+        # External FFI block
+        elif self.match(TokenType.EXTERN):
+            return self.parse_extern_block()
+        
+        # Compile-time block
+        elif self.match(TokenType.COMPT):
+            if self.peek_token() and self.peek_token().type == TokenType.LEFT_BRACE:
+                return self.parse_compt_block()
+            else:
+                # Compile-time function
+                return self.parse_function_def()
+        
+        # Function definition
+        elif self.match(TokenType.DEF):
+            # Check if it's a macro or function
+            if self.peek_token() and self.peek_token().type == TokenType.IDENTIFIER:
+                peek2 = self.peek_token(2)
+                if peek2 and peek2.type in [TokenType.LEFT_PAREN, TokenType.LESS_THAN]:
+                    return self.parse_function_def()
+                else:
+                    return self.parse_macro_def()
+            else:
+                return self.parse_function_def()
+        
+        # Object definition
+        elif self.match(TokenType.OBJECT):
+            return self.parse_object_def()
+        
+        # Struct definition
+        elif self.match(TokenType.STRUCT):
+            return self.parse_struct_def()
+        
+        # Namespace definition
+        elif self.match(TokenType.NAMESPACE):
+            return self.parse_namespace_def()
+        
+        # Function modifier or variable qualifier
+        elif self.match(TokenType.VOLATILE, TokenType.CONST):
+            # Could be function modifier or variable qualifier
+            if self.is_function_start():
+                return self.parse_function_def()
+            else:
+                var_decl = self.parse_variable_declaration()
+                self.consume(TokenType.SEMICOLON, "Expected ';' after global variable declaration")
+                return var_decl
+        
+        # Variable declaration
+        elif self.is_type_start():
+            var_decl = self.parse_variable_declaration()
+            self.consume(TokenType.SEMICOLON, "Expected ';' after global variable declaration")
+            return var_decl
+        
+        else:
+            raise ParseError(f"Unexpected token in global scope: {current.type.name}", current)
+    
+    def is_function_start(self) -> bool:
+        """Check if current position starts a function definition"""
+        saved_pos = self.current
+        try:
+            # Skip modifiers
+            while self.match(TokenType.VOLATILE, TokenType.CONST, TokenType.COMPT, TokenType.VIRTUAL):
+                self.advance()
+            
+            if self.match(TokenType.DEF):
+                self.advance()
+                if self.match(TokenType.IDENTIFIER):
+                    self.advance()
+                    # Check for template parameters or function parameters
+                    if self.match(TokenType.LESS_THAN, TokenType.LEFT_PAREN):
+                        return True
+            
+            return False
+        finally:
+            self.current = saved_pos
+    
+    def is_type_start(self) -> bool:
+        """Check if current position starts a type"""
+        return self.match(
+            TokenType.INT, TokenType.FLOAT_KW, TokenType.BOOL, TokenType.CHAR, TokenType.VOID,
+            TokenType.SIGNED, TokenType.UNSIGNED, TokenType.DATA, TokenType.IDENTIFIER,
+            TokenType.VOLATILE, TokenType.CONST
+        )
+    
+    # ============================================================================
+    # Import and Using statements
+    # ============================================================================
+    
+    def parse_import_stmt(self) -> ImportStmt:
+        """Parse import statement"""
+        start_token = self.advance()  # consume 'import'
+        
+        path_token = self.consume(TokenType.STRING, "Expected string literal after 'import'")
+        path = path_token.value
         
         alias = None
-        if self.match_keyword('as'):
+        if self.match(TokenType.AS):
             self.advance()
-            alias = self.consume(TokenType.IDENTIFIER).value
+            alias_token = self.consume(TokenType.IDENTIFIER, "Expected identifier after 'as'")
+            alias = alias_token.value
         
-        self.consume(TokenType.SEMICOLON)
-        return ImportNode(location, module_path, alias)
+        self.consume(TokenType.SEMICOLON, "Expected ';' after import statement")
+        
+        return ImportStmt(path=path, alias=alias, line=start_token.line, column=start_token.column)
     
-    def parse_using(self) -> UsingNode:
-        """Parse using declaration"""
-        location = self.current_token().location
-        self.consume_keyword('using')
+    def parse_using_stmt(self) -> UsingStmt:
+        """Parse using statement"""
+        start_token = self.advance()  # consume 'using'
         
-        # Parse namespace path
-        namespace_path = []
-        namespace_path.append(self.consume(TokenType.IDENTIFIER).value)
-        
-        while self.match(TokenType.SCOPE):
-            self.advance()
-            namespace_path.append(self.consume(TokenType.IDENTIFIER).value)
-        
-        # Parse members (if any)
-        members = []
-        if self.match(TokenType.COMMA):
-            self.advance()
-            members.append(self.consume(TokenType.IDENTIFIER).value)
-            
-            while self.match(TokenType.COMMA):
-                self.advance()
-                members.append(self.consume(TokenType.IDENTIFIER).value)
-        
-        self.consume(TokenType.SEMICOLON)
-        return UsingNode(location, namespace_path, members)
-    
-    def parse_declaration(self) -> Optional[DeclarationNode]:
-        """Parse top-level declaration"""
-        if self.match_keyword('namespace'):
-            return self.parse_namespace()
-        elif self.match_keyword('object'):
-            return self.parse_object()
-        elif self.match_keyword('struct'):
-            return self.parse_struct()
-        elif self.match_keyword('template'):
-            return self.parse_template_declaration()
-        elif self.match_keyword('def'):
-            return self.parse_function()
-        else:
-            return self.parse_variable_declaration()
-    
-    def parse_namespace(self) -> NamespaceNode:
-        """Parse namespace declaration"""
-        location = self.current_token().location
-        self.consume_keyword('namespace')
-        
-        name = self.consume(TokenType.IDENTIFIER).value
-        namespace = NamespaceNode(location, name)
-        
-        self.consume(TokenType.LBRACE)
-        self.push_context(ContextKind.NAMESPACE)
-        
-        while not self.match(TokenType.RBRACE) and not self.match(TokenType.EOF):
-            decl = self.parse_declaration()
-            if decl:
-                namespace.declarations.append(decl)
-        
-        self.consume(TokenType.RBRACE)
-        self.consume(TokenType.SEMICOLON)
-        self.pop_context()
-        
-        return namespace
-    
-    def parse_object(self) -> ObjectDeclarationNode:
-        """Parse object (class) declaration"""
-        location = self.current_token().location
-        self.consume_keyword('object')
-        
-        name = self.consume(TokenType.IDENTIFIER).value
-        
-        # Parse inheritance
-        base_classes = []
-        if self.match(TokenType.COLON):
-            self.advance()
-            base_classes.append(self.parse_named_type())
-            
-            while self.match(TokenType.COMMA):
-                self.advance()
-                base_classes.append(self.parse_named_type())
-        
-        obj = ObjectDeclarationNode(location, name, base_classes)
-        
-        self.consume(TokenType.LBRACE)
-        self.push_context(ContextKind.OBJECT)
-        
-        # Parse object members
-        while not self.match(TokenType.RBRACE) and not self.match(TokenType.EOF):
-            if self.match_keyword('def'):
-                obj.members.append(self.parse_function())
-            else:
-                obj.members.append(self.parse_variable_declaration())
-        
-        self.consume(TokenType.RBRACE)
-        self.consume(TokenType.SEMICOLON)
-        self.pop_context()
-        
-        return obj
-    
-    def parse_struct(self) -> StructDeclarationNode:
-        """Parse struct declaration"""
-        location = self.current_token().location
-        self.consume_keyword('struct')
-        
-        name = self.consume(TokenType.IDENTIFIER).value
-        struct = StructDeclarationNode(location, name)
-        
-        self.consume(TokenType.LBRACE)
-        self.push_context(ContextKind.STRUCT)
-        
-        # Parse struct members (only variable declarations)
-        while not self.match(TokenType.RBRACE) and not self.match(TokenType.EOF):
-            member = self.parse_variable_declaration()
-            if isinstance(member, VariableDeclarationNode):
-                struct.members.append(member)
-        
-        self.consume(TokenType.RBRACE)
-        self.consume(TokenType.SEMICOLON)
-        self.pop_context()
-        
-        return struct
-    
-    def parse_template_declaration(self) -> TemplateDeclarationNode:
-        """Parse template declaration"""
-        location = self.current_token().location
-        self.consume_keyword('template')
-        
-        self.consume(TokenType.LESS_THAN)
-        self.push_context(ContextKind.TEMPLATE_DECLARATION)
-        
-        # Parse template parameters
-        template_params = []
-        template_params.append(self.consume(TokenType.IDENTIFIER).value)
+        names = []
+        names.append(self.parse_qualified_name())
         
         while self.match(TokenType.COMMA):
             self.advance()
-            template_params.append(self.consume(TokenType.IDENTIFIER).value)
+            names.append(self.parse_qualified_name())
         
-        self.consume(TokenType.GREATER_THAN)
+        self.consume(TokenType.SEMICOLON, "Expected ';' after using statement")
         
-        # Parse the declaration being templated
-        declaration = self.parse_declaration()
-        
-        self.pop_context()
-        
-        return TemplateDeclarationNode(location, template_params, declaration)
+        return UsingStmt(names=names, line=start_token.line, column=start_token.column)
     
-    def parse_function(self) -> FunctionDeclarationNode:
-        """Parse function declaration"""
-        location = self.current_token().location
-        self.consume_keyword('def')
+    # ============================================================================
+    # External FFI
+    # ============================================================================
+    
+    def parse_extern_block(self) -> ExternBlock:
+        """Parse external function block"""
+        start_token = self.advance()  # consume 'extern'
         
-        name = self.consume(TokenType.IDENTIFIER).value
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'extern'")
+        lang_token = self.consume(TokenType.STRING, "Expected language string in extern block")
+        language = lang_token.value
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after extern language")
         
-        # Check for template parameters
-        template_params = []
-        is_template = False
-        if self.match(TokenType.LESS_THAN):
-            is_template = True
-            self.advance()
-            self.push_context(ContextKind.TEMPLATE_DECLARATION)
-            
-            template_params.append(self.consume(TokenType.IDENTIFIER).value)
-            while self.match(TokenType.COMMA):
-                self.advance()
-                template_params.append(self.consume(TokenType.IDENTIFIER).value)
-            
-            self.consume(TokenType.GREATER_THAN)
-            self.pop_context()
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' to start extern block")
         
-        # Parse parameters
-        self.consume(TokenType.LPAREN)
+        declarations = []
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            decl = self.parse_extern_decl()
+            declarations.append(decl)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end extern block")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after extern block")
+        
+        return ExternBlock(language=language, declarations=declarations, 
+                          line=start_token.line, column=start_token.column)
+    
+    def parse_extern_decl(self) -> ExternDecl:
+        """Parse external function declaration"""
+        self.consume(TokenType.DEF, "Expected 'def' in extern declaration")
+        
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected function name")
+        name = name_token.value
+        
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after extern function name")
+        
         parameters = []
-        
-        if not self.match(TokenType.RPAREN):
+        if not self.match(TokenType.RIGHT_PAREN):
             parameters.append(self.parse_parameter())
-            
             while self.match(TokenType.COMMA):
                 self.advance()
                 parameters.append(self.parse_parameter())
         
-        self.consume(TokenType.RPAREN)
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after extern parameters")
+        self.consume(TokenType.MINUS, "Expected '->' in extern function")
+        self.consume(TokenType.GREATER_THAN, "Expected '->' in extern function")
         
-        # Parse return type
-        self.consume(TokenType.MINUS)
-        self.consume(TokenType.GREATER_THAN)
         return_type = self.parse_type()
         
-        # Parse function body (optional for declarations)
-        body = None
-        if self.match(TokenType.LBRACE):
-            body = self.parse_block_statement()
+        self.consume(TokenType.SEMICOLON, "Expected ';' after extern declaration")
         
-        if not body:
-            self.consume(TokenType.SEMICOLON)
-        
-        return FunctionDeclarationNode(location, name, parameters, return_type, body, 
-                                     is_template, template_params)
+        return ExternDecl(name=name, parameters=parameters, return_type=return_type,
+                         line=name_token.line, column=name_token.column)
     
-    def parse_parameter(self) -> ParameterNode:
-        """Parse function parameter"""
-        location = self.current_token().location
-        param_type = self.parse_type()
-        name = self.consume(TokenType.IDENTIFIER).value
-        
-        # Parse default value
-        default_value = None
-        if self.match(TokenType.ASSIGN):
-            self.advance()
-            default_value = self.parse_expression()
-        
-        return ParameterNode(location, param_type, name, default_value)
+    # ============================================================================
+    # Compile-time blocks and macros
+    # ============================================================================
     
-    def parse_variable_declaration(self) -> VariableDeclarationNode:
-        """Parse variable declaration"""
-        location = self.current_token().location
+    def parse_compt_block(self) -> ComptBlock:
+        """Parse compile-time block"""
+        start_token = self.advance()  # consume 'compt'
         
-        # Check for const/volatile
-        is_const = False
-        is_volatile = False
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' after 'compt'")
         
-        if self.match_keyword('const'):
-            is_const = True
-            self.advance()
-        
-        if self.match_keyword('volatile'):
-            is_volatile = True
-            self.advance()
-        
-        var_type = self.parse_type()
-        name = self.consume(TokenType.IDENTIFIER).value
-        
-        # Parse initializer
-        initializer = None
-        if self.match(TokenType.ASSIGN):
-            self.advance()
-            initializer = self.parse_expression()
-        
-        self.consume(TokenType.SEMICOLON)
-        
-        return VariableDeclarationNode(location, var_type, name, initializer, is_const, is_volatile)
-    
-    def parse_type(self) -> TypeNode:
-        """Parse type expression"""
-        if self.match_keyword('int') or self.match_keyword('float') or \
-           self.match_keyword('char') or self.match_keyword('bool') or \
-           self.match_keyword('void'):
-            return self.parse_primitive_type()
-        elif self.match_keyword('signed') or self.match_keyword('unsigned') or \
-             self.match_keyword('data'):
-            return self.parse_data_type()
-        else:
-            return self.parse_named_type()
-    
-    def parse_primitive_type(self) -> PrimitiveTypeNode:
-        """Parse primitive type"""
-        location = self.current_token().location
-        type_name = self.advance().value
-        return PrimitiveTypeNode(location, type_name)
-    
-    def parse_data_type(self) -> DataTypeNode:
-        """Parse data type: [signed|unsigned] data{width:alignment}"""
-        location = self.current_token().location
-        
-        is_signed = True
-        if self.match_keyword('unsigned'):
-            is_signed = False
-            self.advance()
-        elif self.match_keyword('signed'):
-            self.advance()
-        
-        self.consume_keyword('data')
-        self.consume(TokenType.LBRACE)
-        
-        width_expr = self.parse_expression()
-        
-        alignment_expr = None
-        if self.match(TokenType.COLON):
-            self.advance()
-            alignment_expr = self.parse_expression()
-        
-        self.consume(TokenType.RBRACE)
-        
-        return DataTypeNode(location, is_signed, width_expr, alignment_expr)
-    
-    def parse_named_type(self) -> NamedTypeNode:
-        """Parse named type reference"""
-        location = self.current_token().location
-        
-        # Parse namespace path
-        namespace_path = []
-        name = self.consume(TokenType.IDENTIFIER).value
-        
-        while self.match(TokenType.SCOPE):
-            self.advance()
-            namespace_path.append(name)
-            name = self.consume(TokenType.IDENTIFIER).value
-        
-        return NamedTypeNode(location, name, namespace_path)
-    
-    def parse_statement(self) -> StatementNode:
-        """Parse statement"""
-        if self.match_keyword('if'):
-            return self.parse_if_statement()
-        elif self.match_keyword('while'):
-            return self.parse_while_statement()
-        elif self.match_keyword('do'):
-            return self.parse_do_while_statement()
-        elif self.match_keyword('for'):
-            return self.parse_for_statement()
-        elif self.match_keyword('return'):
-            return self.parse_return_statement()
-        elif self.match_keyword('break'):
-            return self.parse_break_statement()
-        elif self.match_keyword('continue'):
-            return self.parse_continue_statement()
-        elif self.match_keyword('throw'):
-            return self.parse_throw_statement()
-        elif self.match_keyword('try'):
-            return self.parse_try_statement()
-        elif self.match_keyword('switch'):
-            return self.parse_switch_statement()
-        elif self.match_keyword('asm'):
-            return self.parse_assembly_statement()
-        elif self.match(TokenType.LBRACE):
-            return self.parse_block_statement()
-        else:
-            # Variable declaration or expression statement
-            if self.is_type_start():
-                return self.parse_variable_declaration()
-            else:
-                return self.parse_expression_statement()
-    
-    def parse_block_statement(self) -> BlockStatementNode:
-        """Parse block statement"""
-        location = self.current_token().location
-        self.consume(TokenType.LBRACE)
-        
-        block = BlockStatementNode(location)
-        self.push_context(ContextKind.BLOCK)
-        
-        while not self.match(TokenType.RBRACE) and not self.match(TokenType.EOF):
+        statements = []
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
             stmt = self.parse_statement()
             if stmt:
-                block.add_statement(stmt)
+                statements.append(stmt)
         
-        self.consume(TokenType.RBRACE)
-        if not self.match(TokenType.SEMICOLON):
-            # Block statements don't always need semicolons in certain contexts
-            if self.current_context().kind in (ContextKind.FUNCTION, ContextKind.BLOCK):
-                pass  # Optional semicolon
-            else:
-                self.consume(TokenType.SEMICOLON)
-        else:
-            self.advance()  # Consume optional semicolon
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end compt block")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after compt block")
         
-        self.pop_context()
-        return block
+        return ComptBlock(statements=statements, line=start_token.line, column=start_token.column)
     
-    def parse_if_statement(self) -> IfStatementNode:
-        """Parse if statement"""
-        location = self.current_token().location
-        self.consume_keyword('if')
+    def parse_macro_def(self) -> MacroDef:
+        """Parse macro definition"""
+        start_token = self.advance()  # consume 'def'
         
-        self.consume(TokenType.LPAREN)
-        condition = self.parse_expression()
-        self.consume(TokenType.RPAREN)
-        
-        then_stmt = self.parse_statement()
-        
-        else_stmt = None
-        if self.match_keyword('else'):
-            self.advance()
-            if self.match_keyword('if'):
-                else_stmt = self.parse_if_statement()
-            else:
-                else_stmt = self.parse_statement()
-        
-        if not self.match(TokenType.SEMICOLON):
-            self.consume(TokenType.SEMICOLON)
-        else:
-            self.advance()
-            
-        return IfStatementNode(location, condition, then_stmt, else_stmt)
-    
-    def parse_while_statement(self) -> WhileStatementNode:
-        """Parse while statement"""
-        location = self.current_token().location
-        self.consume_keyword('while')
-        
-        self.consume(TokenType.LPAREN)
-        condition = self.parse_expression()
-        self.consume(TokenType.RPAREN)
-        
-        body = self.parse_statement()
-        self.consume(TokenType.SEMICOLON)
-        
-        return WhileStatementNode(location, condition, body)
-    
-    def parse_do_while_statement(self) -> DoWhileStatementNode:
-        """Parse do-while statement"""
-        location = self.current_token().location
-        self.consume_keyword('do')
-        
-        body = self.parse_statement()
-        
-        self.consume_keyword('while')
-        self.consume(TokenType.LPAREN)
-        condition = self.parse_expression()
-        self.consume(TokenType.RPAREN)
-        self.consume(TokenType.SEMICOLON)
-        
-        return DoWhileStatementNode(location, body, condition)
-    
-    def parse_for_statement(self) -> Union[ForStatementNode, RangeForStatementNode]:
-        """Parse for statement (C-style or range-based)"""
-        location = self.current_token().location
-        self.consume_keyword('for')
-        
-        self.consume(TokenType.LPAREN)
-        
-        # Check for range-based for loop
-        if self.match(TokenType.IDENTIFIER) and self.peek_token().type == TokenType.KEYWORD and \
-           self.peek_token().value == 'in':
-            # Range-based for loop
-            variable = self.advance().value
-            self.consume_keyword('in')
-            iterable = self.parse_expression()
-            self.consume(TokenType.RPAREN)
-            
-            body = self.parse_statement()
-            self.consume(TokenType.SEMICOLON)
-            
-            return RangeForStatementNode(location, variable, iterable, body)
-        else:
-            # C-style for loop
-            init = None
-            if not self.match(TokenType.SEMICOLON):
-                if self.is_type_start():
-                    init = self.parse_variable_declaration()
-                else:
-                    init = self.parse_expression_statement()
-            else:
-                self.advance()  # consume semicolon
-            
-            condition = None
-            if not self.match(TokenType.SEMICOLON):
-                condition = self.parse_expression()
-            self.consume(TokenType.SEMICOLON)
-            
-            update = None
-            if not self.match(TokenType.RPAREN):
-                update = self.parse_expression()
-            self.consume(TokenType.RPAREN)
-            
-            body = self.parse_statement()
-            self.consume(TokenType.SEMICOLON)
-            
-            return ForStatementNode(location, init, condition, update, body)
-    
-    def parse_return_statement(self) -> ReturnStatementNode:
-        """Parse return statement"""
-        location = self.current_token().location
-        self.consume_keyword('return')
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected macro name")
+        name = name_token.value
         
         value = None
         if not self.match(TokenType.SEMICOLON):
             value = self.parse_expression()
         
-        self.consume(TokenType.SEMICOLON)
-        return ReturnStatementNode(location, value)
+        self.consume(TokenType.SEMICOLON, "Expected ';' after macro definition")
+        
+        return MacroDef(name=name, value=value, line=start_token.line, column=start_token.column)
     
-    def parse_break_statement(self) -> BreakStatementNode:
-        """Parse break statement"""
-        location = self.current_token().location
-        self.consume_keyword('break')
-        self.consume(TokenType.SEMICOLON)
-        return BreakStatementNode(location)
+    # ============================================================================
+    # Function definitions
+    # ============================================================================
     
-    def parse_continue_statement(self) -> ContinueStatementNode:
-        """Parse continue statement"""
-        location = self.current_token().location
-        self.consume_keyword('continue')
-        self.consume(TokenType.SEMICOLON)
-        return ContinueStatementNode(location)
+    def parse_function_def(self) -> FunctionDef:
+        """Parse function definition"""
+        start_token = self.current_token()
+        
+        # Parse modifiers
+        modifiers = []
+        while self.match(TokenType.VOLATILE, TokenType.CONST, TokenType.COMPT, TokenType.VIRTUAL):
+            token = self.advance()
+            if token.type == TokenType.VOLATILE:
+                modifiers.append(FunctionModifier.VOLATILE)
+            elif token.type == TokenType.CONST:
+                modifiers.append(FunctionModifier.CONST)
+            elif token.type == TokenType.COMPT:
+                modifiers.append(FunctionModifier.COMPT)
+            elif token.type == TokenType.VIRTUAL:
+                modifiers.append(FunctionModifier.VIRTUAL)
+        
+        self.consume(TokenType.DEF, "Expected 'def'")
+        
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected function name")
+        name = name_token.value
+        
+        # Parse template parameters
+        template_params = []
+        if self.match(TokenType.LESS_THAN):
+            template_params = self.parse_template_parameters()
+        
+        # Parse function parameters
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after function name")
+        
+        parameters = []
+        if not self.match(TokenType.RIGHT_PAREN):
+            parameters.append(self.parse_parameter())
+            while self.match(TokenType.COMMA):
+                self.advance()
+                parameters.append(self.parse_parameter())
+        
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters")
+        
+        # Parse return type
+        self.consume(TokenType.MINUS, "Expected '->' after function parameters")
+        self.consume(TokenType.GREATER_THAN, "Expected '->' after function parameters")
+        return_type = self.parse_type()
+        
+        # Parse function body
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' to start function body")
+        
+        body = []
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            stmt = self.parse_statement()
+            if stmt:
+                body.append(stmt)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end function body")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after function definition")
+        
+        return FunctionDef(
+            name=name, parameters=parameters, return_type=return_type, body=body,
+            modifiers=modifiers, template_params=template_params,
+            line=start_token.line, column=start_token.column
+        )
     
-    def parse_throw_statement(self) -> ThrowStatementNode:
-        """Parse throw statement"""
-        location = self.current_token().location
-        self.consume_keyword('throw')
+    def parse_parameter(self) -> Parameter:
+        """Parse function parameter"""
+        param_type = self.parse_type()
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected parameter name")
+        name = name_token.value
         
-        expression = self.parse_expression()
-        self.consume(TokenType.SEMICOLON)
-        
-        return ThrowStatementNode(location, expression)
+        return Parameter(name=name, type=param_type, line=name_token.line, column=name_token.column)
     
-    def parse_try_statement(self) -> TryStatementNode:
-        """Parse try-catch statement"""
-        location = self.current_token().location
-        self.consume_keyword('try')
+    def parse_template_parameters(self) -> List[TemplateParameter]:
+        """Parse template parameters <T, K, ...>"""
+        self.consume(TokenType.LESS_THAN, "Expected '<'")
         
-        try_block = self.parse_block_statement()
+        params = []
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected template parameter name")
+        params.append(TemplateParameter(name=name_token.value, line=name_token.line, column=name_token.column))
         
-        catch_clauses = []
-        while self.match_keyword('catch'):
-            catch_clauses.append(self.parse_catch_clause())
+        while self.match(TokenType.COMMA):
+            self.advance()
+            name_token = self.consume(TokenType.IDENTIFIER, "Expected template parameter name")
+            params.append(TemplateParameter(name=name_token.value, line=name_token.line, column=name_token.column))
         
-        if not catch_clauses:
-            raise ParseError("Try statement must have at least one catch clause", location)
+        self.consume(TokenType.GREATER_THAN, "Expected '>'")
         
-        return TryStatementNode(location, try_block, catch_clauses)
+        return params
     
-    def parse_catch_clause(self) -> CatchClauseNode:
-        """Parse catch clause"""
-        location = self.current_token().location
-        self.consume_keyword('catch')
-        
-        self.consume(TokenType.LPAREN)
-        exception_type = self.parse_type()
-        exception_name = self.consume(TokenType.IDENTIFIER).value
-        self.consume(TokenType.RPAREN)
-        
-        body = self.parse_block_statement()
-        
-        return CatchClauseNode(location, exception_type, exception_name, body)
+    # ============================================================================
+    # Object definitions
+    # ============================================================================
     
-    def parse_switch_statement(self) -> SwitchStatementNode:
+    def parse_object_def(self) -> ObjectDef:
+        """Parse object definition"""
+        start_token = self.advance()  # consume 'object'
+        
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected object name")
+        name = name_token.value
+        
+        # Parse template parameters
+        template_params = []
+        if self.match(TokenType.LESS_THAN):
+            template_params = self.parse_template_parameters()
+        
+        # Parse inheritance
+        inheritance = []
+        if self.match(TokenType.COLON):
+            inheritance = self.parse_inheritance_list()
+        
+        # Check for forward declaration
+        if self.match(TokenType.SEMICOLON):
+            self.advance()
+            return ObjectDef(name=name, template_params=template_params, inheritance=inheritance,
+                           is_forward_decl=True, line=start_token.line, column=start_token.column)
+        
+        # Parse object body
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' to start object body")
+        
+        members = []
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            # Handle access specifier blocks (public { ... } or private { ... })
+            if self.match(TokenType.PUBLIC, TokenType.PRIVATE):
+                access_token = self.advance()
+                access = AccessSpecifier.PUBLIC if access_token.type == TokenType.PUBLIC else AccessSpecifier.PRIVATE
+                
+                self.consume(TokenType.LEFT_BRACE, f"Expected '{{' after '{access_token.value}'")
+                
+                # Parse all members in this access block
+                while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+                    member = self.parse_object_member_item(access)
+                    if member:
+                        members.append(member)
+                
+                self.consume(TokenType.RIGHT_BRACE, f"Expected '}}' to end {access_token.value} block")
+                
+                # Consume optional semicolon after access block
+                if self.match(TokenType.SEMICOLON):
+                    self.advance()
+            else:
+                # Individual member without access specifier
+                member = self.parse_object_member_item(None)
+                if member:
+                    members.append(member)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end object body")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after object definition")
+        
+        return ObjectDef(
+            name=name, members=members, inheritance=inheritance, template_params=template_params,
+            line=start_token.line, column=start_token.column
+        )
+    
+    def parse_inheritance_list(self) -> List[QualifiedName]:
+        """Parse inheritance list"""
+        self.advance()  # consume ':'
+        
+        inheritance = []
+        inheritance.append(self.parse_qualified_name())
+        
+        while self.match(TokenType.COMMA):
+            self.advance()
+            inheritance.append(self.parse_qualified_name())
+        
+        return inheritance
+    
+    def parse_object_member(self) -> Optional[ObjectMember]:
+        """Parse object member - simplified version"""
+        return self.parse_object_member_item(None)
+    
+    def parse_object_member_item(self, access: Optional[AccessSpecifier]) -> Optional[ObjectMember]:
+        """Parse individual object member item"""
+        if self.match(TokenType.DEF) or self.match(TokenType.VOLATILE, TokenType.CONST, TokenType.COMPT):
+            # Function definition
+            func_def = self.parse_function_def()
+            return ObjectFunctionDef(function=func_def, access=access, 
+                                   line=func_def.line, column=func_def.column)
+        
+        elif self.match(TokenType.OBJECT):
+            # Nested object definition
+            obj_def = self.parse_object_def()
+            return ObjectObjectDef(object_def=obj_def, access=access,
+                                 line=obj_def.line, column=obj_def.column)
+        
+        elif self.match(TokenType.STRUCT):
+            # Nested struct definition
+            struct_def = self.parse_struct_def()
+            return ObjectStructDef(struct_def=struct_def, access=access,
+                                 line=struct_def.line, column=struct_def.column)
+        
+        elif self.is_type_start():
+            # Variable declaration
+            var_decl = self.parse_variable_declaration()
+            self.consume(TokenType.SEMICOLON, "Expected ';' after object member variable")
+            return ObjectVariableDecl(declaration=var_decl, access=access,
+                                    line=var_decl.line, column=var_decl.column)
+        
+        else:
+            current = self.current_token()
+            raise ParseError(f"Unexpected token in object member: {current.type.name if current else 'EOF'}", current)
+    
+    # ============================================================================
+    # Struct definitions
+    # ============================================================================
+    
+    def parse_struct_def(self) -> StructDef:
+        """Parse struct definition"""
+        start_token = self.advance()  # consume 'struct'
+        
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected struct name")
+        name = name_token.value
+        
+        # Parse template parameters
+        template_params = []
+        if self.match(TokenType.LESS_THAN):
+            template_params = self.parse_template_parameters()
+        
+        # Parse inheritance
+        inheritance = []
+        if self.match(TokenType.COLON):
+            inheritance = self.parse_inheritance_list()
+        
+        # Check for forward declaration
+        if self.match(TokenType.SEMICOLON):
+            self.advance()
+            return StructDef(name=name, template_params=template_params, inheritance=inheritance,
+                           is_forward_decl=True, line=start_token.line, column=start_token.column)
+        
+        # Parse struct body
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' to start struct body")
+        
+        members = []
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            # Handle access specifier blocks (public { ... } or private { ... })
+            if self.match(TokenType.PUBLIC, TokenType.PRIVATE):
+                access_token = self.advance()
+                access = AccessSpecifier.PUBLIC if access_token.type == TokenType.PUBLIC else AccessSpecifier.PRIVATE
+                
+                self.consume(TokenType.LEFT_BRACE, f"Expected '{{' after '{access_token.value}'")
+                
+                # Parse all members in this access block
+                while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+                    var_decl = self.parse_variable_declaration()
+                    self.consume(TokenType.SEMICOLON, "Expected ';' after struct member")
+                    members.append(StructMember(declaration=var_decl, access=access,
+                                              line=var_decl.line, column=var_decl.column))
+                
+                self.consume(TokenType.RIGHT_BRACE, f"Expected '}}' to end {access_token.value} block")
+                
+                # Consume optional semicolon after access block
+                if self.match(TokenType.SEMICOLON):
+                    self.advance()
+            else:
+                # Individual member without access specifier
+                var_decl = self.parse_variable_declaration()
+                self.consume(TokenType.SEMICOLON, "Expected ';' after struct member")
+                members.append(StructMember(declaration=var_decl, access=None,
+                                          line=var_decl.line, column=var_decl.column))
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end struct body")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after struct definition")
+        
+        return StructDef(
+            name=name, members=members, inheritance=inheritance, template_params=template_params,
+            line=start_token.line, column=start_token.column
+        )
+    
+    def parse_struct_member(self) -> Optional[StructMember]:
+        """Parse struct member - simplified version"""
+        var_decl = self.parse_variable_declaration()
+        self.consume(TokenType.SEMICOLON, "Expected ';' after struct member")
+        
+        return StructMember(declaration=var_decl, access=None,
+                          line=var_decl.line, column=var_decl.column)
+    
+    # ============================================================================
+    # Namespace definitions
+    # ============================================================================
+    
+    def parse_namespace_def(self) -> NamespaceDef:
+        """Parse namespace definition"""
+        start_token = self.advance()  # consume 'namespace'
+        
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected namespace name")
+        name = name_token.value
+        
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' to start namespace body")
+        
+        members = []
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            member = self.parse_namespace_member()
+            if member:
+                members.append(member)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end namespace body")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after namespace definition")
+        
+        return NamespaceDef(name=name, members=members, line=start_token.line, column=start_token.column)
+    
+    def parse_namespace_member(self) -> Optional[NamespaceMember]:
+        """Parse namespace member"""
+        if self.match(TokenType.DEF) or self.match(TokenType.VOLATILE, TokenType.CONST, TokenType.COMPT):
+            # Function definition
+            func_def = self.parse_function_def()
+            return NamespaceFunctionDef(function=func_def, line=func_def.line, column=func_def.column)
+        
+        elif self.match(TokenType.OBJECT):
+            # Object definition
+            obj_def = self.parse_object_def()
+            return NamespaceObjectDef(object_def=obj_def, line=obj_def.line, column=obj_def.column)
+        
+        elif self.match(TokenType.STRUCT):
+            # Struct definition
+            struct_def = self.parse_struct_def()
+            return NamespaceStructDef(struct_def=struct_def, line=struct_def.line, column=struct_def.column)
+        
+        elif self.match(TokenType.NAMESPACE):
+            # Nested namespace definition
+            namespace_def = self.parse_namespace_def()
+            return NamespaceNamespaceDef(namespace_def=namespace_def, 
+                                       line=namespace_def.line, column=namespace_def.column)
+        
+        elif self.is_type_start():
+            # Variable declaration
+            var_decl = self.parse_variable_declaration()
+            self.consume(TokenType.SEMICOLON, "Expected ';' after namespace member variable")
+            return NamespaceVariableDecl(declaration=var_decl, line=var_decl.line, column=var_decl.column)
+        
+        else:
+            current = self.current_token()
+            raise ParseError(f"Unexpected token in namespace member: {current.type.name if current else 'EOF'}", current)
+    
+    # ============================================================================
+    # Type parsing
+    # ============================================================================
+    
+    def parse_type(self) -> Type:
+        """Parse type"""
+        qualifiers = []
+        
+        # Parse type qualifiers
+        while self.match(TokenType.VOLATILE, TokenType.CONST):
+            token = self.advance()
+            if token.type == TokenType.VOLATILE:
+                qualifiers.append(TypeQualifier.VOLATILE)
+            elif token.type == TokenType.CONST:
+                qualifiers.append(TypeQualifier.CONST)
+        
+        base_type = self.parse_base_type()
+        
+        # Apply qualifiers to base type
+        if qualifiers and hasattr(base_type, 'qualifiers'):
+            base_type.qualifiers.extend(qualifiers)
+        
+        # Parse pointer and array suffixes
+        while self.match(TokenType.MULTIPLY, TokenType.LEFT_BRACKET):
+            if self.match(TokenType.MULTIPLY):
+                self.advance()
+                base_type = PointerType(pointee_type=base_type, qualifiers=qualifiers)
+                qualifiers = []  # Reset qualifiers for next level
+            elif self.match(TokenType.LEFT_BRACKET):
+                self.advance()
+                self.consume(TokenType.RIGHT_BRACKET, "Expected ']' after '['")
+                base_type = ArrayType(element_type=base_type, qualifiers=qualifiers)
+                qualifiers = []  # Reset qualifiers for next level
+        
+        return base_type
+    
+    def parse_base_type(self) -> Type:
+        """Parse base type"""
+        current = self.current_token()
+        if not current:
+            raise ParseError("Expected type")
+        
+        # Primitive types
+        if self.match(TokenType.INT):
+            self.advance()
+            return PrimitiveType(PrimitiveTypeKind.INT)
+        elif self.match(TokenType.FLOAT_KW):
+            self.advance()
+            return PrimitiveType(PrimitiveTypeKind.FLOAT)
+        elif self.match(TokenType.BOOL):
+            self.advance()
+            return PrimitiveType(PrimitiveTypeKind.BOOL)
+        elif self.match(TokenType.CHAR):
+            self.advance()
+            return PrimitiveType(PrimitiveTypeKind.CHAR)
+        elif self.match(TokenType.VOID):
+            self.advance()
+            return PrimitiveType(PrimitiveTypeKind.VOID)
+        
+        # Data types
+        elif self.match(TokenType.SIGNED, TokenType.UNSIGNED, TokenType.DATA):
+            return self.parse_data_type()
+        
+        # Named types (user-defined, templates)
+        elif self.match(TokenType.IDENTIFIER):
+            return self.parse_named_type()
+        
+        # Function pointer type
+        elif self.match(TokenType.LEFT_PAREN):
+            # Could be function pointer or parenthesized type
+            saved_pos = self.current
+            try:
+                return self.parse_function_pointer_type()
+            except ParseError:
+                self.current = saved_pos
+                raise ParseError(f"Unexpected token in type: {current.type.name}", current)
+        
+        else:
+            raise ParseError(f"Unexpected token in type: {current.type.name}", current)
+    
+    def parse_data_type(self) -> DataType:
+        """Parse data type"""
+        signedness = None
+        
+        # Parse signedness
+        if self.match(TokenType.SIGNED):
+            self.advance()
+            signedness = DataSignedness.SIGNED
+        elif self.match(TokenType.UNSIGNED):
+            self.advance()
+            signedness = DataSignedness.UNSIGNED
+        
+        self.consume(TokenType.DATA, "Expected 'data'")
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' after 'data'")
+        
+        # Parse bit width
+        bit_width_token = self.consume(TokenType.INTEGER, "Expected bit width")
+        bit_width = int(bit_width_token.value)
+        
+        # Parse optional alignment
+        alignment = None
+        if self.match(TokenType.COLON):
+            self.advance()
+            align_token = self.consume(TokenType.INTEGER, "Expected alignment value")
+            alignment = int(align_token.value)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' after data type")
+        
+        return DataType(bit_width=bit_width, alignment=alignment, signedness=signedness)
+    
+    def parse_named_type(self) -> NamedType:
+        """Parse named type"""
+        name = self.parse_qualified_name()
+        
+        # Parse template arguments
+        template_args = []
+        if self.match(TokenType.LESS_THAN):
+            template_args = self.parse_template_arguments()
+        
+        return NamedType(name=name, template_args=template_args)
+    
+    def parse_template_arguments(self) -> List[Union[Type, Expression]]:
+        """Parse template arguments <type, expr, ...>"""
+        self.consume(TokenType.LESS_THAN, "Expected '<'")
+        
+        args = []
+        
+        # Try to parse first argument
+        args.append(self.parse_template_argument())
+        
+        while self.match(TokenType.COMMA):
+            self.advance()
+            args.append(self.parse_template_argument())
+        
+        self.consume(TokenType.GREATER_THAN, "Expected '>'")
+        
+        return args
+    
+    def parse_template_argument(self) -> Union[Type, Expression]:
+        """Parse template argument (could be type or expression)"""
+        saved_pos = self.current
+        
+        # Try parsing as type first
+        try:
+            return self.parse_type()
+        except ParseError:
+            # If that fails, try parsing as expression
+            self.current = saved_pos
+            return self.parse_expression()
+    
+    def parse_function_pointer_type(self) -> FunctionPointerType:
+        """Parse function pointer type"""
+        # Simplified - would need more complex logic for full support
+        raise ParseError("Function pointer types not fully implemented")
+    
+    # ============================================================================
+    # Variable declarations
+    # ============================================================================
+    
+    def parse_variable_declaration(self) -> VariableDeclaration:
+        """Parse variable declaration"""
+        start_token = self.current_token()
+        
+        # Check for function pointer
+        if self.is_function_pointer():
+            func_ptr = self.parse_function_pointer_declaration()
+            return func_ptr
+        
+        var_type = self.parse_type()
+        
+        declarators = []
+        declarators.append(self.parse_variable_declarator())
+        
+        while self.match(TokenType.COMMA):
+            self.advance()
+            declarators.append(self.parse_variable_declarator())
+        
+        return VariableDeclaration(type=var_type, declarators=declarators,
+                                 line=start_token.line, column=start_token.column)
+    
+    def is_function_pointer(self) -> bool:
+        """Check if current position is a function pointer declaration"""
+        saved_pos = self.current
+        try:
+            # Skip type qualifiers and base type
+            while self.match(TokenType.VOLATILE, TokenType.CONST):
+                self.advance()
+            
+            if self.is_type_start():
+                self.parse_base_type()
+                
+                # Look for (* pattern
+                if self.match(TokenType.LEFT_PAREN) and self.peek_token() and self.peek_token().type == TokenType.MULTIPLY:
+                    return True
+            
+            return False
+        except:
+            return False
+        finally:
+            self.current = saved_pos
+    
+    def parse_function_pointer_declaration(self) -> FunctionPointerDeclaration:
+        """Parse function pointer declaration"""
+        return_type = self.parse_type()
+        
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' in function pointer")
+        self.consume(TokenType.MULTIPLY, "Expected '*' in function pointer")
+        
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected function pointer name")
+        name = name_token.value
+        
+        # Parse template parameters if present
+        template_params = []
+        if self.match(TokenType.LESS_THAN):
+            template_params = self.parse_template_parameters()
+        
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after function pointer name")
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' for function pointer parameters")
+        
+        parameters = []
+        if not self.match(TokenType.RIGHT_PAREN):
+            parameters.append(self.parse_parameter())
+            while self.match(TokenType.COMMA):
+                self.advance()
+                parameters.append(self.parse_parameter())
+        
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after function pointer parameters")
+        self.consume(TokenType.MINUS, "Expected '->' in function pointer")
+        self.consume(TokenType.GREATER_THAN, "Expected '->' in function pointer")
+        
+        func_return_type = self.parse_type()
+        
+        # Parse optional initializer
+        initializer = None
+        if self.match(TokenType.ASSIGN):
+            self.advance()
+            initializer = self.parse_expression()
+        
+        return FunctionPointerDeclaration(
+            return_type=return_type, name=name, parameters=parameters,
+            template_params=template_params, initializer=initializer,
+            line=name_token.line, column=name_token.column
+        )
+    
+    def parse_variable_declarator(self) -> VariableDeclarator:
+        """Parse variable declarator"""
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected variable name")
+        name = name_token.value
+        
+        # Array declarator
+        if self.match(TokenType.LEFT_BRACKET):
+            self.advance()
+            
+            size = None
+            if not self.match(TokenType.RIGHT_BRACKET):
+                size = self.parse_expression()
+            
+            self.consume(TokenType.RIGHT_BRACKET, "Expected ']' after array size")
+            
+            initializer = None
+            if self.match(TokenType.ASSIGN):
+                self.advance()
+                initializer = self.parse_array_initializer()
+            
+            return ArrayVariableDeclarator(name=name, size=size, initializer=initializer,
+                                         line=name_token.line, column=name_token.column)
+        
+        # Object instantiation
+        elif self.match(TokenType.LEFT_PAREN):
+            self.advance()
+            
+            arguments = []
+            if not self.match(TokenType.RIGHT_PAREN):
+                arguments.append(self.parse_expression())
+                while self.match(TokenType.COMMA):
+                    self.advance()
+                    arguments.append(self.parse_expression())
+            
+            self.consume(TokenType.RIGHT_PAREN, "Expected ')' after object arguments")
+            
+            return ObjectInstantiationDeclarator(name=name, arguments=arguments,
+                                               line=name_token.line, column=name_token.column)
+        
+        # Simple variable declarator
+        else:
+            initializer = None
+            if self.match(TokenType.ASSIGN):
+                self.advance()
+                initializer = self.parse_expression()
+            
+            return SimpleVariableDeclarator(name=name, initializer=initializer,
+                                          line=name_token.line, column=name_token.column)
+    
+    # ============================================================================
+    # Statement parsing
+    # ============================================================================
+    
+    def parse_statement(self) -> Optional[Statement]:
+        """Parse statement"""
+        current = self.current_token()
+        if not current:
+            return None
+        
+        # Expression statement (including assignment)
+        if self.match(TokenType.LEFT_BRACE):
+            return self.parse_compound_stmt()
+        elif self.match(TokenType.IF):
+            return self.parse_if_stmt()
+        elif self.match(TokenType.WHILE):
+            return self.parse_while_stmt()
+        elif self.match(TokenType.DO):
+            return self.parse_do_while_stmt()
+        elif self.match(TokenType.FOR):
+            return self.parse_for_stmt()
+        elif self.match(TokenType.SWITCH):
+            return self.parse_switch_stmt()
+        elif self.match(TokenType.MATCH):
+            return self.parse_match_stmt()
+        elif self.match(TokenType.TRY):
+            return self.parse_try_catch_stmt()
+        elif self.match(TokenType.RETURN):
+            return self.parse_return_stmt()
+        elif self.match(TokenType.BREAK):
+            return self.parse_break_stmt()
+        elif self.match(TokenType.CONTINUE):
+            return self.parse_continue_stmt()
+        elif self.match(TokenType.THROW):
+            return self.parse_throw_stmt()
+        elif self.match(TokenType.ASSERT):
+            return self.parse_assert_stmt()
+        elif self.match(TokenType.ASM):
+            return self.parse_asm_stmt()
+        elif self.match(TokenType.AUTO):
+            return self.parse_destructuring_stmt()
+        elif self.match(TokenType.COMPT):
+            return self.parse_compt_block()
+        elif self.is_type_start():
+            # Variable declaration
+            var_decl = self.parse_variable_declaration()
+            self.consume(TokenType.SEMICOLON, "Expected ';' after variable declaration")
+            return VariableDeclStmt(declaration=var_decl, line=var_decl.line, column=var_decl.column)
+        else:
+            # Expression statement
+            expr = self.parse_expression()
+            self.consume(TokenType.SEMICOLON, "Expected ';' after expression")
+            return ExpressionStmt(expression=expr, line=expr.line, column=expr.column)
+    
+    def parse_compound_stmt(self) -> CompoundStmt:
+        """Parse compound statement"""
+        start_token = self.advance()  # consume '{'
+        
+        statements = []
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            stmt = self.parse_statement()
+            if stmt:
+                statements.append(stmt)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end compound statement")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after compound statement")
+        
+        return CompoundStmt(statements=statements, line=start_token.line, column=start_token.column)
+    
+    def parse_if_stmt(self) -> IfStmt:
+        """Parse if statement"""
+        start_token = self.advance()  # consume 'if'
+        
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'if'")
+        condition = self.parse_expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after if condition")
+        
+        then_stmt = self.parse_statement()
+        
+        elif_parts = []
+        while self.match(TokenType.ELSE) and self.peek_token() and self.peek_token().type == TokenType.IF:
+            self.advance()  # consume 'else'
+            self.advance()  # consume 'if'
+            
+            self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'else if'")
+            elif_condition = self.parse_expression()
+            self.consume(TokenType.RIGHT_PAREN, "Expected ')' after else if condition")
+            
+            elif_stmt = self.parse_statement()
+            elif_parts.append((elif_condition, elif_stmt))
+        
+        else_stmt = None
+        if self.match(TokenType.ELSE):
+            self.advance()
+            else_stmt = self.parse_statement()
+        
+        self.consume(TokenType.SEMICOLON, "Expected ';' after if statement")
+        
+        return IfStmt(condition=condition, then_stmt=then_stmt, elif_parts=elif_parts, else_stmt=else_stmt,
+                     line=start_token.line, column=start_token.column)
+    
+    def parse_while_stmt(self) -> WhileStmt:
+        """Parse while statement"""
+        start_token = self.advance()  # consume 'while'
+        
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'while'")
+        condition = self.parse_expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after while condition")
+        
+        body = self.parse_statement()
+        self.consume(TokenType.SEMICOLON, "Expected ';' after while statement")
+        
+        return WhileStmt(condition=condition, body=body, line=start_token.line, column=start_token.column)
+    
+    def parse_do_while_stmt(self) -> DoWhileStmt:
+        """Parse do-while statement"""
+        start_token = self.advance()  # consume 'do'
+        
+        body = self.parse_statement()
+        
+        self.consume(TokenType.WHILE, "Expected 'while' after do body")
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'while'")
+        condition = self.parse_expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after while condition")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after do-while statement")
+        
+        return DoWhileStmt(body=body, condition=condition, line=start_token.line, column=start_token.column)
+    
+    def parse_for_stmt(self) -> ForStmt:
+        """Parse for statement"""
+        start_token = self.advance()  # consume 'for'
+        
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'for'")
+        
+        # Check if it's Python-style or C-style
+        saved_pos = self.current
+        is_python_style = False
+        
+        try:
+            # Look for variable 'in' pattern
+            if self.match(TokenType.IDENTIFIER):
+                self.advance()
+                if self.match(TokenType.COMMA):
+                    # Multiple variables
+                    while self.match(TokenType.COMMA):
+                        self.advance()
+                        self.consume(TokenType.IDENTIFIER, "Expected variable name")
+                
+                if self.match(TokenType.IN):
+                    is_python_style = True
+        except:
+            pass
+        
+        self.current = saved_pos
+        
+        if is_python_style:
+            return self.parse_python_style_for_stmt(start_token)
+        else:
+            return self.parse_c_style_for_stmt(start_token)
+    
+    def parse_c_style_for_stmt(self, start_token: Token) -> CStyleForStmt:
+        """Parse C-style for statement"""
+        # Parse init
+        init = None
+        if not self.match(TokenType.SEMICOLON):
+            init = self.parse_expression()
+        self.consume(TokenType.SEMICOLON, "Expected ';' after for init")
+        
+        # Parse condition
+        condition = None
+        if not self.match(TokenType.SEMICOLON):
+            condition = self.parse_expression()
+        self.consume(TokenType.SEMICOLON, "Expected ';' after for condition")
+        
+        # Parse update
+        update = None
+        if not self.match(TokenType.RIGHT_PAREN):
+            update = self.parse_expression()
+        
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after for clauses")
+        
+        body = self.parse_statement()
+        self.consume(TokenType.SEMICOLON, "Expected ';' after for statement")
+        
+        return CStyleForStmt(init=init, condition=condition, update=update, body=body,
+                           line=start_token.line, column=start_token.column)
+    
+    def parse_python_style_for_stmt(self, start_token: Token) -> PythonStyleForStmt:
+        """Parse Python-style for statement"""
+        variables = []
+        
+        # Parse variables
+        var_token = self.consume(TokenType.IDENTIFIER, "Expected variable name")
+        variables.append(var_token.value)
+        
+        while self.match(TokenType.COMMA):
+            self.advance()
+            var_token = self.consume(TokenType.IDENTIFIER, "Expected variable name")
+            variables.append(var_token.value)
+        
+        self.consume(TokenType.IN, "Expected 'in' in for loop")
+        
+        iterable = self.parse_expression()
+        
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after for iterable")
+        
+        body = self.parse_statement()
+        self.consume(TokenType.SEMICOLON, "Expected ';' after for statement")
+        
+        return PythonStyleForStmt(variables=variables, iterable=iterable, body=body,
+                                line=start_token.line, column=start_token.column)
+    
+    def parse_switch_stmt(self) -> SwitchStmt:
         """Parse switch statement"""
-        location = self.current_token().location
-        self.consume_keyword('switch')
+        start_token = self.advance()  # consume 'switch'
         
-        self.consume(TokenType.LPAREN)
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'switch'")
         expression = self.parse_expression()
-        self.consume(TokenType.RPAREN)
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after switch expression")
         
-        self.consume(TokenType.LBRACE)
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' to start switch body")
         
         cases = []
         default_case = None
         
-        while not self.match(TokenType.RBRACE) and not self.match(TokenType.EOF):
-            if self.match_keyword('case'):
-                cases.append(self.parse_case_clause())
-            elif self.match_keyword('default'):
-                if default_case:
-                    raise ParseError("Multiple default clauses in switch", self.current_token().location)
-                default_case = self.parse_default_clause()
-            else:
-                raise ParseError("Expected 'case' or 'default' in switch", self.current_token().location)
-        
-        self.consume(TokenType.RBRACE)
-        self.consume(TokenType.SEMICOLON)
-        
-        return SwitchStatementNode(location, expression, cases, default_case)
-    
-    def parse_case_clause(self) -> CaseClauseNode:
-        """Parse case clause"""
-        location = self.current_token().location
-        self.consume_keyword('case')
-        
-        self.consume(TokenType.LPAREN)
-        value = self.parse_expression()
-        self.consume(TokenType.RPAREN)
-        
-        body = self.parse_block_statement()
-        
-        return CaseClauseNode(location, value, body)
-    
-    def parse_default_clause(self) -> DefaultClauseNode:
-        """Parse default clause"""
-        location = self.current_token().location
-        self.consume_keyword('default')
-        
-        body = self.parse_block_statement()
-        
-        return DefaultClauseNode(location, body)
-    
-    def parse_assembly_statement(self) -> AssemblyStatementNode:
-        """Parse inline assembly statement"""
-        location = self.current_token().location
-        self.consume_keyword('asm')
-        
-        self.consume(TokenType.LBRACE)
-        
-        # Collect assembly code until closing brace
-        assembly_code = ""
-        brace_count = 1
-        
-        while brace_count > 0 and not self.match(TokenType.EOF):
-            # Manually advance position to handle braces, but skip comments
-            self.pos += 1
-            while (self.pos < len(self.tokens) and 
-                   self.tokens[self.pos].type == TokenType.COMMENT):
-                self.pos += 1
-                
-            if self.pos >= len(self.tokens):
-                break
-                
-            token = self.tokens[self.pos]
-            
-            if token.type == TokenType.LBRACE:
-                brace_count += 1
-            elif token.type == TokenType.RBRACE:
-                brace_count -= 1
-            
-            if brace_count > 0:
-                assembly_code += token.value + " "
-        
-        self.consume(TokenType.SEMICOLON)
-        
-        return AssemblyStatementNode(location, assembly_code.strip())
-    
-    def parse_expression_statement(self) -> ExpressionStatementNode:
-        """Parse expression statement"""
-        location = self.current_token().location
-        expression = self.parse_expression()
-        self.consume(TokenType.SEMICOLON)
-        return ExpressionStatementNode(location, expression)
-    
-    def parse_expression(self, min_precedence: int = 0) -> ExpressionNode:
-        """Parse expression using precedence climbing"""
-        left = self.parse_unary_expression()
-        
-        while True:
-            token = self.current_token()
-            
-            # Handle ternary conditional operator
-            if token.type == TokenType.QUESTION:
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            if self.match(TokenType.CASE):
                 self.advance()
-                true_expr = self.parse_expression()
-                self.consume(TokenType.COLON)
-                false_expr = self.parse_expression()
-                left = ConditionalExpressionNode(token.location, left, true_expr, false_expr)
-                continue
+                self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'case'")
+                value = self.parse_expression()
+                self.consume(TokenType.RIGHT_PAREN, "Expected ')' after case value")
+                body = self.parse_statement()
+                cases.append(SwitchCase(value=value, body=body, line=value.line, column=value.column))
             
-            # Get operator precedence
-            if token.type not in (TokenType.KEYWORD, TokenType.IDENTIFIER) and hasattr(token, 'value'):
-                op = token.value
-            else:
-                op = token.value if token.type == TokenType.KEYWORD else None
-            
-            if op not in self.PRECEDENCE:
+            elif self.match(TokenType.DEFAULT):
+                self.advance()
+                body = self.parse_statement()
+                self.consume(TokenType.SEMICOLON, "Expected ';' after default case")
+                default_case = DefaultCase(body=body, line=body.line, column=body.column)
                 break
             
-            precedence = self.PRECEDENCE[op]
-            if precedence < min_precedence:
-                break
-            
-            # Handle angle brackets in template context
-            if op in ('<', '>'):
-                self.handle_angle_brackets()
-            
-            self.advance()
-            
-            # Handle right-associative operators
-            next_min_precedence = precedence + 1
-            if op in self.RIGHT_ASSOCIATIVE:
-                next_min_precedence = precedence
-            
-            right = self.parse_expression(next_min_precedence)
-            
-            # Create appropriate node based on operator type
-            if op in ('=', '+=', '-=', '*=', '/=', '%=', '^=', '&=', '|=', '^^=', 
-                     '<<=', '>>=', '`&=', '`|=', '`^|=', '`!&=', '`!|=', 
-                     '`^&=', '`^!|=', '`^!&='):
-                left = AssignmentNode(token.location, op, left, right)
             else:
-                left = BinaryOperatorNode(token.location, op, left, right)
+                current = self.current_token()
+                raise ParseError(f"Expected 'case' or 'default' in switch body", current)
         
-        return left
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end switch body")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after switch statement")
+        
+        return SwitchStmt(expression=expression, cases=cases, default_case=default_case,
+                         line=start_token.line, column=start_token.column)
     
-    def parse_unary_expression(self) -> ExpressionNode:
-        """Parse unary expression"""
-        token = self.current_token()
+    def parse_match_stmt(self) -> MatchStmt:
+        """Parse match statement"""
+        start_token = self.advance()  # consume 'match'
         
-        # Prefix unary operators
-        if token.type in (TokenType.PLUS, TokenType.MINUS, TokenType.LOGICAL_NOT, 
-                         TokenType.BITWISE_NOT, TokenType.ADDRESS_OF, TokenType.MULTIPLY,
-                         TokenType.INCREMENT, TokenType.DECREMENT) or \
-           token.value in ('not', 'sizeof', 'typeof', 'alignof'):
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'match'")
+        expression = self.parse_expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after match expression")
+        
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' to start match body")
+        
+        cases = []
+        default_case = None
+        
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            if self.match(TokenType.CASE):
+                self.advance()
+                self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'case'")
+                pattern = self.parse_pattern()
+                self.consume(TokenType.RIGHT_PAREN, "Expected ')' after case pattern")
+                body = self.parse_statement()
+                cases.append(MatchCase(pattern=pattern, body=body, line=pattern.line, column=pattern.column))
             
-            op = token.value
+            elif self.match(TokenType.DEFAULT):
+                self.advance()
+                body = self.parse_statement()
+                self.consume(TokenType.SEMICOLON, "Expected ';' after default case")
+                default_case = DefaultCase(body=body, line=body.line, column=body.column)
+                break
+            
+            else:
+                current = self.current_token()
+                raise ParseError(f"Expected 'case' or 'default' in match body", current)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end match body")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after match statement")
+        
+        return MatchStmt(expression=expression, cases=cases, default_case=default_case,
+                        line=start_token.line, column=start_token.column)
+    
+    def parse_pattern(self) -> Pattern:
+        """Parse pattern for match statement"""
+        expr = self.parse_expression()
+        
+        if self.match(TokenType.IN):
             self.advance()
+            container = self.parse_expression()
             
-            if op in ('sizeof', 'typeof', 'alignof'):
-                self.consume(TokenType.LPAREN)
-                if self.is_type_start():
-                    operand = self.parse_type()
-                else:
-                    operand = self.parse_expression()
-                self.consume(TokenType.RPAREN)
+            # Check if container is a range expression
+            if isinstance(container, RangeExpression):
+                return RangePattern(expr=expr, range_expr=container, line=expr.line, column=expr.column)
+            else:
+                return InPattern(expr=expr, container=container, line=expr.line, column=expr.column)
+        
+        return SimplePattern(expression=expr, line=expr.line, column=expr.column)
+    
+    def parse_try_catch_stmt(self) -> TryCatchStmt:
+        """Parse try-catch statement"""
+        start_token = self.advance()  # consume 'try'
+        
+        try_body = self.parse_statement()
+        
+        catch_clauses = []
+        while self.match(TokenType.CATCH):
+            self.advance()
+            self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'catch'")
+            catch_type = self.parse_type()
+            var_token = self.consume(TokenType.IDENTIFIER, "Expected variable name in catch")
+            variable = var_token.value
+            self.consume(TokenType.RIGHT_PAREN, "Expected ')' after catch variable")
+            
+            catch_body = self.parse_statement()
+            catch_clauses.append(CatchClause(type=catch_type, variable=variable, body=catch_body,
+                                           line=var_token.line, column=var_token.column))
+        
+        if not catch_clauses:
+            raise ParseError("Try statement must have at least one catch clause")
+        
+        self.consume(TokenType.SEMICOLON, "Expected ';' after try-catch statement")
+        
+        return TryCatchStmt(try_body=try_body, catch_clauses=catch_clauses,
+                          line=start_token.line, column=start_token.column)
+    
+    def parse_return_stmt(self) -> ReturnStmt:
+        """Parse return statement"""
+        start_token = self.advance()  # consume 'return'
+        
+        value = None
+        if not self.match(TokenType.SEMICOLON):
+            value = self.parse_expression()
+        
+        self.consume(TokenType.SEMICOLON, "Expected ';' after return statement")
+        
+        return ReturnStmt(value=value, line=start_token.line, column=start_token.column)
+    
+    def parse_break_stmt(self) -> BreakStmt:
+        """Parse break statement"""
+        start_token = self.advance()  # consume 'break'
+        self.consume(TokenType.SEMICOLON, "Expected ';' after 'break'")
+        
+        return BreakStmt(line=start_token.line, column=start_token.column)
+    
+    def parse_continue_stmt(self) -> ContinueStmt:
+        """Parse continue statement"""
+        start_token = self.advance()  # consume 'continue'
+        self.consume(TokenType.SEMICOLON, "Expected ';' after 'continue'")
+        
+        return ContinueStmt(line=start_token.line, column=start_token.column)
+    
+    def parse_throw_stmt(self) -> ThrowStmt:
+        """Parse throw statement"""
+        start_token = self.advance()  # consume 'throw'
+        
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'throw'")
+        expression = self.parse_expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after throw expression")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after throw statement")
+        
+        return ThrowStmt(expression=expression, line=start_token.line, column=start_token.column)
+    
+    def parse_assert_stmt(self) -> AssertStmt:
+        """Parse assert statement"""
+        start_token = self.advance()  # consume 'assert'
+        
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'assert'")
+        condition = self.parse_expression()
+        
+        message = None
+        if self.match(TokenType.COMMA):
+            self.advance()
+            message = self.parse_expression()
+        
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after assert")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after assert statement")
+        
+        return AssertStmt(condition=condition, message=message, line=start_token.line, column=start_token.column)
+    
+    def parse_asm_stmt(self) -> AsmStmt:
+        """Parse inline assembly statement"""
+        start_token = self.advance()  # consume 'asm'
+        
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' after 'asm'")
+        
+        # Read assembly content until closing brace
+        content = ""
+        while not self.match(TokenType.RIGHT_BRACE, TokenType.EOF):
+            token = self.advance()
+            content += token.value + " "
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end asm block")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after asm statement")
+        
+        return AsmStmt(content=content.strip(), line=start_token.line, column=start_token.column)
+    
+    def parse_destructuring_stmt(self) -> DestructuringStmt:
+        """Parse destructuring assignment statement"""
+        start_token = self.advance()  # consume 'auto'
+        
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' after 'auto'")
+        
+        target_vars = []
+        var_token = self.consume(TokenType.IDENTIFIER, "Expected variable name")
+        target_vars.append(var_token.value)
+        
+        while self.match(TokenType.COMMA):
+            self.advance()
+            var_token = self.consume(TokenType.IDENTIFIER, "Expected variable name")
+            target_vars.append(var_token.value)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' after target variables")
+        self.consume(TokenType.ASSIGN, "Expected '=' in destructuring assignment")
+        
+        source_expr = self.parse_expression()
+        
+        self.consume(TokenType.LEFT_BRACE, "Expected '{' after source expression")
+        
+        source_fields = []
+        field_token = self.consume(TokenType.IDENTIFIER, "Expected field name")
+        source_fields.append(field_token.value)
+        
+        while self.match(TokenType.COMMA):
+            self.advance()
+            field_token = self.consume(TokenType.IDENTIFIER, "Expected field name")
+            source_fields.append(field_token.value)
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' after source fields")
+        self.consume(TokenType.SEMICOLON, "Expected ';' after destructuring assignment")
+        
+        return DestructuringStmt(target_vars=target_vars, source_expr=source_expr, source_fields=source_fields,
+                               line=start_token.line, column=start_token.column)
+    
+    # ============================================================================
+    # Expression parsing with precedence
+    # ============================================================================
+    
+    def parse_expression(self) -> Expression:
+        """Parse expression (lowest precedence)"""
+        return self.parse_assignment_expr()
+    
+    def parse_assignment_expr(self) -> Expression:
+        """Parse assignment expression"""
+        expr = self.parse_conditional_expr()
+        
+        if self.match_assignment_op():
+            op_token = self.advance()
+            op = self.token_to_assignment_op(op_token.type)
+            right = self.parse_assignment_expr()
+            
+            return AssignmentExpression(left=expr, operator=op, right=right,
+                                      line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def match_assignment_op(self) -> bool:
+        """Check if current token is an assignment operator"""
+        return self.match(
+            TokenType.ASSIGN, TokenType.PLUS_ASSIGN, TokenType.MINUS_ASSIGN,
+            TokenType.MULTIPLY_ASSIGN, TokenType.DIVIDE_ASSIGN, TokenType.MODULO_ASSIGN,
+            TokenType.POWER_ASSIGN, TokenType.AND_ASSIGN, TokenType.OR_ASSIGN,
+            TokenType.XOR_ASSIGN, TokenType.LEFT_SHIFT_ASSIGN, TokenType.RIGHT_SHIFT_ASSIGN,
+            TokenType.B_AND_ASSIGN, TokenType.B_NAND_ASSIGN, TokenType.B_OR_ASSIGN,
+            TokenType.B_NOR_ASSIGN, TokenType.B_XOR_ASSIGN, TokenType.B_NOT_ASSIGN
+        )
+    
+    def token_to_assignment_op(self, token_type: TokenType) -> AssignmentOperator:
+        """Convert token type to assignment operator"""
+        mapping = {
+            TokenType.ASSIGN: AssignmentOperator.ASSIGN,
+            TokenType.PLUS_ASSIGN: AssignmentOperator.PLUS_ASSIGN,
+            TokenType.MINUS_ASSIGN: AssignmentOperator.MINUS_ASSIGN,
+            TokenType.MULTIPLY_ASSIGN: AssignmentOperator.MULTIPLY_ASSIGN,
+            TokenType.DIVIDE_ASSIGN: AssignmentOperator.DIVIDE_ASSIGN,
+            TokenType.MODULO_ASSIGN: AssignmentOperator.MODULO_ASSIGN,
+            TokenType.POWER_ASSIGN: AssignmentOperator.POWER_ASSIGN,
+            TokenType.AND_ASSIGN: AssignmentOperator.AND_ASSIGN,
+            TokenType.OR_ASSIGN: AssignmentOperator.OR_ASSIGN,
+            TokenType.XOR_ASSIGN: AssignmentOperator.XOR_ASSIGN,
+            TokenType.LEFT_SHIFT_ASSIGN: AssignmentOperator.LEFT_SHIFT_ASSIGN,
+            TokenType.RIGHT_SHIFT_ASSIGN: AssignmentOperator.RIGHT_SHIFT_ASSIGN,
+            TokenType.B_AND_ASSIGN: AssignmentOperator.B_AND_ASSIGN,
+            TokenType.B_NAND_ASSIGN: AssignmentOperator.B_NAND_ASSIGN,
+            TokenType.B_OR_ASSIGN: AssignmentOperator.B_OR_ASSIGN,
+            TokenType.B_NOR_ASSIGN: AssignmentOperator.B_NOR_ASSIGN,
+            TokenType.B_XOR_ASSIGN: AssignmentOperator.B_XOR_ASSIGN,
+            TokenType.B_NOT_ASSIGN: AssignmentOperator.B_NOT_ASSIGN
+        }
+        return mapping.get(token_type, AssignmentOperator.ASSIGN)
+    
+    def parse_conditional_expr(self) -> Expression:
+        """Parse conditional expression (ternary)"""
+        expr = self.parse_logical_or_expr()
+        
+        if self.match(TokenType.QUESTION):
+            self.advance()
+            true_expr = self.parse_expression()
+            self.consume(TokenType.COLON, "Expected ':' in conditional expression")
+            false_expr = self.parse_conditional_expr()
+            
+            return ConditionalExpression(condition=expr, true_expr=true_expr, false_expr=false_expr,
+                                       line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_logical_or_expr(self) -> Expression:
+        """Parse logical OR expression"""
+        expr = self.parse_logical_and_expr()
+        
+        while self.match(TokenType.OR, TokenType.LOGICAL_OR, TokenType.LOGICAL_NOR):
+            op_token = self.advance()
+            right = self.parse_logical_and_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_logical_and_expr(self) -> Expression:
+        """Parse logical AND expression"""
+        expr = self.parse_bitwise_or_expr()
+        
+        while self.match(TokenType.AND, TokenType.LOGICAL_AND, TokenType.LOGICAL_NAND):
+            op_token = self.advance()
+            right = self.parse_bitwise_or_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_bitwise_or_expr(self) -> Expression:
+        """Parse bitwise OR expression"""
+        expr = self.parse_bitwise_xor_expr()
+        
+        while self.match(TokenType.BITWISE_OR, TokenType.BITWISE_B_OR, TokenType.BITWISE_B_NOR):
+            op_token = self.advance()
+            right = self.parse_bitwise_xor_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_bitwise_xor_expr(self) -> Expression:
+        """Parse bitwise XOR expression"""
+        expr = self.parse_bitwise_and_expr()
+        
+        while self.match(TokenType.BITWISE_XOR, TokenType.XOR, TokenType.BITWISE_B_XOR, 
+                        TokenType.BITWISE_B_XNOR):
+            op_token = self.advance()
+            right = self.parse_bitwise_and_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_bitwise_and_expr(self) -> Expression:
+        """Parse bitwise AND expression"""
+        expr = self.parse_identity_expr()
+        
+        while self.match(TokenType.BITWISE_AND, TokenType.BITWISE_B_AND, TokenType.BITWISE_B_NAND,
+                        TokenType.BITWISE_B_XAND, TokenType.BITWISE_B_XNAND):
+            op_token = self.advance()
+            right = self.parse_identity_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_identity_expr(self) -> Expression:
+        """Parse identity expression (is, not)"""
+        expr = self.parse_equality_expr()
+        
+        while self.match(TokenType.IS, TokenType.NOT):
+            op_token = self.advance()
+            right = self.parse_equality_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_equality_expr(self) -> Expression:
+        """Parse equality expression"""
+        expr = self.parse_relational_expr()
+        
+        while self.match(TokenType.EQUAL, TokenType.NOT_EQUAL):
+            op_token = self.advance()
+            right = self.parse_relational_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_relational_expr(self) -> Expression:
+        """Parse relational expression"""
+        expr = self.parse_shift_expr()
+        
+        while self.match(TokenType.LESS_THAN, TokenType.LESS_EQUAL, TokenType.GREATER_THAN,
+                        TokenType.GREATER_EQUAL, TokenType.IN):
+            op_token = self.advance()
+            right = self.parse_shift_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_shift_expr(self) -> Expression:
+        """Parse shift expression"""
+        expr = self.parse_additive_expr()
+        
+        while self.match(TokenType.LEFT_SHIFT, TokenType.RIGHT_SHIFT):
+            op_token = self.advance()
+            right = self.parse_additive_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_additive_expr(self) -> Expression:
+        """Parse additive expression"""
+        expr = self.parse_multiplicative_expr()
+        
+        while self.match(TokenType.PLUS, TokenType.MINUS):
+            op_token = self.advance()
+            right = self.parse_multiplicative_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_multiplicative_expr(self) -> Expression:
+        """Parse multiplicative expression"""
+        expr = self.parse_exponential_expr()
+        
+        while self.match(TokenType.MULTIPLY, TokenType.DIVIDE, TokenType.MODULO):
+            op_token = self.advance()
+            right = self.parse_exponential_expr()
+            op = self.token_to_binary_op(op_token.type)
+            expr = BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_exponential_expr(self) -> Expression:
+        """Parse exponential expression (right associative)"""
+        expr = self.parse_cast_expr()
+        
+        if self.match(TokenType.POWER):
+            op_token = self.advance()
+            right = self.parse_exponential_expr()  # Right associative
+            op = self.token_to_binary_op(op_token.type)
+            return BinaryExpression(left=expr, operator=op, right=right,
+                                  line=expr.line, column=expr.column)
+        
+        return expr
+    
+    def parse_cast_expr(self) -> Expression:
+        """Parse cast expression"""
+        if self.match(TokenType.LEFT_PAREN):
+            # Could be cast or parenthesized expression
+            saved_pos = self.current
+            try:
+                self.advance()  # consume '('
+                cast_type = self.parse_type()
+                self.consume(TokenType.RIGHT_PAREN, "Expected ')' after cast type")
+                expr = self.parse_cast_expr()
                 
-                if op == 'sizeof':
-                    return SizeofExpressionNode(token.location, operand)
-                elif op == 'typeof':
-                    return TypeofExpressionNode(token.location, operand)
-                else:  # alignof
-                    return AlignofExpressionNode(token.location, operand)
-            else:
-                operand = self.parse_unary_expression()
-                return UnaryOperatorNode(token.location, op, operand)
+                return CastExpression(type=cast_type, expression=expr,
+                                    line=cast_type.line, column=cast_type.column)
+            except ParseError:
+                # Not a cast, backtrack
+                self.current = saved_pos
         
-        return self.parse_postfix_expression()
+        return self.parse_unary_expr()
     
-    def parse_postfix_expression(self) -> ExpressionNode:
+    def parse_unary_expr(self) -> Expression:
+        """Parse unary expression"""
+        if self.match(TokenType.INCREMENT, TokenType.DECREMENT, TokenType.PLUS, TokenType.MINUS,
+                     TokenType.LOGICAL_NOT, TokenType.NOT, TokenType.BITWISE_NOT,
+                     TokenType.ADDRESS_OF, TokenType.MULTIPLY, TokenType.SIZEOF,
+                     TokenType.TYPEOF, TokenType.ALIGNOF):
+            op_token = self.advance()
+            operand = self.parse_unary_expr()
+            op = self.token_to_unary_op(op_token.type)
+            
+            return UnaryExpression(operator=op, operand=operand, is_postfix=False,
+                                 line=op_token.line, column=op_token.column)
+        
+        return self.parse_postfix_expr()
+    
+    def parse_postfix_expr(self) -> Expression:
         """Parse postfix expression"""
-        expr = self.parse_primary_expression()
+        expr = self.parse_primary_expr()
         
         while True:
-            token = self.current_token()
-            
-            if token.type == TokenType.LBRACKET:
+            if self.match(TokenType.LEFT_BRACKET):
                 # Array access
                 self.advance()
                 index = self.parse_expression()
-                self.consume(TokenType.RBRACKET)
-                expr = ArrayAccessNode(token.location, expr, index)
-            elif token.type == TokenType.DOT:
+                self.consume(TokenType.RIGHT_BRACKET, "Expected ']' after array index")
+                expr = ArrayAccess(array=expr, index=index, line=expr.line, column=expr.column)
+            
+            elif self.match(TokenType.LEFT_PAREN):
+                # Function call
+                self.advance()
+                arguments = []
+                if not self.match(TokenType.RIGHT_PAREN):
+                    arguments.append(self.parse_expression())
+                    while self.match(TokenType.COMMA):
+                        self.advance()
+                        arguments.append(self.parse_expression())
+                
+                self.consume(TokenType.RIGHT_PAREN, "Expected ')' after function arguments")
+                expr = FunctionCall(function=expr, arguments=arguments, line=expr.line, column=expr.column)
+            
+            elif self.match(TokenType.DOT):
                 # Member access
                 self.advance()
-                member = self.consume(TokenType.IDENTIFIER).value
-                expr = MemberAccessNode(token.location, expr, member)
-            elif token.type == TokenType.LPAREN:
-                # Function call
-                args, template_args = self.parse_call_arguments()
-                expr = CallExpressionNode(token.location, expr, args, template_args)
-            elif token.type in (TokenType.INCREMENT, TokenType.DECREMENT):
-                # Postfix increment/decrement
-                op = token.value
+                member_token = self.consume(TokenType.IDENTIFIER, "Expected member name after '.'")
+                expr = MemberAccess(object=expr, member=member_token.value, line=expr.line, column=expr.column)
+            
+            elif self.match(TokenType.SCOPE):
+                # Scope access
                 self.advance()
-                expr = UnaryOperatorNode(token.location, op, expr, is_postfix=True)
+                member_token = self.consume(TokenType.IDENTIFIER, "Expected member name after '::'")
+                expr = ScopeAccess(scope=expr, member=member_token.value, line=expr.line, column=expr.column)
+            
+            elif self.match(TokenType.INCREMENT, TokenType.DECREMENT):
+                # Postfix increment/decrement
+                op_token = self.advance()
+                op = self.token_to_unary_op(op_token.type)
+                expr = UnaryExpression(operator=op, operand=expr, is_postfix=True,
+                                     line=expr.line, column=expr.column)
+            
             else:
                 break
         
         return expr
     
-    def parse_primary_expression(self) -> ExpressionNode:
+    def parse_primary_expr(self) -> Expression:
         """Parse primary expression"""
-        token = self.current_token()
+        current = self.current_token()
+        if not current:
+            raise ParseError("Unexpected end of input")
         
-        if token.type == TokenType.INTEGER:
-            self.advance()
-            return IntegerLiteralNode(token.location, int(token.value))
-        elif token.type == TokenType.FLOAT:
-            self.advance()
-            return FloatLiteralNode(token.location, float(token.value))
-        elif token.type == TokenType.CHARACTER:
-            self.advance()
-            return CharLiteralNode(token.location, token.value)
-        elif token.type == TokenType.STRING:
-            self.advance()
-            return StringLiteralNode(token.location, token.value)
-        elif token.type == TokenType.BOOLEAN:
-            self.advance()
-            return BooleanLiteralNode(token.location, token.value == 'true')
-        elif token.type == TokenType.INTERPOLATED_STRING:
-            return self.parse_interpolated_string()
-        elif token.type == TokenType.IDENTIFIER:
-            return self.parse_identifier()
-        elif token.type == TokenType.LPAREN:
-            # Parenthesized expression or cast
-            self.advance()
-            if self.is_type_start():
-                # Type cast
-                target_type = self.parse_type()
-                self.consume(TokenType.RPAREN)
-                expression = self.parse_unary_expression()
-                return CastExpressionNode(token.location, target_type, expression)
+        # Literals
+        if self.match(TokenType.INTEGER):
+            token = self.advance()
+            radix = 10
+            if token.value.startswith('0x'):
+                radix = 16
+            elif token.value.startswith('0b'):
+                radix = 2
+            return IntegerLiteral(value=token.value, radix=radix, line=token.line, column=token.column)
+        
+        elif self.match(TokenType.FLOAT):
+            token = self.advance()
+            return FloatLiteral(value=token.value, line=token.line, column=token.column)
+        
+        elif self.match(TokenType.CHAR):
+            token = self.advance()
+            return CharacterLiteral(value=token.value, line=token.line, column=token.column)
+        
+        elif self.match(TokenType.STRING):
+            token = self.advance()
+            return StringLiteral(value=token.value, line=token.line, column=token.column)
+        
+        elif self.match(TokenType.BOOLEAN):
+            token = self.advance()
+            return BooleanLiteral(value=token.value == 'true', line=token.line, column=token.column)
+        
+        # String interpolation
+        elif self.match(TokenType.I_STRING):
+            return self.parse_i_string()
+        
+        elif self.match(TokenType.F_STRING):
+            token = self.advance()
+            return FStringLiteral(content=token.value, line=token.line, column=token.column)
+        
+        # Array literal
+        elif self.match(TokenType.LEFT_BRACKET):
+            return self.parse_array_literal_or_comprehension()
+        
+        # Struct initializer
+        elif self.match(TokenType.LEFT_BRACE):
+            return self.parse_struct_initializer()
+        
+        # Parenthesized expression
+        elif self.match(TokenType.LEFT_PAREN):
+            # Check for function pointer call
+            if self.is_function_pointer_call():
+                return self.parse_function_pointer_call()
             else:
-                # Parenthesized expression
+                self.advance()
                 expr = self.parse_expression()
-                self.consume(TokenType.RPAREN)
+                self.consume(TokenType.RIGHT_PAREN, "Expected ')' after expression")
                 return expr
-        elif token.type == TokenType.LBRACKET:
-            # Array comprehension or array literal
-            return self.parse_array_comprehension()
-        else:
-            raise ParseError(f"Unexpected token in expression: {token.value}", token.location, token)
-    
-    def parse_interpolated_string(self) -> InterpolatedStringNode:
-        """Parse interpolated string"""
-        token = self.advance()
-        # Extract template and expressions from interpolated string
-        # This is a simplified implementation
-        template = token.value
-        expressions = []  # TODO: Parse embedded expressions
-        return InterpolatedStringNode(token.location, template, expressions)
-    
-    def parse_identifier(self) -> IdentifierNode:
-        """Parse identifier with possible namespace path"""
-        location = self.current_token().location
         
-        namespace_path = []
-        name = self.advance().value
+        # Keywords
+        elif self.match(TokenType.THIS):
+            self.advance()
+            return ThisExpression(line=current.line, column=current.column)
+        
+        elif self.match(TokenType.SUPER):
+            self.advance()
+            return SuperExpression(line=current.line, column=current.column)
+        
+        elif self.match(TokenType.VIRTUAL):
+            return self.parse_virtual_qualified_name()
+        
+        # Range expression
+        elif self.is_range_expression():
+            return self.parse_range_expression()
+        
+        # Identifier or qualified name
+        elif self.match(TokenType.IDENTIFIER):
+            return self.parse_identifier_or_qualified_name()
+        
+        else:
+            raise ParseError(f"Unexpected token: {current.type.name}", current)
+    
+    def parse_i_string(self) -> IStringLiteral:
+        """Parse i-string interpolation"""
+        token = self.advance()
+        
+        # Parse the i-string format: i"template":{expr1;expr2;...}
+        # This is simplified - would need more complex parsing for full support
+        content = token.value
+        
+        # Extract template and expressions (simplified)
+        template = ""
+        expressions = []
+        
+        # This would need proper parsing of the i-string format
+        # For now, return basic structure
+        return IStringLiteral(template=template, expressions=expressions,
+                            line=token.line, column=token.column)
+    
+    def parse_array_literal_or_comprehension(self) -> Expression:
+        """Parse array literal or comprehension"""
+        start_token = self.advance()  # consume '['
+        
+        if self.match(TokenType.RIGHT_BRACKET):
+            # Empty array
+            self.advance()
+            return ArrayLiteral(elements=[], line=start_token.line, column=start_token.column)
+        
+        # Parse first element/expression
+        first_expr = self.parse_expression()
+        
+        # Check for comprehension
+        if self.match(TokenType.FOR):
+            # Array comprehension
+            self.advance()
+            self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'for' in comprehension")
+            
+            var_token = self.consume(TokenType.IDENTIFIER, "Expected variable name")
+            variable = var_token.value
+            
+            self.consume(TokenType.IN, "Expected 'in' in comprehension")
+            iterable = self.parse_expression()
+            
+            self.consume(TokenType.RIGHT_PAREN, "Expected ')' after comprehension iterator")
+            
+            condition = None
+            if self.match(TokenType.IF):
+                self.advance()
+                self.consume(TokenType.LEFT_PAREN, "Expected '(' after 'if' in comprehension")
+                condition = self.parse_expression()
+                self.consume(TokenType.RIGHT_PAREN, "Expected ')' after comprehension condition")
+            
+            self.consume(TokenType.RIGHT_BRACKET, "Expected ']' to end comprehension")
+            
+            return ArrayComprehension(expression=first_expr, variable=variable, iterable=iterable,
+                                    condition=condition, line=start_token.line, column=start_token.column)
+        
+        else:
+            # Array literal
+            elements = [first_expr]
+            
+            while self.match(TokenType.COMMA):
+                self.advance()
+                if self.match(TokenType.RIGHT_BRACKET):
+                    break
+                elements.append(self.parse_expression())
+            
+            self.consume(TokenType.RIGHT_BRACKET, "Expected ']' to end array literal")
+            
+            return ArrayLiteral(elements=elements, line=start_token.line, column=start_token.column)
+    
+    def parse_struct_initializer(self) -> StructInitializer:
+        """Parse struct initializer"""
+        start_token = self.advance()  # consume '{'
+        
+        items = []
+        
+        if not self.match(TokenType.RIGHT_BRACE):
+            items.append(self.parse_struct_init_item())
+            
+            while self.match(TokenType.COMMA):
+                self.advance()
+                if self.match(TokenType.RIGHT_BRACE):
+                    break
+                items.append(self.parse_struct_init_item())
+        
+        self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end struct initializer")
+        
+        return StructInitializer(items=items, line=start_token.line, column=start_token.column)
+    
+    def parse_struct_init_item(self) -> StructInitItem:
+        """Parse struct initialization item"""
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected field name")
+        name = name_token.value
+        
+        value = None
+        if self.match(TokenType.ASSIGN):
+            self.advance()
+            value = self.parse_expression()
+        
+        return StructInitItem(name=name, value=value, line=name_token.line, column=name_token.column)
+    
+    def parse_array_initializer(self) -> ArrayInitializer:
+        """Parse array initializer"""
+        if self.match(TokenType.LEFT_BRACKET):
+            # Array-style initializer
+            start_token = self.advance()
+            
+            elements = []
+            if not self.match(TokenType.RIGHT_BRACKET):
+                elements.append(self.parse_expression())
+                while self.match(TokenType.COMMA):
+                    self.advance()
+                    if self.match(TokenType.RIGHT_BRACKET):
+                        break
+                    elements.append(self.parse_expression())
+            
+            self.consume(TokenType.RIGHT_BRACKET, "Expected ']' to end array initializer")
+            
+            return ArrayInitializer(elements=elements, is_struct_style=False,
+                                  line=start_token.line, column=start_token.column)
+        
+        elif self.match(TokenType.LEFT_BRACE):
+            # Struct-style initializer
+            start_token = self.advance()
+            
+            struct_items = []
+            if not self.match(TokenType.RIGHT_BRACE):
+                struct_items.append(self.parse_struct_init_item())
+                while self.match(TokenType.COMMA):
+                    self.advance()
+                    if self.match(TokenType.RIGHT_BRACE):
+                        break
+                    struct_items.append(self.parse_struct_init_item())
+            
+            self.consume(TokenType.RIGHT_BRACE, "Expected '}' to end struct initializer")
+            
+            return ArrayInitializer(struct_items=struct_items, is_struct_style=True,
+                                  line=start_token.line, column=start_token.column)
+        
+        else:
+            raise ParseError("Expected '[' or '{' for array initializer")
+    
+    def is_function_pointer_call(self) -> bool:
+        """Check if current position is a function pointer call"""
+        return (self.match(TokenType.LEFT_PAREN) and 
+                self.peek_token() and self.peek_token().type == TokenType.MULTIPLY)
+    
+    def parse_function_pointer_call(self) -> FunctionPointerCall:
+        """Parse function pointer call (*ptr)(args)"""
+        start_token = self.advance()  # consume '('
+        self.consume(TokenType.MULTIPLY, "Expected '*' in function pointer call")
+        
+        pointer = self.parse_expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after function pointer")
+        self.consume(TokenType.LEFT_PAREN, "Expected '(' for function arguments")
+        
+        arguments = []
+        if not self.match(TokenType.RIGHT_PAREN):
+            arguments.append(self.parse_expression())
+            while self.match(TokenType.COMMA):
+                self.advance()
+                arguments.append(self.parse_expression())
+        
+        self.consume(TokenType.RIGHT_PAREN, "Expected ')' after function arguments")
+        
+        return FunctionPointerCall(pointer=pointer, arguments=arguments,
+                                 line=start_token.line, column=start_token.column)
+    
+    def parse_virtual_qualified_name(self) -> VirtualQualifiedName:
+        """Parse virtual::qualified_name"""
+        start_token = self.advance()  # consume 'virtual'
+        self.consume(TokenType.SCOPE, "Expected '::' after 'virtual'")
+        
+        name = self.parse_qualified_name()
+        
+        return VirtualQualifiedName(name=name, line=start_token.line, column=start_token.column)
+    
+    def is_range_expression(self) -> bool:
+        """Check if current position starts a range expression"""
+        saved_pos = self.current
+        try:
+            self.parse_shift_expr()  # Parse left side
+            if self.match(TokenType.RANGE):
+                return True
+            return False
+        except:
+            return False
+        finally:
+            self.current = saved_pos
+    
+    def parse_range_expression(self) -> RangeExpression:
+        """Parse range expression (start..end)"""
+        start = self.parse_shift_expr()
+        self.consume(TokenType.RANGE, "Expected '..' in range expression")
+        end = self.parse_shift_expr()
+        
+        return RangeExpression(start=start, end=end, line=start.line, column=start.column)
+    
+    def parse_identifier_or_qualified_name(self) -> Expression:
+        """Parse identifier or qualified name"""
+        parts = []
+        
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected identifier")
+        parts.append(name_token.value)
+        
+        # Check for qualified name
+        while self.match(TokenType.SCOPE):
+            self.advance()
+            next_token = self.consume(TokenType.IDENTIFIER, "Expected identifier after '::'")
+            parts.append(next_token.value)
+        
+        if len(parts) == 1:
+            return Identifier(name=parts[0], line=name_token.line, column=name_token.column)
+        else:
+            return QualifiedName(parts=parts, line=name_token.line, column=name_token.column)
+    
+    def parse_qualified_name(self) -> QualifiedName:
+        """Parse qualified name"""
+        parts = []
+        
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected identifier")
+        parts.append(name_token.value)
         
         while self.match(TokenType.SCOPE):
             self.advance()
-            namespace_path.append(name)
-            name = self.consume(TokenType.IDENTIFIER).value
+            next_token = self.consume(TokenType.IDENTIFIER, "Expected identifier after '::'")
+            parts.append(next_token.value)
         
-        return IdentifierNode(location, name, namespace_path)
+        return QualifiedName(parts=parts, line=name_token.line, column=name_token.column)
     
-    def parse_call_arguments(self) -> Tuple[List[ExpressionNode], List[TypeNode]]:
-        """Parse function call arguments"""
-        self.consume(TokenType.LPAREN)
-        
-        args = []
-        template_args = []
-        
-        # Check for template arguments first
-        if self.match(TokenType.LESS_THAN):
-            self.advance()
-            self.push_context(ContextKind.TEMPLATE_INSTANTIATION)
-            
-            template_args.append(self.parse_type())
-            while self.match(TokenType.COMMA):
-                self.advance()
-                template_args.append(self.parse_type())
-            
-            self.consume(TokenType.GREATER_THAN)
-            self.pop_context()
-        
-        # Parse regular arguments
-        if not self.match(TokenType.RPAREN):
-            args.append(self.parse_expression())
-            
-            while self.match(TokenType.COMMA):
-                self.advance()
-                args.append(self.parse_expression())
-        
-        self.consume(TokenType.RPAREN)
-        return args, template_args
+    # ============================================================================
+    # Operator mapping utilities
+    # ============================================================================
     
-    def parse_array_comprehension(self) -> Union[ArrayComprehensionNode, ExpressionNode]:
-        """Parse array comprehension or array literal"""
-        location = self.current_token().location
-        self.consume(TokenType.LBRACKET)
-        
-        # For now, implement as simple array literal
-        # TODO: Implement full array comprehension parsing
-        expr = self.parse_expression()
-        self.consume(TokenType.RBRACKET)
-        
-        # Return as a simple expression for now
-        return expr
+    def token_to_binary_op(self, token_type: TokenType) -> BinaryOperator:
+        """Convert token type to binary operator"""
+        mapping = {
+            TokenType.PLUS: BinaryOperator.ADD,
+            TokenType.MINUS: BinaryOperator.SUBTRACT,
+            TokenType.MULTIPLY: BinaryOperator.MULTIPLY,
+            TokenType.DIVIDE: BinaryOperator.DIVIDE,
+            TokenType.MODULO: BinaryOperator.MODULO,
+            TokenType.POWER: BinaryOperator.POWER,
+            TokenType.EQUAL: BinaryOperator.EQUAL,
+            TokenType.NOT_EQUAL: BinaryOperator.NOT_EQUAL,
+            TokenType.LESS_THAN: BinaryOperator.LESS_THAN,
+            TokenType.LESS_EQUAL: BinaryOperator.LESS_EQUAL,
+            TokenType.GREATER_THAN: BinaryOperator.GREATER_THAN,
+            TokenType.GREATER_EQUAL: BinaryOperator.GREATER_EQUAL,
+            TokenType.LOGICAL_AND: BinaryOperator.LOGICAL_AND,
+            TokenType.LOGICAL_OR: BinaryOperator.LOGICAL_OR,
+            TokenType.LOGICAL_NAND: BinaryOperator.LOGICAL_NAND,
+            TokenType.LOGICAL_NOR: BinaryOperator.LOGICAL_NOR,
+            TokenType.AND: BinaryOperator.AND_KEYWORD,
+            TokenType.OR: BinaryOperator.OR_KEYWORD,
+            TokenType.BITWISE_AND: BinaryOperator.BITWISE_AND,
+            TokenType.BITWISE_OR: BinaryOperator.BITWISE_OR,
+            TokenType.BITWISE_XOR: BinaryOperator.BITWISE_XOR,
+            TokenType.XOR: BinaryOperator.XOR_KEYWORD,
+            TokenType.BITWISE_B_AND: BinaryOperator.BITWISE_B_AND,
+            TokenType.BITWISE_B_NAND: BinaryOperator.BITWISE_B_NAND,
+            TokenType.BITWISE_B_OR: BinaryOperator.BITWISE_B_OR,
+            TokenType.BITWISE_B_NOR: BinaryOperator.BITWISE_B_NOR,
+            TokenType.BITWISE_B_XOR: BinaryOperator.BITWISE_B_XOR,
+            TokenType.BITWISE_B_XNOR: BinaryOperator.BITWISE_B_XNOR,
+            TokenType.BITWISE_B_XAND: BinaryOperator.BITWISE_B_XAND,
+            TokenType.BITWISE_B_XNAND: BinaryOperator.BITWISE_B_XNAND,
+            TokenType.LEFT_SHIFT: BinaryOperator.LEFT_SHIFT,
+            TokenType.RIGHT_SHIFT: BinaryOperator.RIGHT_SHIFT,
+            TokenType.IS: BinaryOperator.IS,
+            TokenType.NOT: BinaryOperator.NOT,
+            TokenType.IN: BinaryOperator.IN,
+            TokenType.RANGE: BinaryOperator.RANGE
+        }
+        return mapping.get(token_type, BinaryOperator.ADD)
     
-    def is_type_start(self) -> bool:
-        """Check if current token can start a type"""
-        if self.match_keyword('int') or self.match_keyword('float') or \
-           self.match_keyword('char') or self.match_keyword('bool') or \
-           self.match_keyword('void') or self.match_keyword('signed') or \
-           self.match_keyword('unsigned') or self.match_keyword('data') or \
-           self.match_keyword('const') or self.match_keyword('volatile'):
-            return True
-        
-        if self.match(TokenType.IDENTIFIER):
-            return True
-        
-        return False
-    
-    def parse(self) -> ModuleNode:
-        """Parse the token stream and return AST"""
-        try:
-            return self.parse_module()
-        except ParseError as e:
-            self.errors.append(e)
-            # Return partial AST with error nodes
-            location = self.current_token().location
-            module = ModuleNode(location, self.filename)
-            error_node = ErrorNode(e.location, e.message)
-            module.declarations.append(error_node)
-            return module
+    def token_to_unary_op(self, token_type: TokenType) -> UnaryOperator:
+        """Convert token type to unary operator"""
+        mapping = {
+            TokenType.PLUS: UnaryOperator.PLUS,
+            TokenType.MINUS: UnaryOperator.MINUS,
+            TokenType.LOGICAL_NOT: UnaryOperator.LOGICAL_NOT,
+            TokenType.NOT: UnaryOperator.NOT_KEYWORD,
+            TokenType.BITWISE_NOT: UnaryOperator.BITWISE_NOT,
+            TokenType.ADDRESS_OF: UnaryOperator.ADDRESS_OF,
+            TokenType.MULTIPLY: UnaryOperator.DEREFERENCE,
+            TokenType.INCREMENT: UnaryOperator.PRE_INCREMENT,
+            TokenType.DECREMENT: UnaryOperator.PRE_DECREMENT,
+            TokenType.SIZEOF: UnaryOperator.SIZEOF,
+            TokenType.TYPEOF: UnaryOperator.TYPEOF,
+            TokenType.ALIGNOF: UnaryOperator.ALIGNOF
+        }
+        return mapping.get(token_type, UnaryOperator.PLUS)
 
 
-def main():
-    """Run the parser on a Flux source file"""
-    if len(sys.argv) != 2:
-        print("Usage: python fparser.py <source_file.fx>")
-        print("Example: python fparser.py example.fx")
-        sys.exit(1)
-    
-    filename = sys.argv[1]
-    
+def create_parser(source_code: str) -> FluxParser:
+    """Create a parser from source code"""
+    lexer = FluxLexer(source_code)
+    tokens = lexer.tokenize()
+    return FluxParser(tokens)
+
+
+def parse_file(filename: str) -> Program:
+    """Parse a Flux file and return the AST"""
     try:
-        # Read the source file
-        with open(filename, 'r', encoding='utf-8') as file:
-            source_code = file.read()
+        with open(filename, 'r', encoding='utf-8') as f:
+            source_code = f.read()
     except FileNotFoundError:
-        print(f"Error: File '{filename}' not found.")
-        sys.exit(1)
+        raise ParseError(f"File '{filename}' not found")
     except IOError as e:
-        print(f"Error reading file '{filename}': {e}")
-        sys.exit(1)
+        raise ParseError(f"Error reading file '{filename}': {e}")
     
-    # Tokenize the source
-    lexer = FluxLexer(source_code, filename)
-    try:
-        tokens = lexer.tokenize()
-    except LexerError as e:
-        print(f"Lexer error in {filename}: {e}")
-        sys.exit(1)
+    parser = create_parser(source_code)
+    return parser.parse()
+
+
+def print_ast_tree(node: ASTNode, indent: int = 0, show_details: bool = False) -> None:
+    """Print AST in tree format"""
+    prefix = "  " * indent
+    node_name = type(node).__name__
     
-    # Parse the tokens
-    parser = FluxParser(tokens, filename)
-    parser.lexer = lexer  # For '>>' token splitting
+    if show_details:
+        details = []
+        if hasattr(node, 'name') and node.name:
+            details.append(f"name='{node.name}'")
+        if hasattr(node, 'value') and node.value is not None:
+            details.append(f"value='{node.value}'")
+        if hasattr(node, 'operator') and node.operator:
+            details.append(f"op={node.operator.value}")
+        if hasattr(node, 'type') and node.type:
+            details.append(f"type={type(node.type).__name__}")
+        
+        detail_str = f" ({', '.join(details)})" if details else ""
+        print(f"{prefix}{node_name}{detail_str}")
+    else:
+        print(f"{prefix}{node_name}")
     
-    try:
-        ast = parser.parse()
-        
-        if parser.errors:
-            print(f"=== Parse Errors in {filename} ===")
-            for error in parser.errors:
-                print(f"  {error}")
-            print()
-        
-        print(f"=== Parsing {filename} ===")
-        print(f"Successfully parsed into AST with {len(ast.declarations)} top-level declarations")
-        
-        # Print AST structure summary
-        print(f"\nAST Summary:")
-        print(f"  Imports: {len(ast.imports)}")
-        print(f"  Using declarations: {len(ast.using_declarations)}")
-        print(f"  Declarations: {len(ast.declarations)}")
-        
-        # Count declaration types
-        decl_counts = {}
-        for decl in ast.declarations:
-            decl_type = type(decl).__name__
-            decl_counts[decl_type] = decl_counts.get(decl_type, 0) + 1
-        
-        if decl_counts:
-            print(f"\nDeclaration type counts:")
-            for decl_type, count in sorted(decl_counts.items()):
-                print(f"  {decl_type}: {count}")
-        
-        if parser.errors:
-            print(f"\nParsing completed with {len(parser.errors)} errors.")
-            sys.exit(1)
-        else:
-            print(f"\nParsing completed successfully.")
+    # Print child nodes
+    for field_name, field_value in node.__dict__.items():
+        if field_name in ['line', 'column']:
+            continue
             
-    except Exception as e:
-        print(f"Unexpected error during parsing: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        if isinstance(field_value, ASTNode):
+            print(f"{prefix}  {field_name}:")
+            print_ast_tree(field_value, indent + 2, show_details)
+        elif isinstance(field_value, list):
+            non_ast_items = [item for item in field_value if not isinstance(item, ASTNode)]
+            ast_items = [item for item in field_value if isinstance(item, ASTNode)]
+            
+            if ast_items:
+                print(f"{prefix}  {field_name}: [{len(ast_items)} items]")
+                for i, item in enumerate(ast_items):
+                    print(f"{prefix}    [{i}]:")
+                    print_ast_tree(item, indent + 3, show_details)
+            elif non_ast_items:
+                print(f"{prefix}  {field_name}: {non_ast_items}")
+
+
+def count_ast_nodes(node: ASTNode) -> Dict[str, int]:
+    """Count different types of AST nodes"""
+    counts = {}
+    
+    def count_node(n: ASTNode):
+        node_type = type(n).__name__
+        counts[node_type] = counts.get(node_type, 0) + 1
+        
+        for field_name, field_value in n.__dict__.items():
+            if isinstance(field_value, ASTNode):
+                count_node(field_value)
+            elif isinstance(field_value, list):
+                for item in field_value:
+                    if isinstance(item, ASTNode):
+                        count_node(item)
+                    elif isinstance(item, tuple):
+                        for sub_item in item:
+                            if isinstance(sub_item, ASTNode):
+                                count_node(sub_item)
+    
+    count_node(node)
+    return counts
+
+
+def validate_ast_structure(program: Program) -> List[str]:
+    """Validate AST structure and return list of issues"""
+    from fast import ASTValidator
+    validator = ASTValidator()
+    return validator.validate(program)
 
 
 if __name__ == "__main__":
+    import argparse
+    
+    def main():
+        parser = argparse.ArgumentParser(description='Flux Language Parser (fparser.py)')
+        parser.add_argument('file', help='Flux source file to parse (.fx)')
+        parser.add_argument('-v', '--verbose', action='store_true',
+                          help='Show verbose parsing information')
+        parser.add_argument('-a', '--ast', action='store_true',
+                          help='Show AST tree structure')
+        parser.add_argument('-c', '--count', action='store_true',
+                          help='Count AST node types')
+        parser.add_argument('-d', '--details', action='store_true',
+                          help='Show detailed AST information (with -a)')
+        parser.add_argument('--validate', action='store_true',
+                          help='Validate AST structure')
+        
+        args = parser.parse_args()
+        
+        try:
+            if args.verbose:
+                print(f"Parsing file: {args.file}")
+                print("=" * 50)
+            
+            # Parse the file
+            program = parse_file(args.file)
+            
+            if args.verbose:
+                print("✓ Parsing completed successfully")
+                print(f"✓ Generated AST with {len(program.global_items)} global items")
+            
+            # Validate AST structure
+            if args.validate or args.verbose:
+                issues = validate_ast_structure(program)
+                if issues:
+                    print("\n⚠ AST Validation Issues:")
+                    for issue in issues:
+                        print(f"  - {issue}")
+                else:
+                    print("✓ AST validation passed")
+            
+            # Count nodes
+            if args.count or args.verbose:
+                node_counts = count_ast_nodes(program)
+                total_nodes = sum(node_counts.values())
+                
+                print(f"\n=== AST Node Summary ===")
+                print(f"Total nodes: {total_nodes}")
+                print(f"Node types: {len(node_counts)}")
+                print("\nNode type counts:")
+                for node_type, count in sorted(node_counts.items()):
+                    print(f"  {node_type:25} : {count:4}")
+            
+            # Show AST tree
+            if args.ast:
+                print(f"\n=== AST Tree Structure for {args.file} ===")
+                print_ast_tree(program, show_details=args.details)
+            
+            # Show global items summary
+            if args.verbose:
+                print(f"\n=== Global Items Summary ===")
+                item_types = {}
+                for item in program.global_items:
+                    item_type = type(item).__name__
+                    item_types[item_type] = item_types.get(item_type, 0) + 1
+                
+                for item_type, count in sorted(item_types.items()):
+                    print(f"  {item_type:25} : {count:4}")
+                
+                # Show function names
+                functions = [item for item in program.global_items if isinstance(item, FunctionDef)]
+                if functions:
+                    print(f"\nFunction definitions:")
+                    for func in functions:
+                        modifiers = [mod.value for mod in func.modifiers]
+                        mod_str = f" [{', '.join(modifiers)}]" if modifiers else ""
+                        template_str = f"<{', '.join(tp.name for tp in func.template_params)}>" if func.template_params else ""
+                        print(f"  {func.name}{template_str}{mod_str}")
+                
+                # Show object names
+                objects = [item for item in program.global_items if isinstance(item, ObjectDef)]
+                if objects:
+                    print(f"\nObject definitions:")
+                    for obj in objects:
+                        template_str = f"<{', '.join(tp.name for tp in obj.template_params)}>" if obj.template_params else ""
+                        inheritance_str = f" : {', '.join(inh.parts[-1] if hasattr(inh, 'parts') else str(inh) for inh in obj.inheritance)}" if obj.inheritance else ""
+                        fwd_str = " (forward)" if obj.is_forward_decl else ""
+                        print(f"  {obj.name}{template_str}{inheritance_str}{fwd_str}")
+                
+                # Show struct names
+                structs = [item for item in program.global_items if isinstance(item, StructDef)]
+                if structs:
+                    print(f"\nStruct definitions:")
+                    for struct in structs:
+                        template_str = f"<{', '.join(tp.name for tp in struct.template_params)}>" if struct.template_params else ""
+                        inheritance_str = f" : {', '.join(inh.parts[-1] if hasattr(inh, 'parts') else str(inh) for inh in struct.inheritance)}" if struct.inheritance else ""
+                        fwd_str = " (forward)" if struct.is_forward_decl else ""
+                        print(f"  {struct.name}{template_str}{inheritance_str}{fwd_str}")
+                
+                # Show namespace names
+                namespaces = [item for item in program.global_items if isinstance(item, NamespaceDef)]
+                if namespaces:
+                    print(f"\nNamespace definitions:")
+                    for ns in namespaces:
+                        print(f"  {ns.name} ({len(ns.members)} members)")
+        
+        except ParseError as e:
+            print(f"Parse Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Unexpected Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    
     main()

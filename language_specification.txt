@@ -1,0 +1,1033 @@
+Flux is a mix of C++, Zig, and Python, and has a slightly more strict syntax than C++ or Zig.
+
+It chooses clarity over brevity, and is consequently - and intentionally - verbose; in a good way.
+It uses a consistent mental model where all important constructs look similar, with no special cases to remember.
+If it's important, it gets braces, and if it's the end of a statement, or compound statement, or code block, it gets a semicolon.
+You will never (or rather should never) encounter a time when reading Flux code where you ask, "Where does this block end?"
+
+The frustration of having to think "What language should I use for this?" before even thinking about the actual problem is real.
+You want to think in terms of the solution, not the tool.
+I wanted a language that sits between Python's high level expressiveness and the low level control of C++ and Zig.
+
+Instead of:
+
+- "I need performance" → reach for C++/Zig
+- "I need to prototype quickly" → reach for Python
+- "I need bit manipulation" → reach for C/Zig
+- "I need memory safety" → reach for Rust
+
+You get:
+- "I want to solve this problem" → Write it in Flux.
+
+Flux gets its name from flux or solder paste used to clean in preparation for soldering,
+ie to perform electrical engineering. Programming in Flux is clearly good for your computer.
+
+Flux has a manual memory model. Memory management is up to the programmer.
+A Flux program must have a main() function, and must be defined in global scope.
+
+Hidden behavior is avoided at all costs, what you write is what happens, nothing is limited for your own good.
+Q: What if someone writes slow compile-time code?
+A: That's that specific programmer's problem.
+
+Q: What if someone corrupts memory?
+A: Don't do that.
+
+Q: What is someone writes dangerous assembly?
+A: Then it does dangerous things.
+
+Here's a Swiss Army chainsaw. Don't cut your leg off.
+
+
+**Function definition:**
+```
+def name (parameters) -> return_type
+{
+	return return_value;                            // A `return` statement must be found somewhere within a function body.
+};
+
+// Example function
+def myAdd(int x, int y) -> int
+{
+	return x + y;
+};
+
+// Overloading
+def myAdd(float x, float y) -> float
+{
+	return x + y;
+};
+```
+
+
+**Recursive function:**
+```
+def rsub(int x, int y) -> int
+{
+	if (x == 0 || y == 0) { return 0; };            // Return statement found somewhere in function body
+
+	rsub(--x,--y);
+};
+```
+
+
+**Function Templates:**
+```
+// Function templates
+def myMax<T>(T x, T y) -> T
+{
+    return (x > y) ? x : y;
+};
+// Usage
+int k = myMax<int>(5,10);                  // 10
+
+def someFunc<V,K,R>(V x, K y) -> R
+{
+	return (R)x*y;
+};
+// Usage
+char n = someFunc<int,int,char>(5,13);     // 65 == 'A'
+
+// Pointer to template function:
+def (*tp_myMax<T>)(T,T) -> T = @myMax<T>;
+// Usage
+(*tp_myMax<int>)(12,12);                   // 144
+
+// Volatile templates
+volatile def myVolatileFunc<T>(T x, T y) -> T {};
+```
+
+Template shadowing is allowed and there will be no warning for it. It is assumed you know what you are doing.
+Any inner T refers to the nearest outer T, if none exists and is not used in code somewhere, then and only then is it a compiler error because T won't exist.
+You do not need to use `super.T` as this means nothing to the compiler in this context, and will be an error.
+
+
+**Casting:**
+Casts are C-like, and have the same notation: (type)variable
+```
+signed data{32} i32;
+
+float x = 3.14;                  // 01000000010010001111010111000010b   binary representation of 3.14
+i32 y = (i32)x;                  // 01000000010010001111010111000010b   but now treated as an integer  1078523330 == 0x4048F5C2
+```
+
+
+**Namespaces:**
+Definition: `namespace myNamespace {};`
+Scope access: `myNamespace::myMember;`
+
+Namespace example:
+```
+namespace myNamespace
+{
+	def myFoo() -> void;
+};
+
+namespace myNamespace
+{
+	def myBar() -> void;        // namespace myNamespace now has myFoo() and myBar()
+};
+
+namespace myNamespace
+{
+	namespace myNestedNamespace
+	{
+		def myFooBar() -> void;
+	};
+};
+```
+
+Namespaces **MUST** be in global scope.
+Duplicate namespace definitions do not redefine the namespace, the members
+of both combine as if they were one namespace. This is so the standard
+library or any library can have a core namespace across multiple files.
+Namespaces are the only container that have this functionality.
+
+
+**Objects:**
+Prototype / forward declaration: `object myObj;`
+Definition: `object myObj {};`
+Instance: `myObj newObj();`
+Member access: `newObj.x`
+
+**Object Magic Methods:**
+`this` never needs to be a parameter as it is always local to its object.
+Meaning, you do not need to do `def __init(this, ...) -> this` which is the Python equivalent to `def __init__(self, ...):`, the 'self' or 'this' in Flux
+does not need to be a parameter like in Python.
+```
+__init()       -> this               Example: thisObj newObj();            // Constructor
+__exit()       -> void               Example: newObj.__exit();             // Destructor
+__expr()       -> // expression form Example: print(someObj);              // Result: expression evaluated and printed
+__has()        -> // reflection      Example: someObj.__has("__lte");      // Result: bool
+__cast()       -> // Define cast     Example: def __cast(weirdType wx) {}; // weirdType is the type this object is being cast to
+__eq()         -> // user-defined =  Example: someObj newObj = oldObj;     // Result: user-defined gets assigned to newObj
+__ee()         -> // user-defined ==
+__ne()         -> // user-defined !=
+__lte()        -> // user-defined <=
+__gte()        -> // user-defined >=
+__lt()         -> // user-defined <
+__gt()         -> // user-defined >
+__add()        -> // user-defined +
+__sub()        -> // user-defined -
+__inc()        -> // user-defined ++
+__dec()        -> // user-defined --
+__mul()        -> // user-defined *
+__div()        -> // user-defined /
+__iadd()       -> // user-defined +=
+__isub()       -> // user-defined -=
+__imul()       -> // user-defined *=
+__idiv()       -> // user-defined /=
+__mod()        -> // user-defined %
+__pow()        -> // user-defined ^
+__imod()       -> // user-defined %=
+__ipow()       -> // user-defined ^=
+__ls()         -> // user-defined (left-shift)
+__rs()         -> // user-defined (right-shift)
+__and()        -> // user-defined && / and
+__or()         -> // user-defined || / or
+__xor()        -> // user-defined ^^ / xor
+__nand()       -> // user-defined !&
+__nor()        -> // user-defined !|
+__xand()       -> // user-defined ^&
+__xnor()       -> // user-defined ^!|
+__xnand()      -> // user-defined ^!&
+// Operations starting with a b with operators starting with a ` are binary operators
+__band()       -> // user-defined `&
+__bor()        -> // user-defined `|
+__bxor()       -> // user-defined `^|
+__bnand()      -> // user-defined `!&
+__bnor()       -> // user-defined `!|
+__bxand()      -> // user-defined `^&
+__bxnor()      -> // user-defined `^!|
+__bxnand()     -> // user-defined `^!&
+__andeq()      -> // user-defined &=
+__oreq()       -> // user-defined |=
+__xoreq()      -> // user-defined ^^=
+__nandeq()     -> // user-defined !&=
+__noreq()      -> // user-defined !|=
+__xandeq()     -> // user-defined ^&=
+__xnoreq()     -> // user-defined ^!|=
+__xnandeq()    -> // user-defined ^!&=
+__bandeq()     -> // user-defined `&=
+__boreq()      -> // user-defined `|=
+__bxoreq()     -> // user-defined `^|=
+__bnandeq()    -> // user-defined `!&=
+__bnoreq()     -> // user-defined `!|=
+__bxandeq()    -> // user-defined `^&=
+__bxnoreq()    -> // user-defined `^!|=
+__bxnandeq()   -> // user-defined `^!&=
+```
+
+
+Objects and structs cannot be defined inside of a function, they must be within a namespace, another object, or global scope.
+This is to make functions easier to read.
+`__init` is always called on object instantiation.
+`__exit` is always called on object destruction, or called manually to destroy the object.
+
+
+Inheritance:
+```
+object XYZ;   // Forward declaration
+
+object myObj
+{
+	def __init() -> this
+	{
+		return this;
+	};
+
+	def __exit() -> void
+	{
+		return void;
+	};
+};
+
+object anotherObj : myObj, XYZ             // Can perform multiple inheritance
+{
+	def __init() -> this
+	{
+		this newObj(10,2);
+		return this;
+	};
+
+	def __exit() -> void
+	{
+		return void;
+	};
+};
+
+object obj1 : anotherObj, myObj
+{
+	// __init() is not defined in this object
+	// We inherit the __init() from anotherObj (first in the inheritance list)
+	// If we want to inherit __init() from myObj, we put myObj first in the inheritance list.
+	// If __init() was defined here, obj1 uses that __init()
+
+	object obj2
+	{
+		super z1();                // Create instance of obj1
+		super.myObj z2();          // Fails, makes no sense, obj1 inherited properties of myObj
+		myObj z2();                // Succeeds, myObj is global
+	};
+
+	// Flux's version of C++'s `virtual` is used to fully qualify inherited names like so:
+	virtual::myObj z3();
+	// This is the only way `virtual` is used.
+};
+```
+
+
+**Object Templates:**
+```
+object myTemplateObj1<T>
+{
+	T member;
+
+	def __init(T x) -> this
+	{
+		this.member = x;
+		return this;
+	};
+};
+
+// You can even template magic methods
+object myTemplateObj2<T,K>
+{
+	T member
+	K val;
+
+	def __init<K>(T x) -> this
+	{
+		K myVal;
+		this.member = x;
+		this.val = myVal;
+		return this;
+	};
+};
+```
+
+
+**Structs:**
+Structs are packed and have no padding naturally. There is no way to change this.
+You set up padding with alignment in your data types.
+Members of structs are aligned and tightly packed according to their width unless the types have specific alignment.
+```
+struct myStruct
+{
+	myObject newObj1, newObj2;
+};
+
+struct newStruct
+{
+	myStruct xStruct;              // structs can contain structs
+};
+
+// You can even do struct templates
+struct myTstruct<T>
+{
+	T x, y;
+};
+
+struct myStruct1
+{
+    unsigned data {8} status;
+    unsigned data {32} address;
+};  // This struct is exactly 40 bits wide
+
+struct myStruct2
+{
+    unsigned data {8:16} status;
+    unsigned data {32:8} address;
+};                                  // This struct is exactly 48 bits wide because we specified alignment introducing padding
+
+// Structs also support inheritance
+struct myStruct3 : myStruct2        // or multiple separated by a comma
+{
+	unsigned data{8} timestamp;
+};
+```
+
+Structs are non-executable, meaning they are evaluated in-line for member contents but placing a function call like `myFunc();` on its own line will not call the function. Due to this, calling `myStruct.myFunc();` is invalid because that syntax would imply `myStruct` has a function definition inside.
+Structs cannot contain function definitions, or object definitions, or anonymous blocks because structs are data-only with no behavior.
+Objects are functional with behavior and are executable.
+Structs cannot contain objects, but objects can contain structs. This means struct template parameters cannot be objects.
+
+
+**Public/Private with Objects/Structs:**
+Object public and private works exactly like C++ public/private does.
+Struct public and private works by only allowing access to private sections by the parent object that "owns" the struct.
+The struct is still data where public members are visible anywhere, but its private members are only visible/modifiable by the object immediately containing it.
+```
+object Obj1
+{
+	object Obj2
+	{
+		struct myStruct
+		{
+			public
+			{
+				int x = 10;
+			};
+
+			private
+			{
+				int y = 100;
+			};
+		};
+
+		myStruct.y;                  // Safe - Access is in the same scope (immediate `this` Obj2, not `super` Obj1)
+	};
+
+	Obj2 myObject;
+
+	myObject.myStruct.y;             // ERROR - Need to use a public getter of Obj2
+};
+```
+
+
+Python uses f-strings, C++ uses a complicated format, Zig syntax is overly verbose.
+Flux uses "interpolated" strings and Python f-strings but without formatting, and tries to fix Zig's syntax a bit.
+The syntax in Flux would be: `i"{}{}{}":{x;y;z;};` for an i-string, and `f"{var1}{var2}";` for an f-string.
+The brackets are replaced with the results of the statements in order respective to the statements' position in the statement array in i-strings.
+
+
+**i-string Example:**
+```
+import "standard.fx";
+
+using standard::io;
+
+unsigned data{8}[] string;
+
+def bar() -> string { return "World"; };    // We get the basic string type from the types module
+print(i"Hello {} {}" : // whitespace is ignored
+              {
+              	bar() + "!";
+                "test";
+              }                             // Whitespace is ignored, this is just for positioning
+     );
+x = i"Bar {}":{bar()};                      // "Bar World!"
+
+string a = "Hello", b = "World!";
+string y = f"{a} {b}";                      // "Hello World!"
+```
+
+This allows you to write clean interpolated strings without strange formatting.
+
+
+Example 2:
+```
+import "standard.fx";
+
+using standard::io;
+
+unsigned data{8}[] string;
+
+def concat(string a, string b) -> string
+{
+    return a+b;           // array concatination is native so we really don't need this function
+};
+
+def main() -> int
+{
+    string h = "Hello ";
+    string w = "World";   // strings are arrays of data{8} (bytes), so we can do `w[3] == 'l'`
+    string x = "of ";
+    string y = "Coding";
+    print(i"{} {}":{concat(h,w);concat(x,y);});
+    return 0;
+};
+```
+Result: Hello World of Coding
+
+
+**Pointers:**
+```
+string a = "Test";
+string* pa = @a;
+*pa += "ing!";
+print(a);
+// Result: "Testing!"
+
+
+// Pointers to variables:
+int idata = 0;
+int *p_idata = @idata;
+
+*p_idata += 3;
+print(idata);  // 3
+
+
+// Pointers to functions:
+def add(int x, int y) -> int { return x + y; };
+def sub(int x, int y) -> int { return x - y; };
+
+// Function pointer declarations
+int (*p_add)(int,int) = @add;
+int (*p_sub)(int,int) = @sub;
+
+// Must dereference to call
+print((*p_add)(0,3)); // 3
+print((*p_sub)(5,2)); // 3
+
+// Array of function pointers
+int (*func_list[])(int,int) = {@add, @sub};
+(*func_list[0])(1,1); // 2
+
+// Pointers to objects, structs, arrays:
+object    myObj {};                 // Definition
+object* p_myObj = @myObj;           // Pointer
+
+struct    myStruct {};              // Definition
+struct* p_myStruct = @myStruct;     // Pointer
+
+int[]   i_array;                    // Definition
+int[]* pi_array = @i_array;         // Pointer
+
+
+// Pointer Arithmetic:
+import "standard.fx";
+
+using standard::io, standard::types;
+
+def main() -> int
+{
+    int[] arr = [10, 20, 30, 40, 50];
+    int[]* ptr = @arr;                         // ptr points to the first element of arr
+    
+    print(f"Value at ptr: {*ptr}");            // Output: 10
+    
+    ptr++;    // Increment ptr to point to the next element
+    print(f"Value at ptr: {*ptr}");            // Output: 20
+    
+    ptr += 2; // Increment ptr by 2 positions
+    print(f"Value at ptr: {*ptr}");            // Output: 40
+    
+    int *ptr2 = @arr[4]; // ptr2 points to the last element of arr
+    print(f"Elements between ptr and ptr2: {ptr2 - ptr}"); // Output: 1
+    
+    return 0;
+};
+```
+
+
+You can also use in-line assembly directly:
+
+```
+asm
+{
+mov eax, 1
+mov ebx, 0
+int 0x80
+};
+```
+
+
+**If/Else If/Else:**
+```
+if (condition1)
+{
+	doThis();
+}
+else if (condition2)
+{
+	doThat();
+}
+else
+{
+	doThings();
+};
+```
+
+
+**Import:**
+// The way import works is C-like, where its as if the source code of the file you're importing
+// takes the place of the import statement.
+//
+// However that does not mean you will have access to namespaces. You must "use" them with `using`
+// This is to prevent binary bloat after compilation
+```
+import "standard.fx";
+using standard::io, standard::types;          // Only use `io` and `types` namespaces from the `std` namespace.
+```
+
+
+**The `data` keyword:**
+//
+// Data is a variable bit width, primitive binary data type. Anything can cast to it,
+// and it can cast to any literal Flux type like char, int, or float.
+// It is intended to allow Flux programmers to build complex flexible custom types to fit their needs.
+// Data types use big-endian byte order by default.
+// Use bit manipulation operators to reorder as needed.
+//
+// When declaring an identifier with `data`, if it is not initialized it is treated as a new type.
+// `unsigned data{32} ui32;` is the C++ equivalent of `typedef unsigned int uint;`
+// However, if you assign anything to ui32, then ui32 becomes a variable of type `unsigned data{32}`
+// Meaning if you wanted to make a custom boolean type called `boolean` you would do:
+// `unsigned data{1} boolean; boolean myTrue = 1, myFalse = 0;`
+// In this context, boolean is a type. However if you did the following:
+// `unsigned data{1} boolean = 0;` Then boolean is a variable with type `unsigned data{1}`
+//
+// This allows the creation of primitive, non-OOP types that can construct other types.
+// `data` creates types, and types create types until an assignment occurs.
+//
+// For example, you can just keep inventing types until you assign a value like so:
+//
+// `unsigned data{16} dbyte;`
+// `dbyte xbyte;`         // No assignment, acts as type definition
+// `xbyte ybyte = 0xFF;`  // ybyte is now a variable because it is assigned the value 0xFF, not a type like xbyte
+//
+// For example, a non-OOP string is defined as:
+// `unsigned data{8}[] string;` - An array of unsigned bytes
+//
+// The raw syntax of a data declaration is:
+// `[signed|unsigned] data{bit-width:alignment} newtype;`
+// Therefore `unsigned data{13:16} mytype;` makes an unsigned 13-bit wide and 16 bit aligned type called mytype
+// If alignment isn't specified, it is packed tightly in memory.
+```
+import "standard.fx";
+
+unsigned data{8} byte;
+byte[] string;
+
+byte someByte = 0x41;                         // "A" but in binary
+string somestring = (string)((char)someByte); // "A"
+// Back to data
+somestring = (data)somestring;                // 01000001b
+string anotherstring = "B";                   // 01000010b
+
+somestring<<;                                 // 10000100b  // Bit-shift left  (binary doubling)
+somestring>>;                                 // 01000010b  // Bit-shift right (binary halving)
+somestring<<2;                                // 00001000b  // Information lost
+somestring>>2;                                // 00000010b
+
+newstring = somestring xor anotherstring;     // 01000000b  // XOR two or more values
+
+// This 0's out all the data and re-casts back to data from void.
+// an unspecified bit-width will adopt the width of the casted type, in this case 8 bits.
+data v = (void)somestring;                    // 00000000b
+sizeof(v);                                    // 8
+
+data{sizeof(somestring)} nulled = (void)somestring;
+
+Casting objects or structs to `data` results in a new data variable with bit width equal to the size of the object/struct's length.
+If the object took up 1KB of memory, the resulting `data` variable will be 1024 bits wide.
+You cannot do the reverse with objects or structs unless **ALL** of their member types are explicitly aligned, otherwise you risk corrupting your resulting object/struct.
+```
+
+Casting anything to `void` is the functional equivalent of freeing the memory occupied by that thing.
+If the width of the data type is 512 bits, that many bits will be freed.
+This is dangerous on purpose, the compiler will throw very verbose warnings at you.
+This goes for functions which return void.
+If you try to return data with the `return` statement and the function definition declares the return type as void, your data will be cast as void.
+It is expected the programmer understands this and knows what they're doing.
+
+
+**types.fx module:**
+// imported by standard.fx
+```
+// The standard types found in Flux that are not included keywords
+// This is an excerpt and not a complete list of all types defined in the standard library of types
+signed   data{32}  i32;
+unsigned data{32} ui32;
+signed   data{64}  i64;
+unsigned data{64} ui64;
+```
+
+
+**alignof, sizeof, typeof:**
+// typeof() operates both at compile time, and runtime.
+```
+unsigned data{8:8}[] string;
+signed data{13:16} strange;
+
+sizeof(string);   // 8
+alignof(string);  // 8
+typeof(string);   // unsigned data{8:8}*
+
+sizeof(strange);  // 13
+alignof(strange); // 16
+typeof(strange);  // signed data{13:16}
+```
+
+
+**Example of bare-metal register access:**
+```
+// Define a struct for a hardware register map
+struct GPIORegisters {
+    unsigned data {32} control;
+    unsigned data {32} status;
+    unsigned data {64} buffer;
+};
+
+// Map to a fixed hardware address
+volatile const GPIORegisters* GPIO = @0x40000000;
+
+def main() -> int {
+    GPIO.control = 0x1;  // Write to control register (aligned access)
+    asm { cli };         // Disable interrupts (assembly inline)
+    return 0;
+};
+```
+
+
+**The void keyword:**
+void is equivalent to Python's None as well as C++'s void and can be used in both contexts such as:
+```
+if (x is void) {...code...};    // If it's nothing, do something
+void x;
+if (x is !void) {...code...};   // If it's not nothing, do something
+```
+
+
+**Arrays:**
+```
+import "standard.fx" as std;
+using standard::io, standard::types;
+
+int[] ia_myArray = [3, 92, 14, 30, 6, 5, 11, 400];
+
+// int undefined_behavior = ia_myArray[10];          // Length is only 8, accessing index 11
+
+def len(int[] array) -> int
+{
+	return sizeof(array) / sizeof(int);
+};
+```
+
+**Array Comprehension:**
+```
+// Basic comprehension
+int[] squares = [x ^ 2 for (x in 1..10)];
+
+// With condition
+int[] evens = [x for (x in 1..20) if (x % 2 == 0)];
+
+// With type conversion
+float[] floats = [(float)x for (x in int_array)];
+```
+
+**Loops:**
+// Flux supports 2 styles of for loops, it uses Python style and C++ style
+```
+for (x in y)                     // Python style
+{
+	// ... code ...
+};
+
+for (x,y in z)                   // Python style
+{
+	// ... code ...
+};
+
+for (int c = 0; c < 10; c++)     // C++ style
+{
+	// ... code ...
+};
+
+do
+{
+	// ... code ...
+}
+while (x in y);
+
+while (condition)
+{
+	// ... code ...
+};
+```
+
+
+**Destructuring with auto:**
+```
+struct Point { int x; int y; };
+
+Point myPoint = {x = 10, y = 20};  // Struct initialization
+
+// auto followed by { indicates destructuring assignment.
+auto {t, m} = myPoint{x,y};        // int t=10, int m=20
+```
+
+
+**Error handling with try/throw/catch:**
+```
+unsigned data{8}[] string;  // Basic string implementation with no functionality (non-OOP string)
+
+object ERR
+{
+	string e;
+
+	def __init(string e) -> this
+	{
+		this.e = e;
+		return this;
+	};
+
+	def __expr() -> string
+	{
+		return this.e;
+	};
+};
+
+def myErr(int e) -> void
+{
+	switch (e)                                              // `switch` can perform pattern matching as well
+	{
+		case (0)
+		{
+			ERR myErrObj("Custom error from object myE");
+			throw(myErrObj);
+		}
+		default
+		{
+			throw("Default error from function myErr()");
+		};                                                  // Semicolons only follow the default case.
+	};
+};
+
+def thisFails() -> bool
+{
+	return true;
+};
+
+def main() -> int
+{
+	string error = "";
+	try
+	{
+		try
+		{
+			if(thisFails())
+			{
+				myErr(0);
+			};
+		}
+		catch (ERR e)                                     // Specifically catch our ERR object
+		{
+			string err = e.e;
+		}                                                 // No semicolon here because this is not the last catch in the try statement
+		catch (string x)                                  // Only catch a primitive string (unsigned data{8}[]) thrown
+		{
+		}                                                 // No semicolon here because this is not the last catch in the try statement
+		catch (auto x)
+		{
+		};                                                // Semicolon follows because it's the last catch in the try/catch sequence.
+	}
+	catch (string x)
+	{
+		error = x;  // "Thrown from nested try-catch block."
+	};
+
+	return 0;
+};
+```
+
+
+**Switching and Matching:**
+`switch` and `match` are two different concepts in Flux.
+`switch` is static, value-based, and non-flexible. Switch statements are for speed.
+`match` is dynamic, pattern-based, and very flexible. Match statements are for guarantees.
+Match statements are for convenience and are slow, but switch is more optimizable and faster.
+```
+switch (e)
+{
+	case (0)
+	{
+		// Do something
+	}
+	case (1)
+	{
+		// Another thing
+	}
+	default
+	{
+		// Something else
+	};
+};
+
+match (e)
+{
+	case (e in myList)
+	{
+		// Do something
+	}
+	case (e in 1..100)
+	{
+		// Another thing
+	}
+	default
+	{
+		// Something else
+	};
+};
+```
+
+
+**Compile-Time with `compt`:**
+```
+compt def tests() -> int
+{
+	// ... do tests
+};
+
+def main() -> int
+{
+	return 0;
+};
+```
+Anything marked with `compt` will be evaluated at compile time.
+If you mark a function as compile-time evaluated, you do not need to write `compt` anywhere in the function. Doing so will result in a compiler error.
+
+
+**Assertion:**
+`assert` automatically performs `throw` if the condition is false if it's inside a try/catch block,
+otherwise it automatically writes to standard error output.
+```
+def main() -> int
+{
+	int x = 0;
+	try
+	{
+		assert(x == 0, "Something is fatally wrong with your computer.");
+	}
+	catch (string e)
+	{
+		print(e);
+		return -1;
+	};
+	return x;
+};
+```
+
+
+**Macros:**
+The `def` keyword has two abilities, making functions, and making macros. Example:
+```
+def MY_CONST_MACRO 5;
+
+def myFunc() -> int
+{
+	if (MY_CONST_MACRO < 10)                         // Replaced with 5 at compile time
+	{
+		return -1;
+	};
+	return 0;
+};
+```
+It can also work to act like C++'s `#ifdef` and `#ifndef`, in Flux you do `if(def)` and `if(!def)` inside a compt block:
+```
+compt
+{
+	if (def(MY_CONST_MACRO))
+	{
+		// Do something ...
+	}
+	else if (!def(MY_CONST_MACRO))
+	{
+		// Something else ...
+	};
+
+	return 0;
+};
+```
+
+This means if you want pre-processor behavior, just wrap all your behavior inside an anonymous block marked `compt` anywhere in your code.
+This also means you can write entire compile-time programs, the Flux runtime is built into the compiler for this purpose.
+`compt` gives you more access to zero-cost abstractions and build time validation to catch errors before deployment.
+Bad comptime code will result in slow compile times, example writing an infinite loop in a `compt` block that doesn't resolve means it never compiles.
+If you want to write an entire Bitcoin miner in compile time, that's up to you. Your miner will run, but it will never compile unless a natural program end is reached.
+
+
+**External FFI:**
+Flux will support FFI with C to make adoption easier.
+```
+extern("C")
+{
+    // Memory management
+    def malloc(ui64 size) -> void*;
+    def free(void* ptr) -> void;
+    def memcpy(void* dest, void* src, ui64 n) -> void*;
+    def memset(void* s, int c, ui64 n) -> void*;
+    
+    // File I/O
+    def fopen(string filename, string mode) -> void*;
+    def fclose(void* stream) -> int;
+    def fread(void* ptr, ui64 size, ui64 count, void* stream) -> ui64;
+    def fwrite(void* ptr, ui64 size, ui64 count, void* stream) -> ui64;
+    
+    // String operations
+    def strlen(string s) -> ui64;
+    def strcpy(string dest, string src) -> string;
+    def strcmp(string s1, string s2) -> int;
+};
+```
+
+
+Keyword list:
+```
+alignof, and, asm, assert, auto, break, bool, case, catch, compt, const, continue, data,
+def, default, do, else, enum, extern, false, float, for, if, import, in, int, is, match,
+namespace, not, object, or, private, public, return, signed, sizeof, struct, super, switch,
+this, throw, true, try, typeof, unsigned, using, virtual, void, volatile, while, xor
+```
+
+
+Literal types:
+bool, int `5`, float `3.14`, char `"B"` == `66` - `65` == `'A'`, data, void, this, super, const, volatile
+
+================================================================================
+                        FLUX OPERATOR PRECEDENCE TABLE
+                              (Highest to Lowest)
+================================================================================
+
+Level | Operators                                                        | Assoc | Description
+------|------------------------------------------------------------------|-------|------------------
+  1   | () [] . ::                                                       | Left  | Primary expressions
+  2   | ++ -- (postfix)                                                  | Left  | Postfix inc/dec
+  3   | ++ -- (prefix) + - ! ~ @ * not sizeof typeof                     | Right | Unary operators
+  4   | (type)                                                           | Right | Type casting
+  5   | ^                                                                | Right | Exponentiation
+  6   | * / %                                                            | Left  | Multiplicative
+  7   | + -                                                              | Left  | Additive
+  8   | << >>                                                            | Left  | Bit shift
+  9   | ..                                                               | Left  | Range
+ 10   | < <= > >= in                                                     | Left  | Relational
+ 11   | == !=                                                            | Left  | Equality
+ 12   | is not                                                           | Left  | Identity
+ 13   | & `&& `!& `^& `^!&                                               | Left  | Bitwise AND variants
+ 14   | ^^ xor `^^ `^!|                                                  | Left  | Bitwise XOR variants
+ 15   | | `| `!|                                                         | Left  | Bitwise OR variants
+ 16   | and && !&                                                        | Left  | Logical AND/NAND
+ 17   | or || !|                                                         | Left  | Logical OR/NOR
+ 18   | ?:                                                               | Right | Conditional
+ 19   | = += -= *= /= %= ^= &= |= ^^= <<= >>= `&&= `!&= `|= `!|= `^= `!= | Right | Assignment
+ 20   | ,                                                                | Left  | Comma
+
+================================================================================
+
+## Operator Details
+
+### Bitwise Operators (` prefix)
+- `&& - Bitwise AND
+- `!& - Bitwise NAND  
+- `| - Bitwise OR
+- `!| - Bitwise NOR
+- `^^ - Bitwise XOR
+- `^!| - Bitwise XNOR
+- `^& - Bitwise XAND
+- `^!& - Bitwise XNAND
+
+### Logical Operators
+- && / and - Logical AND
+- !& - Logical NAND
+- || / or - Logical OR  
+- !| - Logical NOR
+- ^^ / xor - Logical XOR
+- ! / not - Logical NOT
+
+### Assignment Operators
+- = - Basic assignment
+- += -= *= /= %= ^= - Arithmetic assignment
+- <<= >>= - Shift assignment
+- `&&= `!&= `|= `!|= `^= `!= - Bitwise assignment
+
+================================================================================

@@ -1,1098 +1,1346 @@
+#!/usr/bin/env python3
 """
-Flux AST (fast.py) - Abstract Syntax Tree for the Flux Programming Language
+Flux Abstract Syntax Tree (AST) - fast.py
 
-This module provides a comprehensive AST implementation that supports all Flux language
-constructs and is designed for integration with the type checker and code generator.
+Complete AST node definitions for the Flux programming language.
+Represents all language constructs as defined in the language specification.
+
+Usage:
+    from fast import *
+    # Create AST nodes to represent Flux programs
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union, Any, Dict, Set
-from enum import Enum
 from dataclasses import dataclass, field
+from typing import List, Optional, Union, Any
+from enum import Enum, auto
 
-
-# ================================================================
-# SOURCE LOCATION TRACKING
-# ================================================================
-
-@dataclass
-class SourceLocation:
-    """Tracks source code location for error reporting and debugging"""
-    filename: str
-    line: int
-    column: int
-    end_line: int = 0
-    end_column: int = 0
-    
-    def __post_init__(self):
-        if self.end_line == 0:
-            self.end_line = self.line
-        if self.end_column == 0:
-            self.end_column = self.column
-
-
-# ================================================================
-# TYPE INFORMATION
-# ================================================================
-
-class TypeKind(Enum):
-    """Categories of types in Flux"""
-    PRIMITIVE = "primitive"
-    CUSTOM_DATA = "custom_data"
-    POINTER = "pointer"
-    ARRAY = "array"
-    FUNCTION = "function"
-    OBJECT = "object"
-    STRUCT = "struct"
-    TEMPLATE = "template"
-    TEMPLATE_PARAM = "template_param"
-    VOID = "void"
-    UNRESOLVED = "unresolved"
-
+# ============================================================================
+# Base AST Node
+# ============================================================================
 
 @dataclass
-class TypeInfo:
-    """Type information that gets populated by the type checker"""
-    kind: TypeKind = TypeKind.UNRESOLVED
-    name: str = ""
-    bit_width: Optional[int] = None
-    alignment: Optional[int] = None
-    is_signed: Optional[bool] = None
-    is_const: bool = False
-    is_volatile: bool = False
-    pointer_depth: int = 0
-    array_size: Optional[int] = None
-    template_args: List['TypeInfo'] = field(default_factory=list)
-    symbol_ref: Optional['Symbol'] = None
-
-
-# ================================================================
-# SYMBOL TABLE INTEGRATION
-# ================================================================
-
-class SymbolKind(Enum):
-    """Types of symbols in the symbol table"""
-    VARIABLE = "variable"
-    FUNCTION = "function"
-    TYPE = "type"
-    NAMESPACE = "namespace"
-    TEMPLATE = "template"
-    PARAMETER = "parameter"
-
-
-@dataclass
-class Symbol:
-    """Symbol table entry"""
-    name: str
-    kind: SymbolKind
-    type_info: Optional[TypeInfo] = None
-    scope_level: int = 0
-    is_global: bool = False
-    is_template: bool = False
-    ast_node: Optional['ASTNode'] = None
-
-
-# ================================================================
-# BASE AST NODE
-# ================================================================
-
-class ASTVisitor(ABC):
-    """Abstract visitor for AST traversal"""
-    
-    @abstractmethod
-    def visit(self, node: 'ASTNode') -> Any:
-        pass
-
-
 class ASTNode(ABC):
     """Base class for all AST nodes"""
-    
-    def __init__(self, location: SourceLocation):
-        self.location = location
-        self.type_info: Optional[TypeInfo] = None
-        self.symbol_ref: Optional[Symbol] = None
-        self.parent: Optional['ASTNode'] = None
-        self.children: List['ASTNode'] = []
-        self.metadata: Dict[str, Any] = {}
-    
-    @abstractmethod
-    def accept(self, visitor: ASTVisitor) -> Any:
-        """Accept a visitor for traversal"""
-        pass
-    
-    def add_child(self, child: 'ASTNode') -> None:
-        """Add a child node and set parent relationship"""
-        if child:
-            child.parent = self
-            self.children.append(child)
-    
-    def remove_child(self, child: 'ASTNode') -> None:
-        """Remove a child node"""
-        if child in self.children:
-            child.parent = None
-            self.children.remove(child)
-    
-    def get_root(self) -> 'ASTNode':
-        """Get the root node of the AST"""
-        current = self
-        while current.parent:
-            current = current.parent
-        return current
+    line: int = 0
+    column: int = 0
 
+# ============================================================================
+# Program Structure
+# ============================================================================
 
-# ================================================================
-# PROGRAM STRUCTURE NODES
-# ================================================================
+@dataclass
+class Program(ASTNode):
+    """Root node representing an entire Flux program"""
+    global_items: List['GlobalItem'] = field(default_factory=list)
 
-class ModuleNode(ASTNode):
-    """Root node representing a complete Flux source file"""
-    
-    def __init__(self, location: SourceLocation, filename: str):
-        super().__init__(location)
-        self.filename = filename
-        self.imports: List['ImportNode'] = []
-        self.using_declarations: List['UsingNode'] = []
-        self.declarations: List['DeclarationNode'] = []
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_module(self)
-
-
-class ImportNode(ASTNode):
-    """Import declaration: import "file.fx" as alias"""
-    
-    def __init__(self, location: SourceLocation, module_path: str, alias: Optional[str] = None):
-        super().__init__(location)
-        self.module_path = module_path
-        self.alias = alias
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_import(self)
-
-
-class UsingNode(ASTNode):
-    """Using declaration: using namespace::member"""
-    
-    def __init__(self, location: SourceLocation, namespace_path: List[str], members: List[str]):
-        super().__init__(location)
-        self.namespace_path = namespace_path
-        self.members = members  # Empty list means using entire namespace
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_using(self)
-
-
-class NamespaceNode(ASTNode):
-    """Namespace definition with nested declarations"""
-    
-    def __init__(self, location: SourceLocation, name: str):
-        super().__init__(location)
-        self.name = name
-        self.declarations: List['DeclarationNode'] = []
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_namespace(self)
-
-
-# ================================================================
-# TYPE NODES
-# ================================================================
-
-class TypeNode(ASTNode):
-    """Base class for type expressions"""
+@dataclass
+class GlobalItem(ASTNode):
+    """Base class for top-level program items"""
     pass
 
+# ============================================================================
+# Function Definitions
+# ============================================================================
 
-class PrimitiveTypeNode(TypeNode):
-    """Primitive types: int, float, char, bool, void"""
-    
-    def __init__(self, location: SourceLocation, type_name: str):
-        super().__init__(location)
-        self.type_name = type_name
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_primitive_type(self)
+class FunctionModifier(Enum):
+    VOLATILE = "volatile"
+    CONST = "const"
+    COMPT = "compt"
 
-
-class DataTypeNode(TypeNode):
-    """Custom data type: [signed|unsigned] data{width:alignment}"""
-    
-    def __init__(self, location: SourceLocation, is_signed: bool, width_expr: 'ExpressionNode', 
-                 alignment_expr: Optional['ExpressionNode'] = None):
-        super().__init__(location)
-        self.is_signed = is_signed
-        self.width_expr = width_expr
-        self.alignment_expr = alignment_expr
-        self.add_child(width_expr)
-        if alignment_expr:
-            self.add_child(alignment_expr)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_data_type(self)
-
-
-class PointerTypeNode(TypeNode):
-    """Pointer type: type*"""
-    
-    def __init__(self, location: SourceLocation, pointee_type: TypeNode, is_const: bool = False, 
-                 is_volatile: bool = False):
-        super().__init__(location)
-        self.pointee_type = pointee_type
-        self.is_const = is_const
-        self.is_volatile = is_volatile
-        self.add_child(pointee_type)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_pointer_type(self)
-
-
-class ArrayTypeNode(TypeNode):
-    """Array type: type[] or type[size]"""
-    
-    def __init__(self, location: SourceLocation, element_type: TypeNode, 
-                 size_expr: Optional['ExpressionNode'] = None):
-        super().__init__(location)
-        self.element_type = element_type
-        self.size_expr = size_expr
-        self.add_child(element_type)
-        if size_expr:
-            self.add_child(size_expr)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_array_type(self)
-
-
-class FunctionTypeNode(TypeNode):
-    """Function type: return_type (*)(param_types)"""
-    
-    def __init__(self, location: SourceLocation, return_type: TypeNode, 
-                 parameter_types: List[TypeNode]):
-        super().__init__(location)
-        self.return_type = return_type
-        self.parameter_types = parameter_types
-        self.add_child(return_type)
-        for param_type in parameter_types:
-            self.add_child(param_type)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_function_type(self)
-
-
-class TemplateTypeNode(TypeNode):
-    """Template type instantiation: type<args>"""
-    
-    def __init__(self, location: SourceLocation, base_type: TypeNode, 
-                 template_args: List[TypeNode]):
-        super().__init__(location)
-        self.base_type = base_type
-        self.template_args = template_args
-        self.add_child(base_type)
-        for arg in template_args:
-            self.add_child(arg)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_template_type(self)
-
-
-class NamedTypeNode(TypeNode):
-    """Named type reference: SomeType"""
-    
-    def __init__(self, location: SourceLocation, name: str, namespace_path: List[str] = None):
-        super().__init__(location)
-        self.name = name
-        self.namespace_path = namespace_path or []
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_named_type(self)
-
-
-# ================================================================
-# DECLARATION NODES
-# ================================================================
-
-class DeclarationNode(ASTNode):
-    """Base class for all declarations"""
-    pass
-
-
-class VariableDeclarationNode(DeclarationNode):
-    """Variable declaration: type name = initializer;"""
-    
-    def __init__(self, location: SourceLocation, var_type: TypeNode, name: str, 
-                 initializer: Optional['ExpressionNode'] = None, is_const: bool = False, 
-                 is_volatile: bool = False):
-        super().__init__(location)
-        self.var_type = var_type
-        self.name = name
-        self.initializer = initializer
-        self.is_const = is_const
-        self.is_volatile = is_volatile
-        self.add_child(var_type)
-        if initializer:
-            self.add_child(initializer)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_variable_declaration(self)
-
-
-class ParameterNode(ASTNode):
+@dataclass
+class Parameter(ASTNode):
     """Function parameter"""
-    
-    def __init__(self, location: SourceLocation, param_type: TypeNode, name: str, 
-                 default_value: Optional['ExpressionNode'] = None):
-        super().__init__(location)
-        self.param_type = param_type
-        self.name = name
-        self.default_value = default_value
-        self.add_child(param_type)
-        if default_value:
-            self.add_child(default_value)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_parameter(self)
+    name: str = ""
+    type: 'Type' = None
 
+@dataclass
+class TemplateParameter(ASTNode):
+    """Template parameter"""
+    name: str = ""
 
-class FunctionDeclarationNode(DeclarationNode):
-    """Function declaration: def name(params) -> return_type { body }"""
-    
-    def __init__(self, location: SourceLocation, name: str, parameters: List[ParameterNode], 
-                 return_type: TypeNode, body: Optional['BlockStatementNode'] = None, 
-                 is_template: bool = False, template_params: List[str] = None):
-        super().__init__(location)
-        self.name = name
-        self.parameters = parameters
-        self.return_type = return_type
-        self.body = body
-        self.is_template = is_template
-        self.template_params = template_params or []
-        self.is_magic_method = name.startswith('__')
-        
-        for param in parameters:
-            self.add_child(param)
-        self.add_child(return_type)
-        if body:
-            self.add_child(body)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_function_declaration(self)
+@dataclass
+class FunctionDef(GlobalItem):
+    """Function definition"""
+    name: str = ""
+    parameters: List[Parameter] = field(default_factory=list)
+    return_type: 'Type' = None
+    body: List['Statement'] = field(default_factory=list)
+    modifiers: List[FunctionModifier] = field(default_factory=list)
+    template_params: List[TemplateParameter] = field(default_factory=list)
 
+# ============================================================================
+# Object Definitions
+# ============================================================================
 
-class ObjectDeclarationNode(DeclarationNode):
-    """Object (class) declaration with inheritance"""
-    
-    def __init__(self, location: SourceLocation, name: str, base_classes: List[NamedTypeNode] = None,
-                 is_template: bool = False, template_params: List[str] = None):
-        super().__init__(location)
-        self.name = name
-        self.base_classes = base_classes or []
-        self.is_template = is_template
-        self.template_params = template_params or []
-        self.members: List[DeclarationNode] = []
-        
-        for base in self.base_classes:
-            self.add_child(base)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_object_declaration(self)
+class AccessSpecifier(Enum):
+    PUBLIC = "public"
+    PRIVATE = "private"
 
+@dataclass
+class ObjectMember(ASTNode):
+    """Base class for object members"""
+    access: Optional[AccessSpecifier] = None
 
-class StructDeclarationNode(DeclarationNode):
-    """Struct declaration (POD type)"""
-    
-    def __init__(self, location: SourceLocation, name: str):
-        super().__init__(location)
-        self.name = name
-        self.members: List[VariableDeclarationNode] = []
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_struct_declaration(self)
+@dataclass
+class ObjectFunctionDef(ObjectMember):
+    """Function definition inside an object"""
+    function: 'FunctionDef' = None
 
+@dataclass
+class ObjectVariableDecl(ObjectMember):
+    """Variable declaration inside an object"""
+    declaration: 'VariableDeclaration' = None
 
-class TemplateDeclarationNode(DeclarationNode):
-    """Template declaration wrapper"""
-    
-    def __init__(self, location: SourceLocation, template_params: List[str], 
-                 declaration: DeclarationNode):
-        super().__init__(location)
-        self.template_params = template_params
-        self.declaration = declaration
-        self.add_child(declaration)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_template_declaration(self)
+@dataclass
+class ObjectObjectDef(ObjectMember):
+    """Nested object definition"""
+    object_def: 'ObjectDef' = None
 
+@dataclass
+class ObjectStructDef(ObjectMember):
+    """Nested struct definition"""
+    struct_def: 'StructDef' = None
 
-# ================================================================
-# STATEMENT NODES
-# ================================================================
+@dataclass
+class ObjectDef(GlobalItem):
+    """Object definition"""
+    name: str = ""
+    members: List[ObjectMember] = field(default_factory=list)
+    inheritance: List['QualifiedName'] = field(default_factory=list)
+    template_params: List[TemplateParameter] = field(default_factory=list)
+    is_forward_decl: bool = False
 
-class StatementNode(ASTNode):
+# ============================================================================
+# Struct Definitions
+# ============================================================================
+
+@dataclass
+class StructMember(ASTNode):
+    """Struct member (variable declaration with optional access specifier)"""
+    declaration: 'VariableDeclaration' = None
+    access: Optional[AccessSpecifier] = None
+
+@dataclass
+class StructDef(GlobalItem):
+    """Struct definition"""
+    name: str = ""
+    members: List[StructMember] = field(default_factory=list)
+    inheritance: List['QualifiedName'] = field(default_factory=list)
+    template_params: List[TemplateParameter] = field(default_factory=list)
+    is_forward_decl: bool = False
+
+# ============================================================================
+# Namespace Definitions
+# ============================================================================
+
+@dataclass
+class NamespaceMember(ASTNode):
+    """Base class for namespace members"""
+    pass
+
+@dataclass
+class NamespaceFunctionDef(NamespaceMember):
+    """Function definition in namespace"""
+    function: 'FunctionDef' = None
+
+@dataclass
+class NamespaceObjectDef(NamespaceMember):
+    """Object definition in namespace"""
+    object_def: 'ObjectDef' = None
+
+@dataclass
+class NamespaceStructDef(NamespaceMember):
+    """Struct definition in namespace"""
+    struct_def: 'StructDef' = None
+
+@dataclass
+class NamespaceNamespaceDef(NamespaceMember):
+    """Nested namespace definition"""
+    namespace_def: 'NamespaceDef' = None
+
+@dataclass
+class NamespaceVariableDecl(NamespaceMember):
+    """Variable declaration in namespace"""
+    declaration: 'VariableDeclaration' = None
+
+@dataclass
+class NamespaceDef(GlobalItem):
+    """Namespace definition"""
+    name: str = ""
+    members: List[NamespaceMember] = field(default_factory=list)
+
+# ============================================================================
+# Import and Using Statements
+# ============================================================================
+
+@dataclass
+class ImportStmt(GlobalItem):
+    """Import statement"""
+    path: str = ""
+    alias: Optional[str] = None
+
+@dataclass
+class UsingStmt(GlobalItem):
+    """Using statement"""
+    names: List['QualifiedName'] = field(default_factory=list)
+
+# ============================================================================
+# External FFI
+# ============================================================================
+
+@dataclass
+class ExternDecl(ASTNode):
+    """External function declaration"""
+    name: str = ""
+    parameters: List[Parameter] = field(default_factory=list)
+    return_type: 'Type' = None
+
+@dataclass
+class ExternBlock(GlobalItem):
+    """External function block"""
+    language: str = ""
+    declarations: List[ExternDecl] = field(default_factory=list)
+
+# ============================================================================
+# Compile-time Blocks
+# ============================================================================
+
+@dataclass
+class ComptBlock(GlobalItem):
+    """Compile-time block"""
+    statements: List['Statement'] = field(default_factory=list)
+
+# ============================================================================
+# Macro Definitions
+# ============================================================================
+
+@dataclass
+class MacroDef(GlobalItem):
+    """Macro definition"""
+    name: str = ""
+    value: Optional['Expression'] = None
+
+# ============================================================================
+# Type System
+# ============================================================================
+
+@dataclass
+class Type(ASTNode):
+    """Base class for all types"""
+    pass
+
+class TypeQualifier(Enum):
+    VOLATILE = "volatile"
+    CONST = "const"
+
+class PrimitiveTypeKind(Enum):
+    INT = "int"
+    FLOAT = "float"
+    BOOL = "bool"
+    CHAR = "char"
+    VOID = "void"
+
+@dataclass
+class PrimitiveType(Type):
+    """Primitive type (int, float, bool, char, void)"""
+    kind: PrimitiveTypeKind = PrimitiveTypeKind.VOID
+    qualifiers: List[TypeQualifier] = field(default_factory=list)
+
+class DataSignedness(Enum):
+    SIGNED = "signed"
+    UNSIGNED = "unsigned"
+
+@dataclass
+class DataType(Type):
+    """Data type with bit width and optional alignment"""
+    bit_width: int = 0
+    alignment: Optional[int] = None
+    signedness: Optional[DataSignedness] = None
+    qualifiers: List[TypeQualifier] = field(default_factory=list)
+
+@dataclass
+class NamedType(Type):
+    """Named type (user-defined types, templates)"""
+    name: 'QualifiedName' = None
+    template_args: List[Union['Type', 'Expression']] = field(default_factory=list)
+    qualifiers: List[TypeQualifier] = field(default_factory=list)
+
+@dataclass
+class PointerType(Type):
+    """Pointer type"""
+    pointee_type: 'Type' = None
+    qualifiers: List[TypeQualifier] = field(default_factory=list)
+
+@dataclass
+class ArrayType(Type):
+    """Array type"""
+    element_type: 'Type' = None
+    qualifiers: List[TypeQualifier] = field(default_factory=list)
+
+@dataclass
+class FunctionPointerType(Type):
+    """Function pointer type"""
+    name: str = ""
+    parameters: List[Parameter] = field(default_factory=list)
+    return_type: 'Type' = None
+    template_params: List[TemplateParameter] = field(default_factory=list)
+    qualifiers: List[TypeQualifier] = field(default_factory=list)
+
+# ============================================================================
+# Variable Declarations
+# ============================================================================
+
+@dataclass
+class VariableDeclarator(ASTNode):
+    """Base class for variable declarators"""
+    name: str = ""
+
+@dataclass
+class SimpleVariableDeclarator(VariableDeclarator):
+    """Simple variable declarator with optional initializer"""
+    initializer: Optional['Expression'] = None
+
+@dataclass
+class ArrayVariableDeclarator(VariableDeclarator):
+    """Array variable declarator"""
+    size: Optional['Expression'] = None
+    initializer: Optional['ArrayInitializer'] = None
+
+@dataclass
+class ObjectInstantiationDeclarator(VariableDeclarator):
+    """Object instantiation declarator"""
+    arguments: List['Expression'] = field(default_factory=list)
+
+@dataclass
+class VariableDeclaration(ASTNode):
+    """Variable declaration"""
+    type: 'Type' = None
+    declarators: List[VariableDeclarator] = field(default_factory=list)
+
+@dataclass
+class FunctionPointerDeclaration(ASTNode):
+    """Function pointer declaration"""
+    return_type: 'Type' = None
+    name: str = ""
+    parameters: List[Parameter] = field(default_factory=list)
+    template_params: List[TemplateParameter] = field(default_factory=list)
+    initializer: Optional['Expression'] = None
+    is_array: bool = False
+    array_initializer: Optional['ArrayInitializer'] = None
+
+# ============================================================================
+# Statements
+# ============================================================================
+
+@dataclass
+class Statement(ASTNode):
     """Base class for all statements"""
     pass
 
+@dataclass
+class ExpressionStmt(Statement):
+    """Expression statement"""
+    expression: Optional['Expression'] = None
 
-class ExpressionStatementNode(StatementNode):
-    """Statement containing a single expression"""
-    
-    def __init__(self, location: SourceLocation, expression: 'ExpressionNode'):
-        super().__init__(location)
-        self.expression = expression
-        self.add_child(expression)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_expression_statement(self)
+@dataclass
+class CompoundStmt(Statement):
+    """Compound statement (block)"""
+    statements: List['Statement'] = field(default_factory=list)
 
+@dataclass
+class IfStmt(Statement):
+    """If statement"""
+    condition: 'Expression' = None
+    then_stmt: 'Statement' = None
+    elif_parts: List[tuple['Expression', 'Statement']] = field(default_factory=list)
+    else_stmt: Optional['Statement'] = None
 
-class BlockStatementNode(StatementNode):
-    """Compound statement with local scope"""
-    
-    def __init__(self, location: SourceLocation):
-        super().__init__(location)
-        self.statements: List[StatementNode] = []
-    
-    def add_statement(self, stmt: StatementNode):
-        self.statements.append(stmt)
-        self.add_child(stmt)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_block_statement(self)
+@dataclass
+class WhileStmt(Statement):
+    """While statement"""
+    condition: 'Expression' = None
+    body: 'Statement' = None
 
+@dataclass
+class DoWhileStmt(Statement):
+    """Do-while statement"""
+    body: 'Statement' = None
+    condition: 'Expression' = None
 
-class IfStatementNode(StatementNode):
-    """If-else statement"""
-    
-    def __init__(self, location: SourceLocation, condition: 'ExpressionNode', 
-                 then_stmt: StatementNode, else_stmt: Optional[StatementNode] = None):
-        super().__init__(location)
-        self.condition = condition
-        self.then_stmt = then_stmt
-        self.else_stmt = else_stmt
-        self.add_child(condition)
-        self.add_child(then_stmt)
-        if else_stmt:
-            self.add_child(else_stmt)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_if_statement(self)
+@dataclass
+class ForStmt(Statement):
+    """Base class for for statements"""
+    pass
 
+@dataclass
+class CStyleForStmt(ForStmt):
+    """C-style for statement"""
+    init: Optional['Expression'] = None
+    condition: Optional['Expression'] = None
+    update: Optional['Expression'] = None
+    body: 'Statement' = None
 
-class WhileStatementNode(StatementNode):
-    """While loop"""
-    
-    def __init__(self, location: SourceLocation, condition: 'ExpressionNode', body: StatementNode):
-        super().__init__(location)
-        self.condition = condition
-        self.body = body
-        self.add_child(condition)
-        self.add_child(body)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_while_statement(self)
+@dataclass
+class PythonStyleForStmt(ForStmt):
+    """Python-style for statement"""
+    variables: List[str] = field(default_factory=list)
+    iterable: 'Expression' = None
+    body: 'Statement' = None
 
+@dataclass
+class SwitchCase(ASTNode):
+    """Switch case"""
+    value: 'Expression' = None
+    body: 'Statement' = None
 
-class DoWhileStatementNode(StatementNode):
-    """Do-while loop"""
-    
-    def __init__(self, location: SourceLocation, body: StatementNode, condition: 'ExpressionNode'):
-        super().__init__(location)
-        self.body = body
-        self.condition = condition
-        self.add_child(body)
-        self.add_child(condition)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_do_while_statement(self)
+@dataclass
+class MatchCase(ASTNode):
+    """Match case with pattern"""
+    pattern: 'Pattern' = None
+    body: 'Statement' = None
 
+@dataclass
+class DefaultCase(ASTNode):
+    """Default case for switch/match"""
+    body: 'Statement' = None
 
-class ForStatementNode(StatementNode):
-    """C-style for loop"""
-    
-    def __init__(self, location: SourceLocation, init: Optional[StatementNode], 
-                 condition: Optional['ExpressionNode'], update: Optional['ExpressionNode'], 
-                 body: StatementNode):
-        super().__init__(location)
-        self.init = init
-        self.condition = condition
-        self.update = update
-        self.body = body
-        if init:
-            self.add_child(init)
-        if condition:
-            self.add_child(condition)
-        if update:
-            self.add_child(update)
-        self.add_child(body)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_for_statement(self)
-
-
-class RangeForStatementNode(StatementNode):
-    """Range-based for loop: for (x in y)"""
-    
-    def __init__(self, location: SourceLocation, variable: str, iterable: 'ExpressionNode', 
-                 body: StatementNode):
-        super().__init__(location)
-        self.variable = variable
-        self.iterable = iterable
-        self.body = body
-        self.add_child(iterable)
-        self.add_child(body)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_range_for_statement(self)
-
-
-class ReturnStatementNode(StatementNode):
-    """Return statement"""
-    
-    def __init__(self, location: SourceLocation, value: Optional['ExpressionNode'] = None):
-        super().__init__(location)
-        self.value = value
-        if value:
-            self.add_child(value)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_return_statement(self)
-
-
-class BreakStatementNode(StatementNode):
-    """Break statement"""
-    
-    def __init__(self, location: SourceLocation):
-        super().__init__(location)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_break_statement(self)
-
-
-class ContinueStatementNode(StatementNode):
-    """Continue statement"""
-    
-    def __init__(self, location: SourceLocation):
-        super().__init__(location)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_continue_statement(self)
-
-
-class ThrowStatementNode(StatementNode):
-    """Throw statement"""
-    
-    def __init__(self, location: SourceLocation, expression: 'ExpressionNode'):
-        super().__init__(location)
-        self.expression = expression
-        self.add_child(expression)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_throw_statement(self)
-
-
-class TryStatementNode(StatementNode):
-    """Try-catch statement"""
-    
-    def __init__(self, location: SourceLocation, try_block: BlockStatementNode, 
-                 catch_clauses: List['CatchClauseNode']):
-        super().__init__(location)
-        self.try_block = try_block
-        self.catch_clauses = catch_clauses
-        self.add_child(try_block)
-        for clause in catch_clauses:
-            self.add_child(clause)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_try_statement(self)
-
-
-class CatchClauseNode(ASTNode):
-    """Catch clause in try-catch"""
-    
-    def __init__(self, location: SourceLocation, exception_type: TypeNode, 
-                 exception_name: str, body: BlockStatementNode):
-        super().__init__(location)
-        self.exception_type = exception_type
-        self.exception_name = exception_name
-        self.body = body
-        self.add_child(exception_type)
-        self.add_child(body)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_catch_clause(self)
-
-
-class SwitchStatementNode(StatementNode):
+@dataclass
+class SwitchStmt(Statement):
     """Switch statement"""
-    
-    def __init__(self, location: SourceLocation, expression: 'ExpressionNode', 
-                 cases: List['CaseClauseNode'], default_case: Optional['DefaultClauseNode'] = None):
-        super().__init__(location)
-        self.expression = expression
-        self.cases = cases
-        self.default_case = default_case
-        self.add_child(expression)
-        for case in cases:
-            self.add_child(case)
-        if default_case:
-            self.add_child(default_case)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_switch_statement(self)
+    expression: 'Expression' = None
+    cases: List[SwitchCase] = field(default_factory=list)
+    default_case: Optional[DefaultCase] = None
 
+@dataclass
+class MatchStmt(Statement):
+    """Match statement"""
+    expression: 'Expression' = None
+    cases: List[MatchCase] = field(default_factory=list)
+    default_case: Optional[DefaultCase] = None
 
-class CaseClauseNode(ASTNode):
-    """Case clause in switch statement"""
-    
-    def __init__(self, location: SourceLocation, value: 'ExpressionNode', body: BlockStatementNode):
-        super().__init__(location)
-        self.value = value
-        self.body = body
-        self.add_child(value)
-        self.add_child(body)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_case_clause(self)
+@dataclass
+class CatchClause(ASTNode):
+    """Catch clause for try-catch"""
+    type: 'Type' = None
+    variable: str = ""
+    body: 'Statement' = None
 
+@dataclass
+class TryCatchStmt(Statement):
+    """Try-catch statement"""
+    try_body: 'Statement' = None
+    catch_clauses: List[CatchClause] = field(default_factory=list)
 
-class DefaultClauseNode(ASTNode):
-    """Default clause in switch statement"""
-    
-    def __init__(self, location: SourceLocation, body: BlockStatementNode):
-        super().__init__(location)
-        self.body = body
-        self.add_child(body)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_default_clause(self)
+@dataclass
+class ReturnStmt(Statement):
+    """Return statement"""
+    value: Optional['Expression'] = None
 
+@dataclass
+class BreakStmt(Statement):
+    """Break statement"""
+    pass
 
-class AssemblyStatementNode(StatementNode):
-    """Inline assembly block"""
-    
-    def __init__(self, location: SourceLocation, assembly_code: str):
-        super().__init__(location)
-        self.assembly_code = assembly_code
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_assembly_statement(self)
+@dataclass
+class ContinueStmt(Statement):
+    """Continue statement"""
+    pass
 
+@dataclass
+class ThrowStmt(Statement):
+    """Throw statement"""
+    expression: 'Expression' = None
 
-# ================================================================
-# EXPRESSION NODES
-# ================================================================
+@dataclass
+class AssertStmt(Statement):
+    """Assert statement"""
+    condition: 'Expression' = None
+    message: Optional['Expression'] = None
 
-class ExpressionNode(ASTNode):
+@dataclass
+class AsmStmt(Statement):
+    """Inline assembly statement"""
+    content: str = ""
+
+@dataclass
+class VariableDeclStmt(Statement):
+    """Variable declaration statement"""
+    declaration: 'VariableDeclaration' = None
+
+@dataclass
+class FunctionPointerDeclStmt(Statement):
+    """Function pointer declaration statement"""
+    declaration: 'FunctionPointerDeclaration' = None
+
+@dataclass
+class DestructuringStmt(Statement):
+    """Destructuring assignment statement"""
+    target_vars: List[str] = field(default_factory=list)
+    source_expr: 'Expression' = None
+    source_fields: List[str] = field(default_factory=list)
+
+# ============================================================================
+# Patterns (for match statements)
+# ============================================================================
+
+@dataclass
+class Pattern(ASTNode):
+    """Base class for patterns"""
+    pass
+
+@dataclass
+class InPattern(Pattern):
+    """Pattern: expression in expression"""
+    expr: 'Expression' = None
+    container: 'Expression' = None
+
+@dataclass
+class RangePattern(Pattern):
+    """Pattern: expression in range"""
+    expr: 'Expression' = None
+    range_expr: 'RangeExpression' = None
+
+@dataclass
+class SimplePattern(Pattern):
+    """Simple expression pattern"""
+    expression: 'Expression' = None
+
+# ============================================================================
+# Expressions
+# ============================================================================
+
+@dataclass
+class Expression(ASTNode):
     """Base class for all expressions"""
     pass
 
+# Literals
+@dataclass
+class IntegerLiteral(Expression):
+    """Integer literal"""
+    value: str = ""
+    radix: int = 10  # 10 for decimal, 16 for hex, 2 for binary
 
-class LiteralNode(ExpressionNode):
-    """Base class for literal values"""
+@dataclass
+class FloatLiteral(Expression):
+    """Float literal"""
+    value: str = ""
+
+@dataclass
+class CharacterLiteral(Expression):
+    """Character literal"""
+    value: str = ""
+
+@dataclass
+class StringLiteral(Expression):
+    """String literal"""
+    value: str = ""
+
+@dataclass
+class BooleanLiteral(Expression):
+    """Boolean literal"""
+    value: bool = False
+
+# Identifiers and names
+@dataclass
+class Identifier(Expression):
+    """Simple identifier"""
+    name: str = ""
+
+@dataclass
+class QualifiedName(Expression):
+    """Qualified name (namespace::name)"""
+    parts: List[str] = field(default_factory=list)
+
+@dataclass
+class ThisExpression(Expression):
+    """'this' keyword"""
     pass
 
+@dataclass
+class SuperExpression(Expression):
+    """'super' keyword"""
+    pass
 
-class IntegerLiteralNode(LiteralNode):
-    """Integer literal"""
+@dataclass
+class VirtualQualifiedName(Expression):
+    """virtual::qualified_name"""
+    name: 'QualifiedName' = None
+
+# Binary operators
+class BinaryOperator(Enum):
+    # Arithmetic
+    ADD = "+"
+    SUBTRACT = "-"
+    MULTIPLY = "*"
+    DIVIDE = "/"
+    MODULO = "%"
+    POWER = "^"
     
-    def __init__(self, location: SourceLocation, value: int):
-        super().__init__(location)
-        self.value = value
+    # Comparison
+    EQUAL = "=="
+    NOT_EQUAL = "!="
+    LESS_THAN = "<"
+    LESS_EQUAL = "<="
+    GREATER_THAN = ">"
+    GREATER_EQUAL = ">="
     
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_integer_literal(self)
-
-
-class FloatLiteralNode(LiteralNode):
-    """Float literal"""
+    # Logical
+    LOGICAL_AND = "&&"
+    LOGICAL_OR = "||"
+    LOGICAL_NAND = "!&"
+    LOGICAL_NOR = "!|"
+    AND_KEYWORD = "and"
+    OR_KEYWORD = "or"
     
-    def __init__(self, location: SourceLocation, value: float):
-        super().__init__(location)
-        self.value = value
+    # Bitwise
+    BITWISE_AND = "&"
+    BITWISE_OR = "|"
+    BITWISE_XOR = "^^"
+    XOR_KEYWORD = "xor"
     
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_float_literal(self)
-
-
-class CharLiteralNode(LiteralNode):
-    """Character literal"""
+    # Bitwise with backtick prefix
+    BITWISE_B_AND = "`&"
+    BITWISE_B_NAND = "`!&"
+    BITWISE_B_OR = "`|"
+    BITWISE_B_NOR = "`!|"
+    BITWISE_B_XOR = "`^^"
+    BITWISE_B_XNOR = "`^!|"
+    BITWISE_B_XAND = "`^&"
+    BITWISE_B_XNAND = "`^!&"
     
-    def __init__(self, location: SourceLocation, value: str):
-        super().__init__(location)
-        self.value = value
+    # Shift
+    LEFT_SHIFT = "<<"
+    RIGHT_SHIFT = ">>"
     
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_char_literal(self)
-
-
-class StringLiteralNode(LiteralNode):
-    """String literal"""
+    # Identity
+    IS = "is"
+    NOT = "not"
     
-    def __init__(self, location: SourceLocation, value: str):
-        super().__init__(location)
-        self.value = value
+    # Membership
+    IN = "in"
     
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_string_literal(self)
+    # Range
+    RANGE = ".."
 
+# Unary operators
+class UnaryOperator(Enum):
+    PLUS = "+"
+    MINUS = "-"
+    LOGICAL_NOT = "!"
+    NOT_KEYWORD = "not"
+    BITWISE_NOT = "~"
+    ADDRESS_OF = "@"
+    DEREFERENCE = "*"
+    PRE_INCREMENT = "++"
+    PRE_DECREMENT = "--"
+    POST_INCREMENT = "++"
+    POST_DECREMENT = "--"
+    SIZEOF = "sizeof"
+    TYPEOF = "typeof"
+    ALIGNOF = "alignof"
 
-class BooleanLiteralNode(LiteralNode):
-    """Boolean literal"""
-    
-    def __init__(self, location: SourceLocation, value: bool):
-        super().__init__(location)
-        self.value = value
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_boolean_literal(self)
+# Assignment operators
+class AssignmentOperator(Enum):
+    ASSIGN = "="
+    PLUS_ASSIGN = "+="
+    MINUS_ASSIGN = "-="
+    MULTIPLY_ASSIGN = "*="
+    DIVIDE_ASSIGN = "/="
+    MODULO_ASSIGN = "%="
+    POWER_ASSIGN = "^="
+    AND_ASSIGN = "&="
+    OR_ASSIGN = "|="
+    XOR_ASSIGN = "^^="
+    LEFT_SHIFT_ASSIGN = "<<="
+    RIGHT_SHIFT_ASSIGN = ">>="
+    B_AND_ASSIGN = "`&="
+    B_NAND_ASSIGN = "`!&="
+    B_OR_ASSIGN = "`|="
+    B_NOR_ASSIGN = "`!|="
+    B_XOR_ASSIGN = "`^="
+    B_NOT_ASSIGN = "`!="
 
+@dataclass
+class BinaryExpression(Expression):
+    """Binary expression"""
+    left: 'Expression' = None
+    operator: BinaryOperator = BinaryOperator.ADD
+    right: 'Expression' = None
 
-class InterpolatedStringNode(ExpressionNode):
-    """Interpolated string: i"text {expression}":{expression_list}"""
-    
-    def __init__(self, location: SourceLocation, template: str, expressions: List[ExpressionNode]):
-        super().__init__(location)
-        self.template = template
-        self.expressions = expressions
-        for expr in expressions:
-            self.add_child(expr)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_interpolated_string(self)
+@dataclass
+class UnaryExpression(Expression):
+    """Unary expression"""
+    operator: UnaryOperator = UnaryOperator.PLUS
+    operand: 'Expression' = None
+    is_postfix: bool = False
 
-
-class IdentifierNode(ExpressionNode):
-    """Variable/function identifier"""
-    
-    def __init__(self, location: SourceLocation, name: str, namespace_path: List[str] = None):
-        super().__init__(location)
-        self.name = name
-        self.namespace_path = namespace_path or []
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_identifier(self)
-
-
-class BinaryOperatorNode(ExpressionNode):
-    """Binary operation"""
-    
-    def __init__(self, location: SourceLocation, operator: str, left: ExpressionNode, 
-                 right: ExpressionNode):
-        super().__init__(location)
-        self.operator = operator
-        self.left = left
-        self.right = right
-        self.add_child(left)
-        self.add_child(right)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_binary_operator(self)
-
-
-class UnaryOperatorNode(ExpressionNode):
-    """Unary operation"""
-    
-    def __init__(self, location: SourceLocation, operator: str, operand: ExpressionNode, 
-                 is_postfix: bool = False):
-        super().__init__(location)
-        self.operator = operator
-        self.operand = operand
-        self.is_postfix = is_postfix
-        self.add_child(operand)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_unary_operator(self)
-
-
-class AssignmentNode(ExpressionNode):
+@dataclass
+class AssignmentExpression(Expression):
     """Assignment expression"""
-    
-    def __init__(self, location: SourceLocation, operator: str, left: ExpressionNode, 
-                 right: ExpressionNode):
-        super().__init__(location)
-        self.operator = operator
-        self.left = left
-        self.right = right
-        self.add_child(left)
-        self.add_child(right)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_assignment(self)
+    left: 'Expression' = None
+    operator: AssignmentOperator = AssignmentOperator.ASSIGN
+    right: 'Expression' = None
 
+@dataclass
+class ConditionalExpression(Expression):
+    """Ternary conditional expression (condition ? true_expr : false_expr)"""
+    condition: 'Expression' = None
+    true_expr: 'Expression' = None
+    false_expr: 'Expression' = None
 
-class CallExpressionNode(ExpressionNode):
-    """Function call or constructor call"""
-    
-    def __init__(self, location: SourceLocation, callee: ExpressionNode, 
-                 arguments: List[ExpressionNode], template_args: List[TypeNode] = None):
-        super().__init__(location)
-        self.callee = callee
-        self.arguments = arguments
-        self.template_args = template_args or []
-        self.add_child(callee)
-        for arg in arguments:
-            self.add_child(arg)
-        for template_arg in self.template_args:
-            self.add_child(template_arg)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_call_expression(self)
+@dataclass
+class CastExpression(Expression):
+    """Type cast expression"""
+    type: 'Type' = None
+    expression: 'Expression' = None
 
+@dataclass
+class FunctionCall(Expression):
+    """Function call expression"""
+    function: 'Expression' = None
+    arguments: List['Expression'] = field(default_factory=list)
 
-class MemberAccessNode(ExpressionNode):
-    """Member access: object.member or object->member"""
-    
-    def __init__(self, location: SourceLocation, object_expr: ExpressionNode, member_name: str, 
-                 is_pointer_access: bool = False):
-        super().__init__(location)
-        self.object_expr = object_expr
-        self.member_name = member_name
-        self.is_pointer_access = is_pointer_access
-        self.add_child(object_expr)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_member_access(self)
+@dataclass
+class FunctionPointerCall(Expression):
+    """Function pointer call (*ptr)(args)"""
+    pointer: 'Expression' = None
+    arguments: List['Expression'] = field(default_factory=list)
 
+@dataclass
+class MemberAccess(Expression):
+    """Member access (obj.member)"""
+    object: 'Expression' = None
+    member: str = ""
 
-class ArrayAccessNode(ExpressionNode):
-    """Array subscript: array[index]"""
-    
-    def __init__(self, location: SourceLocation, array_expr: ExpressionNode, 
-                 index_expr: ExpressionNode):
-        super().__init__(location)
-        self.array_expr = array_expr
-        self.index_expr = index_expr
-        self.add_child(array_expr)
-        self.add_child(index_expr)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_array_access(self)
+@dataclass
+class ScopeAccess(Expression):
+    """Scope access (namespace::member)"""
+    scope: 'Expression' = None
+    member: str = ""
 
+@dataclass
+class ArrayAccess(Expression):
+    """Array access (array[index])"""
+    array: 'Expression' = None
+    index: 'Expression' = None
 
-class CastExpressionNode(ExpressionNode):
-    """Type cast: (type)expression"""
-    
-    def __init__(self, location: SourceLocation, target_type: TypeNode, expression: ExpressionNode):
-        super().__init__(location)
-        self.target_type = target_type
-        self.expression = expression
-        self.add_child(target_type)
-        self.add_child(expression)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_cast_expression(self)
+# Array literals and comprehensions
+@dataclass
+class ArrayLiteral(Expression):
+    """Array literal [1, 2, 3]"""
+    elements: List['Expression'] = field(default_factory=list)
 
+@dataclass
+class ArrayComprehension(Expression):
+    """Array comprehension [expr for (var in iterable) if (condition)]"""
+    expression: 'Expression' = None
+    variable: str = ""
+    iterable: 'Expression' = None
+    condition: Optional['Expression'] = None
 
-class ConditionalExpressionNode(ExpressionNode):
-    """Ternary conditional: condition ? true_expr : false_expr"""
-    
-    def __init__(self, location: SourceLocation, condition: ExpressionNode, 
-                 true_expr: ExpressionNode, false_expr: ExpressionNode):
-        super().__init__(location)
-        self.condition = condition
-        self.true_expr = true_expr
-        self.false_expr = false_expr
-        self.add_child(condition)
-        self.add_child(true_expr)
-        self.add_child(false_expr)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_conditional_expression(self)
+@dataclass
+class RangeExpression(Expression):
+    """Range expression (start..end)"""
+    start: 'Expression' = None
+    end: 'Expression' = None
 
+# String interpolation
+@dataclass
+class IStringLiteral(Expression):
+    """i-string literal with interpolation"""
+    template: str = ""
+    expressions: List['Expression'] = field(default_factory=list)
 
-class SizeofExpressionNode(ExpressionNode):
-    """Sizeof expression"""
-    
-    def __init__(self, location: SourceLocation, operand: Union[TypeNode, ExpressionNode]):
-        super().__init__(location)
-        self.operand = operand
-        self.add_child(operand)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_sizeof_expression(self)
+@dataclass
+class FStringLiteral(Expression):
+    """f-string literal with embedded expressions"""
+    content: str = ""
 
+# Struct initialization
+@dataclass
+class StructInitItem(ASTNode):
+    """Struct initialization item"""
+    name: str = ""
+    value: Optional['Expression'] = None
 
-class AlignofExpressionNode(ExpressionNode):
-    """Alignof expression"""
-    
-    def __init__(self, location: SourceLocation, operand: Union[TypeNode, ExpressionNode]):
-        super().__init__(location)
-        self.operand = operand
-        self.add_child(operand)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_alignof_expression(self)
+@dataclass
+class StructInitializer(Expression):
+    """Struct initializer {x = 1, y = 2}"""
+    items: List[StructInitItem] = field(default_factory=list)
 
+@dataclass
+class ArrayInitializer(Expression):
+    """Array initializer [1, 2, 3] or {x = 1, y = 2}"""
+    elements: List['Expression'] = field(default_factory=list)
+    struct_items: List[StructInitItem] = field(default_factory=list)
+    is_struct_style: bool = False
 
-class TypeofExpressionNode(ExpressionNode):
-    """Typeof expression"""
-    
-    def __init__(self, location: SourceLocation, operand: Union[TypeNode, ExpressionNode]):
-        super().__init__(location)
-        self.operand = operand
-        self.add_child(operand)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_typeof_expression(self)
+# Object instantiation
+@dataclass
+class ObjectInstantiation(Expression):
+    """Object instantiation (Type name(args) or super.Type name(args))"""
+    type_name: Union['QualifiedName', str] = ""
+    instance_name: str = ""
+    arguments: List['Expression'] = field(default_factory=list)
+    is_super: bool = False
+    is_virtual: bool = False
 
-
-class ArrayComprehensionNode(ExpressionNode):
-    """Array comprehension: [expr for (var in iterable) if (condition)]"""
-    
-    def __init__(self, location: SourceLocation, expression: ExpressionNode, variable: str, 
-                 iterable: ExpressionNode, condition: Optional[ExpressionNode] = None):
-        super().__init__(location)
-        self.expression = expression
-        self.variable = variable
-        self.iterable = iterable
-        self.condition = condition
-        self.add_child(expression)
-        self.add_child(iterable)
-        if condition:
-            self.add_child(condition)
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_array_comprehension(self)
-
-
-# ================================================================
-# ERROR RECOVERY NODES
-# ================================================================
-
-class ErrorNode(ASTNode):
-    """Node representing a parsing error"""
-    
-    def __init__(self, location: SourceLocation, error_message: str, 
-                 recovered_tokens: List[str] = None):
-        super().__init__(location)
-        self.error_message = error_message
-        self.recovered_tokens = recovered_tokens or []
-    
-    def accept(self, visitor: ASTVisitor) -> Any:
-        return visitor.visit_error(self)
-
-
-# ================================================================
-# VISITOR INTERFACE EXTENSIONS
-# ================================================================
+# ============================================================================
+# AST Visitor Pattern (for traversal)
+# ============================================================================
 
 class ASTVisitor(ABC):
-    """Extended visitor interface with all node types"""
+    """Abstract base class for AST visitors"""
     
-    # Program structure
-    def visit_module(self, node: ModuleNode) -> Any: pass
-    def visit_import(self, node: ImportNode) -> Any: pass
-    def visit_using(self, node: UsingNode) -> Any: pass
-    def visit_namespace(self, node: NamespaceNode) -> Any: pass
+    @abstractmethod
+    def visit(self, node: ASTNode) -> Any:
+        """Visit an AST node"""
+        pass
     
-    # Types
-    def visit_primitive_type(self, node: PrimitiveTypeNode) -> Any: pass
-    def visit_data_type(self, node: DataTypeNode) -> Any: pass
-    def visit_pointer_type(self, node: PointerTypeNode) -> Any: pass
-    def visit_array_type(self, node: ArrayTypeNode) -> Any: pass
-    def visit_function_type(self, node: FunctionTypeNode) -> Any: pass
-    def visit_template_type(self, node: TemplateTypeNode) -> Any: pass
-    def visit_named_type(self, node: NamedTypeNode) -> Any: pass
+    def generic_visit(self, node: ASTNode) -> Any:
+        """Generic visit method - calls visit on all child nodes"""
+        for field_name, field_value in node.__dict__.items():
+            if isinstance(field_value, ASTNode):
+                self.visit(field_value)
+            elif isinstance(field_value, list):
+                for item in field_value:
+                    if isinstance(item, ASTNode):
+                        self.visit(item)
+        return None
+
+class ASTTraverser(ASTVisitor):
+    """Basic AST traverser that visits all nodes"""
     
-    # Declarations
-    def visit_variable_declaration(self, node: VariableDeclarationNode) -> Any: pass
-    def visit_parameter(self, node: ParameterNode) -> Any: pass
-    def visit_function_declaration(self, node: FunctionDeclarationNode) -> Any: pass
-    def visit_object_declaration(self, node: ObjectDeclarationNode) -> Any: pass
-    def visit_struct_declaration(self, node: StructDeclarationNode) -> Any: pass
-    def visit_template_declaration(self, node: TemplateDeclarationNode) -> Any: pass
+    def visit(self, node: ASTNode) -> Any:
+        method_name = f'visit_{type(node).__name__}'
+        visitor = getattr(self, method_name, self.generic_visit)
+        return visitor(node)
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+def create_program() -> Program:
+    """Create an empty program node"""
+    return Program()
+
+def create_function_def(name: str, return_type: 'Type' = None) -> FunctionDef:
+    """Create a function definition node"""
+    return FunctionDef(name=name, return_type=return_type or PrimitiveType(PrimitiveTypeKind.VOID))
+
+def create_object_def(name: str) -> ObjectDef:
+    """Create an object definition node"""
+    return ObjectDef(name=name)
+
+def create_struct_def(name: str) -> StructDef:
+    """Create a struct definition node"""
+    return StructDef(name=name)
+
+def create_primitive_type(kind: PrimitiveTypeKind, qualifiers: List[TypeQualifier] = None) -> PrimitiveType:
+    """Create a primitive type node"""
+    return PrimitiveType(kind=kind, qualifiers=qualifiers or [])
+
+def create_data_type(bit_width: int, alignment: int = None, signedness: DataSignedness = None) -> DataType:
+    """Create a data type node"""
+    return DataType(bit_width=bit_width, alignment=alignment, signedness=signedness)
+
+def create_identifier(name: str) -> Identifier:
+    """Create an identifier expression"""
+    return Identifier(name=name)
+
+def create_qualified_name(parts: List[str]) -> QualifiedName:
+    """Create a qualified name expression"""
+    return QualifiedName(parts=parts)
+
+def create_binary_expr(left: Expression, op: BinaryOperator, right: Expression) -> BinaryExpression:
+    """Create a binary expression"""
+    return BinaryExpression(left=left, operator=op, right=right)
+
+def create_integer_literal(value: str, radix: int = 10) -> IntegerLiteral:
+    """Create an integer literal"""
+    return IntegerLiteral(value=value, radix=radix)
+
+def create_string_literal(value: str) -> StringLiteral:
+    """Create a string literal"""
+    return StringLiteral(value=value)
+
+# ============================================================================
+# AST Validation
+# ============================================================================
+
+class ASTValidator(ASTVisitor):
+    """Validates AST structure for correctness"""
     
-    # Statements
-    def visit_expression_statement(self, node: ExpressionStatementNode) -> Any: pass
-    def visit_block_statement(self, node: BlockStatementNode) -> Any: pass
-    def visit_if_statement(self, node: IfStatementNode) -> Any: pass
-    def visit_while_statement(self, node: WhileStatementNode) -> Any: pass
-    def visit_do_while_statement(self, node: DoWhileStatementNode) -> Any: pass
-    def visit_for_statement(self, node: ForStatementNode) -> Any: pass
-    def visit_range_for_statement(self, node: RangeForStatementNode) -> Any: pass
-    def visit_return_statement(self, node: ReturnStatementNode) -> Any: pass
-    def visit_break_statement(self, node: BreakStatementNode) -> Any: pass
-    def visit_continue_statement(self, node: ContinueStatementNode) -> Any: pass
-    def visit_throw_statement(self, node: ThrowStatementNode) -> Any: pass
-    def visit_try_statement(self, node: TryStatementNode) -> Any: pass
-    def visit_catch_clause(self, node: CatchClauseNode) -> Any: pass
-    def visit_switch_statement(self, node: SwitchStatementNode) -> Any: pass
-    def visit_case_clause(self, node: CaseClauseNode) -> Any: pass
-    def visit_default_clause(self, node: DefaultClauseNode) -> Any: pass
-    def visit_assembly_statement(self, node: AssemblyStatementNode) -> Any: pass
+    def __init__(self):
+        self.errors = []
     
-    # Expressions
-    def visit_integer_literal(self, node: IntegerLiteralNode) -> Any: pass
-    def visit_float_literal(self, node: FloatLiteralNode) -> Any: pass
-    def visit_char_literal(self, node: CharLiteralNode) -> Any: pass
-    def visit_string_literal(self, node: StringLiteralNode) -> Any: pass
-    def visit_boolean_literal(self, node: BooleanLiteralNode) -> Any: pass
-    def visit_interpolated_string(self, node: InterpolatedStringNode) -> Any: pass
-    def visit_identifier(self, node: IdentifierNode) -> Any: pass
-    def visit_binary_operator(self, node: BinaryOperatorNode) -> Any: pass
-    def visit_unary_operator(self, node: UnaryOperatorNode) -> Any: pass
-    def visit_assignment(self, node: AssignmentNode) -> Any: pass
-    def visit_call_expression(self, node: CallExpressionNode) -> Any: pass
-    def visit_member_access(self, node: MemberAccessNode) -> Any: pass
-    def visit_array_access(self, node: ArrayAccessNode) -> Any: pass
-    def visit_cast_expression(self, node: CastExpressionNode) -> Any: pass
-    def visit_conditional_expression(self, node: ConditionalExpressionNode) -> Any: pass
-    def visit_sizeof_expression(self, node: SizeofExpressionNode) -> Any: pass
-    def visit_alignof_expression(self, node: AlignofExpressionNode) -> Any: pass
-    def visit_typeof_expression(self, node: TypeofExpressionNode) -> Any: pass
-    def visit_array_comprehension(self, node: ArrayComprehensionNode) -> Any: pass
+    def validate(self, node: ASTNode) -> List[str]:
+        """Validate an AST node and return list of errors"""
+        self.errors = []
+        self.visit(node)
+        return self.errors
     
-    # Error recovery
-    def visit_error(self, node: ErrorNode) -> Any: pass
-
-
-# ================================================================
-# UTILITY FUNCTIONS
-# ================================================================
-
-def create_ast_from_tokens(tokens: List[Any]) -> ModuleNode:
-    """Factory function to create AST from token stream"""
-    # This would be implemented by the parser
-    pass
-
-
-def traverse_ast(root: ASTNode, visitor: ASTVisitor) -> Any:
-    """Utility function to traverse AST with a visitor"""
-    return root.accept(visitor)
-
-
-def find_nodes_by_type(root: ASTNode, node_type: type) -> List[ASTNode]:
-    """Find all nodes of a specific type in the AST"""
-    result = []
+    def visit(self, node: ASTNode) -> None:
+        """Visit and validate a node"""
+        method_name = f'validate_{type(node).__name__}'
+        validator = getattr(self, method_name, self.generic_visit)
+        validator(node)
     
-    class FindVisitor(ASTVisitor):
-        def visit(self, node: ASTNode) -> Any:
-            if isinstance(node, node_type):
-                result.append(node)
+    def validate_FunctionDef(self, node: FunctionDef) -> None:
+        """Validate function definition"""
+        if not node.name:
+            self.errors.append("Function definition must have a name")
+        if not node.return_type:
+            self.errors.append(f"Function '{node.name}' must have a return type")
+        self.generic_visit(node)
+    
+    def validate_ObjectDef(self, node: ObjectDef) -> None:
+        """Validate object definition"""
+        if not node.name:
+            self.errors.append("Object definition must have a name")
+        self.generic_visit(node)
+    
+    def validate_StructDef(self, node: StructDef) -> None:
+        """Validate struct definition"""
+        if not node.name:
+            self.errors.append("Struct definition must have a name")
+        self.generic_visit(node)
+
+if __name__ == "__main__":
+    # Example usage and testing - Representing test.fx as AST
+    import sys
+    
+    def main():
+        print("Flux AST Module - fast.py")
+        print("Representing test.fx as AST structure")
+        print("=" * 50)
+        
+        # Create the main program
+        program = create_program()
+        
+        # 1. Import statements
+        import1 = ImportStmt(path="standard.fx", alias="std")
+        import2 = ImportStmt(path="math.fx")
+        program.global_items.extend([import1, import2])
+        
+        # 2. Using statement
+        using_stmt = UsingStmt(names=[
+            create_qualified_name(["std", "io"]),
+            create_qualified_name(["std", "types"])
+        ])
+        program.global_items.append(using_stmt)
+        
+        # 3. Data type definitions
+        i32_type = DataType(bit_width=32, signedness=DataSignedness.SIGNED)
+        i32_decl = VariableDeclaration(
+            type=i32_type,
+            declarators=[SimpleVariableDeclarator(name="i32")]
+        )
+        program.global_items.append(i32_decl)
+        
+        ui16_aligned_type = DataType(bit_width=16, alignment=32, signedness=DataSignedness.UNSIGNED)
+        ui16_decl = VariableDeclaration(
+            type=ui16_aligned_type,
+            declarators=[SimpleVariableDeclarator(name="ui16_aligned")]
+        )
+        program.global_items.append(ui16_decl)
+        
+        # String type (unsigned data{8}[])
+        string_type = ArrayType(
+            element_type=DataType(bit_width=8, signedness=DataSignedness.UNSIGNED)
+        )
+        string_decl = VariableDeclaration(
+            type=string_type,
+            declarators=[SimpleVariableDeclarator(name="string")]
+        )
+        program.global_items.append(string_decl)
+        
+        # 4. Macro definitions
+        debug_macro = MacroDef(name="DEBUG_MODE", value=BooleanLiteral(value=True))
+        max_size_macro = MacroDef(name="MAX_SIZE", value=IntegerLiteral(value="1024"))
+        program.global_items.extend([debug_macro, max_size_macro])
+        
+        # 5. External FFI block
+        extern_block = ExternBlock(
+            language="C",
+            declarations=[
+                ExternDecl(
+                    name="malloc",
+                    parameters=[Parameter(name="size", type=NamedType(name=create_qualified_name(["ui64"])))],
+                    return_type=PointerType(pointee_type=PrimitiveType(PrimitiveTypeKind.VOID))
+                ),
+                ExternDecl(
+                    name="free",
+                    parameters=[Parameter(name="ptr", type=PointerType(pointee_type=PrimitiveType(PrimitiveTypeKind.VOID)))],
+                    return_type=PrimitiveType(PrimitiveTypeKind.VOID)
+                ),
+                ExternDecl(
+                    name="printf",
+                    parameters=[Parameter(name="format", type=NamedType(name=create_qualified_name(["string"])))],
+                    return_type=PrimitiveType(PrimitiveTypeKind.INT)
+                )
+            ]
+        )
+        program.global_items.append(extern_block)
+        
+        # 6. Namespace definition
+        test_namespace = NamespaceDef(
+            name="TestNamespace",
+            members=[
+                NamespaceVariableDecl(
+                    declaration=VariableDeclaration(
+                        type=PrimitiveType(
+                            PrimitiveTypeKind.INT,
+                            qualifiers=[TypeQualifier.VOLATILE, TypeQualifier.CONST]
+                        ),
+                        declarators=[SimpleVariableDeclarator(
+                            name="global_counter",
+                            initializer=IntegerLiteral(value="42")
+                        )]
+                    )
+                ),
+                NamespaceFunctionDef(
+                    function=FunctionDef(
+                        name="utility_func",
+                        parameters=[
+                            Parameter(name="x", type=PrimitiveType(PrimitiveTypeKind.INT)),
+                            Parameter(name="y", type=PrimitiveType(PrimitiveTypeKind.FLOAT))
+                        ],
+                        return_type=PrimitiveType(PrimitiveTypeKind.BOOL),
+                        body=[
+                            ReturnStmt(
+                                value=BinaryExpression(
+                                    left=Identifier(name="x"),
+                                    operator=BinaryOperator.GREATER_THAN,
+                                    right=CastExpression(
+                                        type=PrimitiveType(PrimitiveTypeKind.INT),
+                                        expression=Identifier(name="y")
+                                    )
+                                )
+                            )
+                        ]
+                    )
+                ),
+                NamespaceNamespaceDef(
+                    namespace_def=NamespaceDef(
+                        name="NestedNamespace",
+                        members=[
+                            NamespaceVariableDecl(
+                                declaration=VariableDeclaration(
+                                    type=NamedType(name=create_qualified_name(["string"])),
+                                    declarators=[SimpleVariableDeclarator(
+                                        name="nested_message",
+                                        initializer=StringLiteral(value="Hello from nested namespace")
+                                    )]
+                                )
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+        program.global_items.append(test_namespace)
+        
+        # 7. Base object definition
+        base_object = ObjectDef(
+            name="BaseObject",
+            members=[
+                ObjectVariableDecl(
+                    access=AccessSpecifier.PRIVATE,
+                    declaration=VariableDeclaration(
+                        type=PrimitiveType(PrimitiveTypeKind.INT),
+                        declarators=[SimpleVariableDeclarator(name="base_value")]
+                    )
+                ),
+                ObjectFunctionDef(
+                    access=AccessSpecifier.PUBLIC,
+                    function=FunctionDef(
+                        name="__init",
+                        parameters=[Parameter(name="val", type=PrimitiveType(PrimitiveTypeKind.INT))],
+                        return_type=NamedType(name=create_qualified_name(["this"])),
+                        body=[
+                            ExpressionStmt(
+                                expression=AssignmentExpression(
+                                    left=MemberAccess(object=ThisExpression(), member="base_value"),
+                                    operator=AssignmentOperator.ASSIGN,
+                                    right=Identifier(name="val")
+                                )
+                            ),
+                            ReturnStmt(value=ThisExpression())
+                        ]
+                    )
+                ),
+                ObjectFunctionDef(
+                    access=AccessSpecifier.PUBLIC,
+                    function=FunctionDef(
+                        name="__exit",
+                        parameters=[],
+                        return_type=PrimitiveType(PrimitiveTypeKind.VOID),
+                        body=[
+                            ReturnStmt(value=Identifier(name="void"))
+                        ]
+                    )
+                )
+            ]
+        )
+        program.global_items.append(base_object)
+        
+        # 8. Template object with inheritance
+        template_object = ObjectDef(
+            name="TemplateObject",
+            template_params=[
+                TemplateParameter(name="T"),
+                TemplateParameter(name="K")
+            ],
+            inheritance=[create_qualified_name(["BaseObject"])],
+            members=[
+                ObjectVariableDecl(
+                    access=AccessSpecifier.PRIVATE,
+                    declaration=VariableDeclaration(
+                        type=NamedType(name=create_qualified_name(["T"])),
+                        declarators=[SimpleVariableDeclarator(name="template_data")]
+                    )
+                ),
+                ObjectVariableDecl(
+                    access=AccessSpecifier.PRIVATE,
+                    declaration=VariableDeclaration(
+                        type=NamedType(name=create_qualified_name(["K"])),
+                        declarators=[SimpleVariableDeclarator(name="secondary_data")]
+                    )
+                )
+            ]
+        )
+        program.global_items.append(template_object)
+        
+        # 9. Struct definitions
+        point_struct = StructDef(
+            name="Point",
+            members=[
+                StructMember(
+                    access=AccessSpecifier.PUBLIC,
+                    declaration=VariableDeclaration(
+                        type=PrimitiveType(PrimitiveTypeKind.FLOAT),
+                        declarators=[
+                            SimpleVariableDeclarator(name="x"),
+                            SimpleVariableDeclarator(name="y"),
+                            SimpleVariableDeclarator(name="z")
+                        ]
+                    )
+                ),
+                StructMember(
+                    access=AccessSpecifier.PRIVATE,
+                    declaration=VariableDeclaration(
+                        type=PrimitiveType(PrimitiveTypeKind.BOOL),
+                        declarators=[SimpleVariableDeclarator(name="is_valid")]
+                    )
+                )
+            ]
+        )
+        program.global_items.append(point_struct)
+        
+        vector3d_struct = StructDef(
+            name="Vector3D",
+            inheritance=[create_qualified_name(["Point"])],
+            members=[
+                StructMember(
+                    declaration=VariableDeclaration(
+                        type=PrimitiveType(PrimitiveTypeKind.FLOAT),
+                        declarators=[SimpleVariableDeclarator(name="magnitude")]
+                    )
+                ),
+                StructMember(
+                    declaration=VariableDeclaration(
+                        type=DataType(bit_width=1, signedness=DataSignedness.UNSIGNED),
+                        declarators=[SimpleVariableDeclarator(name="normalized")]
+                    )
+                )
+            ]
+        )
+        program.global_items.append(vector3d_struct)
+        
+        # 10. Compile-time block
+        compt_block = ComptBlock(
+            statements=[
+                IfStmt(
+                    condition=FunctionCall(
+                        function=Identifier(name="def"),
+                        arguments=[Identifier(name="DEBUG_MODE")]
+                    ),
+                    then_stmt=CompoundStmt(
+                        statements=[
+                            ExpressionStmt(
+                                expression=MacroDef(name="LOG_LEVEL", value=IntegerLiteral(value="3"))
+                            )
+                        ]
+                    ),
+                    elif_parts=[
+                        (
+                            UnaryExpression(
+                                operator=UnaryOperator.LOGICAL_NOT,
+                                operand=FunctionCall(
+                                    function=Identifier(name="def"),
+                                    arguments=[Identifier(name="DEBUG_MODE")]
+                                )
+                            ),
+                            CompoundStmt(
+                                statements=[
+                                    ExpressionStmt(
+                                        expression=MacroDef(name="LOG_LEVEL", value=IntegerLiteral(value="0"))
+                                    )
+                                ]
+                            )
+                        )
+                    ]
+                )
+            ]
+        )
+        program.global_items.append(compt_block)
+        
+        # 11. Main function with comprehensive features
+        main_func = FunctionDef(
+            name="main",
+            parameters=[],
+            return_type=PrimitiveType(PrimitiveTypeKind.INT),
+            body=[
+                # Variable declaration
+                VariableDeclStmt(
+                    declaration=VariableDeclaration(
+                        type=NamedType(name=create_qualified_name(["string"])),
+                        declarators=[SimpleVariableDeclarator(
+                            name="test_msg",
+                            initializer=StringLiteral(value="Testing all features")
+                        )]
+                    )
+                ),
+                
+                # Array literal
+                VariableDeclStmt(
+                    declaration=VariableDeclaration(
+                        type=ArrayType(element_type=PrimitiveType(PrimitiveTypeKind.INT)),
+                        declarators=[ArrayVariableDeclarator(
+                            name="numbers",
+                            initializer=ArrayInitializer(elements=[
+                                IntegerLiteral(value="1"),
+                                IntegerLiteral(value="2"),
+                                IntegerLiteral(value="3"),
+                                IntegerLiteral(value="4"),
+                                IntegerLiteral(value="5")
+                            ])
+                        )]
+                    )
+                ),
+                
+                # For loop
+                CStyleForStmt(
+                    init=VariableDeclaration(
+                        type=PrimitiveType(PrimitiveTypeKind.INT),
+                        declarators=[SimpleVariableDeclarator(
+                            name="i",
+                            initializer=IntegerLiteral(value="0")
+                        )]
+                    ),
+                    condition=BinaryExpression(
+                        left=Identifier(name="i"),
+                        operator=BinaryOperator.LESS_THAN,
+                        right=Identifier(name="MAX_SIZE")
+                    ),
+                    update=UnaryExpression(
+                        operator=UnaryOperator.POST_INCREMENT,
+                        operand=Identifier(name="i"),
+                        is_postfix=True
+                    ),
+                    body=CompoundStmt(
+                        statements=[
+                            IfStmt(
+                                condition=BinaryExpression(
+                                    left=BinaryExpression(
+                                        left=Identifier(name="i"),
+                                        operator=BinaryOperator.MODULO,
+                                        right=IntegerLiteral(value="2")
+                                    ),
+                                    operator=BinaryOperator.EQUAL,
+                                    right=IntegerLiteral(value="0")
+                                ),
+                                then_stmt=CompoundStmt(statements=[ContinueStmt()])
+                            ),
+                            IfStmt(
+                                condition=BinaryExpression(
+                                    left=Identifier(name="i"),
+                                    operator=BinaryOperator.GREATER_THAN,
+                                    right=IntegerLiteral(value="100")
+                                ),
+                                then_stmt=CompoundStmt(statements=[BreakStmt()])
+                            )
+                        ]
+                    )
+                ),
+                
+                # Python-style for loop
+                PythonStyleForStmt(
+                    variables=["val"],
+                    iterable=RangeExpression(
+                        start=IntegerLiteral(value="1"),
+                        end=IntegerLiteral(value="10")
+                    ),
+                    body=CompoundStmt(statements=[])
+                ),
+                
+                # Try-catch block
+                TryCatchStmt(
+                    try_body=CompoundStmt(
+                        statements=[
+                            AssertStmt(
+                                condition=BinaryExpression(
+                                    left=Identifier(name="i"),
+                                    operator=BinaryOperator.GREATER_THAN,
+                                    right=IntegerLiteral(value="0")
+                                ),
+                                message=StringLiteral(value="Value must be positive")
+                            )
+                        ]
+                    ),
+                    catch_clauses=[
+                        CatchClause(
+                            type=NamedType(name=create_qualified_name(["string"])),
+                            variable="error_msg",
+                            body=CompoundStmt(
+                                statements=[ReturnStmt(value=UnaryExpression(
+                                    operator=UnaryOperator.MINUS,
+                                    operand=IntegerLiteral(value="1")
+                                ))]
+                            )
+                        )
+                    ]
+                ),
+                
+                # Return statement
+                ReturnStmt(value=IntegerLiteral(value="0"))
+            ]
+        )
+        program.global_items.append(main_func)
+        
+        # Validate the AST
+        validator = ASTValidator()
+        errors = validator.validate(program)
+        
+        if errors:
+            print("AST Validation Errors:")
+            for error in errors:
+                print(f"  - {error}")
+        else:
+            print("AST validation passed!")
+            print(f"Program has {len(program.global_items)} global items")
             
-            for child in node.children:
-                child.accept(self)
+            # Count different types of items
+            item_counts = {}
+            for item in program.global_items:
+                item_type = type(item).__name__
+                item_counts[item_type] = item_counts.get(item_type, 0) + 1
+            
+            print("Global item breakdown:")
+            for item_type, count in sorted(item_counts.items()):
+                print(f"  {item_type}: {count}")
     
-    root.accept(FindVisitor())
-    return result
-
-
-def get_ast_depth(node: ASTNode) -> int:
-    """Calculate the depth of the AST from a given node"""
-    if not node.children:
-        return 1
-    return 1 + max(get_ast_depth(child) for child in node.children)
-
-
-def validate_ast(root: ASTNode) -> List[str]:
-    """Validate AST structure and return list of issues"""
-    issues = []
-    
-    class ValidationVisitor(ASTVisitor):
-        def visit(self, node: ASTNode) -> Any:
-            # Check parent-child relationships
-            for child in node.children:
-                if child.parent != node:
-                    issues.append(f"Inconsistent parent-child relationship at {child.location}")
-                child.accept(self)
-    
-    root.accept(ValidationVisitor())
-    return issues
+    main()
