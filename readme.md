@@ -83,6 +83,8 @@ byte myByte = 0xFF;
 weird_int myWeird = 1000;
 ```
 
+Note: `bool` is a 1-bit wide type. It is unlike C++'s bool which requires an entire byte to store.
+
 #### Functions
 ```flux
 def add(int a, int b) -> int
