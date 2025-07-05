@@ -47,7 +47,7 @@ int* ptr = malloc(sizeof(int));
 ```
 
 ### 3. **Power Without Apology**
-We trust you to be a competent programmer. Use that power wisely.
+You're trusted as a programmer to be competent.
 
 ---
 
