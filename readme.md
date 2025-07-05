@@ -126,7 +126,7 @@ struct GPIO_Register
 };
 
 // Memory-mapped I/O
-volatile const GPIO_Register* gpio = @0x40000000;
+const volatile GPIO_Register* gpio = @0x40000000;
 gpio.pin0 = 1;  // Set pin 0 high
 ```
 
@@ -294,6 +294,13 @@ object Container<T>
         return this;
     };
 };
+
+// Struct templates
+struct someStruct<R,Q>
+{
+    R val1;
+    Q val2;
+};
 ```
 
 ### Inline Assembly
@@ -313,15 +320,24 @@ def optimizedCopy(void* dest, void* src, int size) -> void
 ### Lambdas
 ```flux
 // Basic lambda
-auto square = [](int x) { return x * x; };
+int square <- [](int x) { return x * x; };  // Can also do `auto square <- ...`
 
 // With capture
 int multiplier = 10;
-auto scale = [multiplier](int x) { return x * multiplier; };
+auto scale <- [multiplier](int x) { return x * multiplier; };
 
 // Usage
 int result = square(5);     // 25
 int scaled = scale(3);      // 30
+
+// You can mix lambdas into function chains, like so:
+foo() <- [x,y](type2 identifier) { return x(identifier * y); } <- x();
+
+// Better example:
+saveToDatabase() 
+  <- [filter,transform](Record r) { return transform(filter(r)); }  // r = processRaw()
+  <- processRaw()
+  <- data;
 ```
 
 ---
@@ -378,9 +394,9 @@ compt
         };
         return table;
     };
-};
 
-const float[] SIN_TABLE = generateSinTable();
+    const float[] SIN_TABLE = generateSinTable(); // SIN_TABLE becomes global
+};
 ```
 
 ---
@@ -475,7 +491,7 @@ struct NetworkPacket
     unsigned data{8} as type;
     unsigned data{16} as length;
     unsigned data{8}[256] as payload;
-};  // Exactly 275 bytes
+};  // Exactly 259 bytes (1 + 2 + 256)
 
 // Aligned for performance
 struct CacheAligned

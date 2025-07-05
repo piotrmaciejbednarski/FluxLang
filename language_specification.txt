@@ -1081,8 +1081,19 @@ foo() -> bar();  // Illegal, -> is the return arrow
 **Lambdas:**
 ```
 // Basic syntax
-[capture](type var) { return var * 2; }                       // type is the return type, var is the parameter.
-[capture](type var1,var2,var3) { return var1 + var2 * var3; } // Multiple parameter syntax
+type1 identifier <- [capture](type2 identifier) { return identifier * 2; };                                                   // type is the return type, var is the parameter.
+type1 identifier <- [capture](type2 identifier1,identifier2,identifier3) { return identifier1 + identifier2 * identifier3; }; // Multiple parameter syntax
+
+// type1 and type2 MUST match, or type1 can be auto.
+
+// You can mix lambdas into function chains, like so:
+foo() <- [x,y](type2 identifier) { return x(identifier * y); } <- x();
+
+// Better example:
+saveToDatabase() 
+  <- [filter,transform](Record r) { return transform(filter(r)); } 
+  <- processRaw() 
+  <- data;
 
 // With capture
 [=](int x) { return x * 2; }         // Capture by value
@@ -1097,7 +1108,7 @@ foo() -> bar();  // Illegal, -> is the return arrow
 
 // Usage
 int f <- [](int x) { return x * 2; };    // You can do `auto f` as well.
-int result = f(5);  // 10
+int result = f(5);                       // 10
 ```
 
 
