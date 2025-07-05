@@ -26,6 +26,7 @@ Flux has a manual memory model. Memory management is up to the programmer.
 A Flux program must have a main() function, and must be defined in global scope.
 
 Hidden behavior is avoided at all costs, what you write is what happens, nothing is limited for your own good.
+Everything in Flux is explicit and never clever. There are only a few syntactic sugar cases.
 Q: What if someone writes slow compile-time code?
 A: That's that specific programmer's problem.
 
@@ -96,19 +97,9 @@ def (*tp_myMax<T>)(T,T) -> T = @myMax<T>;
 volatile def myVolatileFunc<T>(T x, T y) -> T {};
 ```
 
-Template shadowing is allowed and there will be no warning for it. It is assumed you know what you are doing.
-Any inner T refers to the nearest outer T, if none exists and is not used in code somewhere, then and only then is it a compiler error because T won't exist.
+Template parameters cannot be templates themselves, this prevents template nightmares such as x<T<K,V<R>,J>>.
+There is no template shadowing. Any inner T refers to the outermost T.
 You do not need to use `super.T` as this means nothing to the compiler in this context, and will be an error.
-
-
-**Casting:**
-Casts are C-like, and have the same notation: (type)variable
-```
-signed data{32} i32;
-
-float x = 3.14;                  // 01000000010010001111010111000010b   binary representation of 3.14
-i32 y = (i32)x;                  // 01000000010010001111010111000010b   but now treated as an integer  1078523330 == 0x4048F5C2
-```
 
 
 **Namespaces:**
@@ -119,8 +110,13 @@ Namespace example:
 ```
 namespace myNamespace
 {
-	def myFoo() -> void;
+	def myFoo() -> void; // Legal
 };
+
+namespace myNamespace
+{
+	for (x = 0; x < 1; x++) {}; // Illegal, logical statements cannot be at the root of containers
+}
 
 namespace myNamespace
 {
@@ -303,6 +299,9 @@ object myTemplateObj2<T,K>
 		return this;
 	};
 };
+
+// Initialization:
+MyTemplateObj2<int,string> myObj(5);
 ```
 
 
@@ -310,6 +309,8 @@ object myTemplateObj2<T,K>
 Structs are packed and have no padding naturally. There is no way to change this.
 You set up padding with alignment in your data types.
 Members of structs are aligned and tightly packed according to their width unless the types have specific alignment.
+Structs are non-executable, and therefore cannot contain functions or objects.
+Placing a for, do/while, if/else if/else, try/catch, or any executable statements other than variable declarations will result in a compilation error.
 ```
 struct myStruct
 {
@@ -329,24 +330,24 @@ struct myTstruct<T>
 
 struct myStruct1
 {
-    unsigned data {8} status;
-    unsigned data {32} address;
+    unsigned data {8} as status;
+    unsigned data {32} as address;
 };  // This struct is exactly 40 bits wide
 
 struct myStruct2
 {
-    unsigned data {8:16} status;
-    unsigned data {32:8} address;
+    unsigned data {8:16} as status;
+    unsigned data {32:8} as address;
 };                                  // This struct is exactly 48 bits wide because we specified alignment introducing padding
 
 // Structs also support inheritance
 struct myStruct3 : myStruct2        // or multiple separated by a comma
 {
-	unsigned data{8} timestamp;
+	unsigned data{8} as timestamp;
 };
 ```
 
-Structs are non-executable, meaning they are evaluated in-line for member contents but placing a function call like `myFunc();` on its own line will not call the function. Due to this, calling `myStruct.myFunc();` is invalid because that syntax would imply `myStruct` has a function definition inside.
+Structs are non-executable.
 Structs cannot contain function definitions, or object definitions, or anonymous blocks because structs are data-only with no behavior.
 Objects are functional with behavior and are executable.
 Structs cannot contain objects, but objects can contain structs. This means struct template parameters cannot be objects.
@@ -384,6 +385,32 @@ object Obj1
 ```
 
 
+Logical statements (if/else, try/catch, do/while, for, assert, etc...) cannot be at the root scope of containers such as namespaces, objects, and structs.
+It is illogical for them to exist there as that is not considered execution space.
+Evaluations can happen, such as:
+```
+object X
+{
+	int a = 5;
+	int b = 10;
+	int c = a + b;    // Logical evaluation, but legal.
+	int c = foo(a);   // Functional evaluation, but legal.
+	try {int d = c;}; // Illegal, out of context, makes no sense in Flux.
+}
+
+struct MyStruct 
+{
+    int a = 5;
+    int b = helper(a);        // Legal - calls external function during construction.
+    
+    def localFunc() -> int    // Illegal - no function definitions in structs, define it somewhere else.
+    {
+        return 10;
+    };
+};
+```
+
+
 Python uses f-strings, C++ uses a complicated format, Zig syntax is overly verbose.
 Flux uses "interpolated" strings and Python f-strings but without formatting, and tries to fix Zig's syntax a bit.
 The syntax in Flux would be: `i"{}{}{}":{x;y;z;};` for an i-string, and `f"{var1}{var2}";` for an f-string.
@@ -396,7 +423,7 @@ import "standard.fx";
 
 using standard::io;
 
-unsigned data{8}[] string;
+unsigned data{8}[] as string;
 
 def bar() -> string { return "World"; };    // We get the basic string type from the types module
 print(i"Hello {} {}" : // whitespace is ignored
@@ -420,7 +447,7 @@ import "standard.fx";
 
 using standard::io;
 
-unsigned data{8}[] string;
+unsigned data{8}[] as string;
 
 def concat(string a, string b) -> string
 {
@@ -559,35 +586,32 @@ using standard::io, standard::types;          // Only use `io` and `types` names
 // Data types use big-endian byte order by default.
 // Use bit manipulation operators to reorder as needed.
 //
-// When declaring an identifier with `data`, if it is not initialized it is treated as a new type.
-// `unsigned data{32} ui32;` is the C++ equivalent of `typedef unsigned int uint;`
-// However, if you assign anything to ui32, then ui32 becomes a variable of type `unsigned data{32}`
-// Meaning if you wanted to make a custom boolean type called `boolean` you would do:
-// `unsigned data{1} boolean; boolean myTrue = 1, myFalse = 0;`
-// In this context, boolean is a type. However if you did the following:
-// `unsigned data{1} boolean = 0;` Then boolean is a variable with type `unsigned data{1}`
+// Syntax for declaring a datatype:
+//
+//    (const) (signed | unsigned) data {bit-width:alignment:endianness} as your_new_type
+//
+//    Example of a non-OOP string:
+//
+//        unsigned data {8:8:1}[] as noopstr;    // Unsigned byte array
 //
 // This allows the creation of primitive, non-OOP types that can construct other types.
 // `data` creates types, and types create types until an assignment occurs.
 //
 // For example, you can just keep inventing types until you assign a value like so:
 //
-// `unsigned data{16} dbyte;`
-// `dbyte xbyte;`         // No assignment, acts as type definition
+// `unsigned data{16} as dbyte;`
+// `dbyte as xbyte;`      // Type-definition with as
 // `xbyte ybyte = 0xFF;`  // ybyte is now a variable because it is assigned the value 0xFF, not a type like xbyte
 //
-// For example, a non-OOP string is defined as:
-// `unsigned data{8}[] string;` - An array of unsigned bytes
-//
-// The raw syntax of a data declaration is:
-// `[signed|unsigned] data{bit-width:alignment} newtype;`
-// Therefore `unsigned data{13:16} mytype;` makes an unsigned 13-bit wide and 16 bit aligned type called mytype
-// If alignment isn't specified, it is packed tightly in memory.
+// The endianness value can be 0 or 1 for little or big respectively.
+// Therefore `unsigned data{13:16:1} mytype;` makes an unsigned 13-bit wide, 16 bit aligned, big endian type called mytype
+// If alignment isn't specified, it is packed tightly in memory. If endianness is not specified it is big endian.
+// Bit-width must always be specified.
 ```
 import "standard.fx";
 
-unsigned data{8} byte;
-byte[] string;
+unsigned data{8} as byte;
+byte[] as string;
 
 byte someByte = 0x41;                         // "A" but in binary
 string somestring = (string)((char)someByte); // "A"
@@ -602,43 +626,110 @@ somestring>>2;                                // 00000010b
 
 newstring = somestring xor anotherstring;     // 01000000b  // XOR two or more values
 
-// This 0's out all the data and re-casts back to data from void.
-// an unspecified bit-width will adopt the width of the casted type, in this case 8 bits.
-data v = (void)somestring;                    // 00000000b
-sizeof(v);                                    // 8
+// Casting objects or structs to `data` results in a new data variable with bit width equal to the size of the object/struct's length.
+// If the object took up 1KB of memory, the resulting `data` variable will be 1024 bits wide.
+// You cannot do the reverse with objects or structs unless **ALL** of their member types are explicitly aligned, otherwise you risk corrupting your resulting object/struct.
+// Minimal specification
+unsigned data{8} as byte;           // 8-bit, packed, big-endian
 
-data{sizeof(somestring)} nulled = (void)somestring;
+// With alignment
+unsigned data{16:16} as word;       // 16-bit, 16-bit aligned, big-endian
 
-Casting objects or structs to `data` results in a new data variable with bit width equal to the size of the object/struct's length.
-If the object took up 1KB of memory, the resulting `data` variable will be 1024 bits wide.
-You cannot do the reverse with objects or structs unless **ALL** of their member types are explicitly aligned, otherwise you risk corrupting your resulting object/struct.
+// Full specification  
+unsigned data{13:16:0} as custom;   // 13-bit, 16-bit aligned, little-endian
+
+// Skip alignment, specify endianness
+unsigned data{24::0} as triple;     // 24-bit, packed, little-endian
 ```
 
+
+**Casting:**
+// Casting in Flux is C-like
+```
+signed data{32} as i32;
+
+float x = 3.14;                  // 01000000010010001111010111000010b   binary representation of 3.14
+i32 y = (i32)x;                  // 01000000010010001111010111000010b   but now treated as an integer  1078523330 == 0x4048F5C2
+```
 Casting anything to `void` is the functional equivalent of freeing the memory occupied by that thing.
 If the width of the data type is 512 bits, that many bits will be freed.
-This is dangerous on purpose, the compiler will throw very verbose warnings at you.
-This goes for functions which return void.
-If you try to return data with the `return` statement and the function definition declares the return type as void, your data will be cast as void.
-It is expected the programmer understands this and knows what they're doing.
+This is dangerous on purpose, it is equivalent to free(ptr) in C. This syntax is considered explicit in Flux once you understand the convention.
 
+This goes for functions which return void. If you declare a function's return type as void, you're explicitly saying "this function frees its return value".
+Example:
+```
+def foo() -> void
+{
+	return 5;     // Imagine you wrote `return void;` here instead. You could also imagine `return (void)5;` as well.
+};
+// This means a return type is syntactic sugar for casting the return value automatically,
+// thereby guaranteeing the return value's type. Example:
+def bar() -> float
+{
+	return 5 / 3;    // Math performed with integers, float 1.6666666666... returned.
+};
+```
+
+If you try to return data with the `return` statement and the function definition declares the return type as void, nothing is returned.
+
+
+**Void casting in relation to the stack and heap:**
+```
+def example() -> void {
+    int stackVar = 42;                    // Stack allocated
+    int* heapVar = malloc(sizeof(int));   // Heap allocated
+    
+    (void)stackVar;  // What happens here?
+    (void)heapVar;   // And here?
+}
+```
+In either place, the stack or the heap, the memory is freed.
+(void) is essentially a "free this memory now" no matter where it is or how it got there.
+If you want to free something early, you can, but if you attempt to use it later you'll get a use-after-free bug.
+If you're not familiar with a use-after-free, it is something that shows up in runtime, not comptime.
+However in Flux, they can show up in comptime as well.
+All of this is runtime behavior, but can also happen in comptime.
+
+
+**Array and pointer operations based on data types:**
+```
+unsigned data{16::0}[] as larray3 little_array[3] = {0x1234, 0x5678, 0x9ABC};
+// Memory: [34 12] [78 56] [BC 9A]
+
+unsigned data{16::0}* as ptr myptr = @little_array;
+*myptr;     // 0x1234 (correct little-endian interpretation)
+myptr++;    // Advances 2 bytes
+*myptr;     // 0x5678 (correct little-endian interpretation)
+
+// But if you reinterpret...
+unsigned data{16::1}* as big_ptr mybigptr = (unsigned data{16::1}*)myptr;
+*mybigptr; // 0x7856 (raw bytes [78 56] interpreted as big-endian)
+
+// Reading network data (big-endian protocol)
+unsigned data{16::1} as word network_port = {0x1F90};
+// Gets 0x1F90 from network bytes [1F 90]
+
+// Need to store in little-endian local format?
+word local_port = (unsigned data{16::0})((network_port >> 8) | (network_port << 8)); // Explicit byte swap - you write exactly what you want
+```
 
 **types.fx module:**
 // imported by standard.fx
 ```
 // The standard types found in Flux that are not included keywords
 // This is an excerpt and not a complete list of all types defined in the standard library of types
-signed   data{32}  i32;
-unsigned data{32} ui32;
-signed   data{64}  i64;
-unsigned data{64} ui64;
+signed   data{32} as  i32;
+unsigned data{32} as ui32;
+signed   data{64} as  i64;
+unsigned data{64} as ui64;
 ```
 
 
 **alignof, sizeof, typeof:**
 // typeof() operates both at compile time, and runtime.
 ```
-unsigned data{8:8}[] string;
-signed data{13:16} strange;
+unsigned data{8:8}[] as string;
+signed data{13:16} as strange;
 
 sizeof(string);   // 8
 alignof(string);  // 8
@@ -654,13 +745,13 @@ typeof(strange);  // signed data{13:16}
 ```
 // Define a struct for a hardware register map
 struct GPIORegisters {
-    unsigned data {32} control;
-    unsigned data {32} status;
-    unsigned data {64} buffer;
+    unsigned data {32} as control;
+    unsigned data {32} as status;
+    unsigned data {64} as buffer;
 };
 
 // Map to a fixed hardware address
-volatile const GPIORegisters* GPIO = @0x40000000;
+volatile const GPIORegisters* GPIO = @0x40000000;  // Specifically an address value
 
 def main() -> int {
     GPIO.control = 0x1;  // Write to control register (aligned access)
@@ -681,7 +772,7 @@ if (x is !void) {...code...};   // If it's not nothing, do something
 
 **Arrays:**
 ```
-import "standard.fx" as std;
+import "standard.fx";
 using standard::io, standard::types;
 
 int[] ia_myArray = [3, 92, 14, 30, 6, 5, 11, 400];
@@ -737,8 +828,9 @@ while (condition)
 ```
 
 
-**Destructuring with auto:**
+**Destructure syntax with auto:**
 ```
+// Destructuring is only done with structs. Structure / Destructure. No confusion.
 struct Point { int x; int y; };
 
 Point myPoint = {x = 10, y = 20};  // Struct initialization
@@ -750,7 +842,7 @@ auto {t, m} = myPoint{x,y};        // int t=10, int m=20
 
 **Error handling with try/throw/catch:**
 ```
-unsigned data{8}[] string;  // Basic string implementation with no functionality (non-OOP string)
+unsigned data{8}[] as string;  // Basic string implementation with no functionality (non-OOP string)
 
 object ERR
 {
@@ -770,7 +862,7 @@ object ERR
 
 def myErr(int e) -> void
 {
-	switch (e)                                              // `switch` can perform pattern matching as well
+	switch (e)
 	{
 		case (0)
 		{
@@ -822,11 +914,8 @@ def main() -> int
 ```
 
 
-**Switching and Matching:**
-`switch` and `match` are two different concepts in Flux.
+**Switching:**
 `switch` is static, value-based, and non-flexible. Switch statements are for speed.
-`match` is dynamic, pattern-based, and very flexible. Match statements are for guarantees.
-Match statements are for convenience and are slow, but switch is more optimizable and faster.
 ```
 switch (e)
 {
@@ -843,39 +932,97 @@ switch (e)
 		// Something else
 	};
 };
-
-match (e)
-{
-	case (e in myList)
-	{
-		// Do something
-	}
-	case (e in 1..100)
-	{
-		// Another thing
-	}
-	default
-	{
-		// Something else
-	};
-};
 ```
 
 
 **Compile-Time with `compt`:**
+compt is used to create anonymous blocks that are inline executed.
+You cannot use compt as part of grammar like `compt def x()` or `compt if()`, but you can put functions and if-statements inside your compt block.
 ```
-compt def tests() -> int
-{
-	// ... do tests
-};
+compt {
+	// This anonymous compt block will execute in-line.
+	def test1() -> int
+	{
+	    return 0;
+	};
 
-def main() -> int
-{
-	return 0;
+	if (def(MY_MACRO))
+	{
+	    test1();
+	};
 };
 ```
 Anything marked with `compt` will be evaluated at compile time.
 If you mark a function as compile-time evaluated, you do not need to write `compt` anywhere in the function. Doing so will result in a compiler error.
+The Flux compiler will have the runtime built into it allowing for full Flux capabilities during comptime.
+
+
+**Macros:**
+The `def` keyword has two abilities, making functions, and making macros. Example:
+```
+def SOME_MACRO 0x4000000;
+
+def myFunc() -> int
+{
+	if (MY_CONST_MACRO < 10)                         // Replaced with 5 at compile time
+	{
+		return -1;
+	};
+	return 0;
+};
+
+// You can also macro operators like so:
+
+def MASK_SET `&       // Set bits with mask
+def MASK_CLEAR `!&    // Clear bits with mask  
+def TOGGLE `^^        // Toggle bits
+
+// Usage becomes incredibly clean
+gpio_control MASK_SET 0x0F;     // Set lower 4 bits
+status_reg MASK_CLEAR 0xF0;     // Clear upper 4 bits
+led_state TOGGLE 0x01;          // Toggle LED bit
+
+// Network byte order operations
+def HTONSL <<8
+def HTONSR >>8    // Host to network short
+def ROTL <<       // Rotate left
+def ROTR >>       // Rotate right  
+def SBOX `^       // S-box substitution
+def PERMUTE `!&   // Bit permutation
+def NTOHSR >>8    // Network to host short
+def NTOHSL <<8    // Network to host short
+
+// Checksum operations
+def CHECKSUM_ADD `+
+def CHECKSUM_XOR `^^
+
+def ROTL <<         // Rotate left
+def ROTR >>         // Rotate right  
+def SBOX `^          // S-box substitution
+def PERMUTE `!&      // Bit permutation
+```
+It can also work to act like C++'s `#ifdef` and `#ifndef`, in Flux you do `if(def)` and `if(!def)` inside a compt block:
+```
+compt
+{
+	if (def(MY_CONST_MACRO))
+	{
+		// Do something ...
+	}
+	else if (!def(MY_CONST_MACRO))
+	{
+		def MY_CONST_MACRO 1;
+	};
+};
+```
+
+Macro definitions are the only thing that become global and therefore are persistent after exiting the scope of a compt function or anonymous block.
+
+This means if you want pre-processor behavior, just wrap all your behavior inside an anonymous block marked `compt` anywhere in your code.
+This also means you can write entire compile-time programs, the Flux runtime is built into the compiler for this purpose.
+`compt` gives you more access to zero-cost abstractions and build time validation to catch errors before deployment.
+Bad comptime code will result in slow compile times, example writing an infinite loop in a `compt` block that doesn't resolve means it never compiles.
+If you want to write an entire Bitcoin miner in compile time, that's up to you. Your miner will run, but it will never compile unless a natural program end is reached.
 
 
 **Assertion:**
@@ -897,44 +1044,6 @@ def main() -> int
 	return x;
 };
 ```
-
-
-**Macros:**
-The `def` keyword has two abilities, making functions, and making macros. Example:
-```
-def MY_CONST_MACRO 5;
-
-def myFunc() -> int
-{
-	if (MY_CONST_MACRO < 10)                         // Replaced with 5 at compile time
-	{
-		return -1;
-	};
-	return 0;
-};
-```
-It can also work to act like C++'s `#ifdef` and `#ifndef`, in Flux you do `if(def)` and `if(!def)` inside a compt block:
-```
-compt
-{
-	if (def(MY_CONST_MACRO))
-	{
-		// Do something ...
-	}
-	else if (!def(MY_CONST_MACRO))
-	{
-		// Something else ...
-	};
-
-	return 0;
-};
-```
-
-This means if you want pre-processor behavior, just wrap all your behavior inside an anonymous block marked `compt` anywhere in your code.
-This also means you can write entire compile-time programs, the Flux runtime is built into the compiler for this purpose.
-`compt` gives you more access to zero-cost abstractions and build time validation to catch errors before deployment.
-Bad comptime code will result in slow compile times, example writing an infinite loop in a `compt` block that doesn't resolve means it never compiles.
-If you want to write an entire Bitcoin miner in compile time, that's up to you. Your miner will run, but it will never compile unless a natural program end is reached.
 
 
 **External FFI:**
@@ -960,11 +1069,56 @@ extern("C")
     def strcmp(string s1, string s2) -> int;
 };
 ```
+extern will make these definitions global. You can only prototype functions inside extern blocks, nothing else.
+
+**Function Chaining:**
+```
+foo() <- bar();  // Syntactic sugar for  foo(bar())
+foo() -> bar();  // Illegal, -> is the return arrow
+```
+
+
+**Lambdas:**
+```
+// Basic syntax
+[capture](type var) { return var * 2; }                       // type is the return type, var is the parameter.
+[capture](type var1,var2,var3) { return var1 + var2 * var3; } // Multiple parameter syntax
+
+// With capture
+[=](int x) { return x * 2; }         // Capture by value
+[@](int x) { return x * 2; }         // Capture by reference
+[*](int x) { return x * 2; }         // Capture by dereference
+[#](int x) { return x * 2; }         // Capture by type
+[~](int x) { return x * 2; }         // Capture by bit width
+[$](int x) { return x * 2; }         // Capture by alignment
+[!](int x) { return x * 2; }         // Capture by endianness
+[x](int y) { return x + y; }         // Capture specific variable (defaults to value)
+[=, @y, #z, ~k](int y) { return x + y; } // Capture most by value, y by reference, z by type, k by bit width
+
+// Usage
+int f <- [](int x) { return x * 2; };    // You can do `auto f` as well.
+int result = f(5);  // 10
+```
+
+
+**Runtime type-checking:**
+```
+Animal* pet = @Dog();
+if (typeof(pet) == Dog) { /* Legal */ };
+// or
+if (pet is Dog) { /* Legal, syntactic sugar for `typeof(pet) == Dog` */ };
+```
+
+
+**Constant Expressions:**
+```
+const def myconstexpr() {};  // Basic syntax
+```
 
 
 Keyword list:
 ```
-alignof, and, asm, assert, auto, break, bool, case, catch, compt, const, continue, data,
+alignof, and, as, asm, assert, auto, break, bool, case, catch, compt, const, continue, data,
 def, default, do, else, enum, extern, false, float, for, if, import, in, int, is, match,
 namespace, not, object, or, private, public, return, signed, sizeof, struct, super, switch,
 this, throw, true, try, typeof, unsigned, using, virtual, void, volatile, while, xor
@@ -973,6 +1127,7 @@ this, throw, true, try, typeof, unsigned, using, virtual, void, volatile, while,
 
 Literal types:
 bool, int `5`, float `3.14`, char `"B"` == `66` - `65` == `'A'`, data, void, this, super, const, volatile
+
 
 ================================================================================
                         FLUX OPERATOR PRECEDENCE TABLE
@@ -983,7 +1138,7 @@ Level | Operators                                                        | Assoc
 ------|------------------------------------------------------------------|-------|------------------
   1   | () [] . ::                                                       | Left  | Primary expressions
   2   | ++ -- (postfix)                                                  | Left  | Postfix inc/dec
-  3   | ++ -- (prefix) + - ! ~ @ * not sizeof typeof                     | Right | Unary operators
+  3   | ++ -- (prefix) + - ! ~ @ * not sizeof typeof alignof             | Right | Unary operators
   4   | (type)                                                           | Right | Type casting
   5   | ^                                                                | Right | Exponentiation
   6   | * / %                                                            | Left  | Multiplicative

@@ -1,307 +1,572 @@
 # Flux Programming Language
-
-> **A modern systems programming language that combines the best of C++, Zig, and Python with stricter syntax and powerful metaprogramming capabilities.**
-
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![Language](https://img.shields.io/badge/language-Python-blue)]()
-[![License](https://img.shields.io/badge/license-MIT-green)]()
-[![Version](https://img.shields.io/badge/version-0.1.0--alpha-orange)]()
+## A Systems Programming Language for the Modern Era
 
 ---
 
-## 🚀 What is Flux?
+## Philosophy
 
-Flux is a revolutionary programming language designed for systems programming, performance-critical applications, and complex software architectures. It draws inspiration from C++, Zig, and Python while introducing innovative features for type safety, metaprogramming, and developer productivity.
+**"Swiss Army Chainsaw"** - Flux is designed to be incredibly powerful and precise, but requires skill to wield effectively. We don't limit your capabilities for your own good. We give you the tools to solve problems efficiently.
 
-**Named after flux (solder paste) used in electrical engineering** - programming in Flux is clearly good for your computer! ⚡
+Flux eliminates the language decision paralysis:
+- Need performance? ✓
+- Need rapid prototyping? ✓
+- Need bit manipulation? ✓
+- Need memory control? ✓
+- Need high-level expressiveness? ✓
 
----
-
-## ✨ Key Features
-
-### 🎯 **Type System**
-- **Variable-width primitive types**: `data{n}` for custom bit-width data types
-- **Strict type safety** with compile-time checks
-- **Template metaprogramming** with advanced constraints
-- **Automatic type inference** with `auto` destructuring
-
-### 🏗️ **Object-Oriented Programming**
-- **Multiple inheritance** with inclusion/exclusion syntax
-- **Magic methods** for operator overloading
-- **Nested objects** and complex hierarchies
-
-### 🛠️ **Systems Programming**
-- **Inline assembly** support
-- **Manual memory management** with pointers
-- **Volatile and const qualifiers**
-- **Direct hardware register access**
-- **Zero-cost abstractions**
-
-### 🎨 **Modern Language Features**
-- **Interpolated strings**: `i"Hello {}":{name;}`
-- **Array comprehensions**: `[x^2 for (x in 1..10)]`
-- **Destructuring assignment**: `auto {x, y} = point{x, y}`
-- **Async/await** for concurrent programming
+**Write it in Flux.**
 
 ---
 
-## 📋 Language Overview
+## Core Principles
 
-### Basic Syntax
+What if we created a language based on everything we know now?
+
+### 1. **Clarity Over Brevity**
+Every important construct gets braces. Every statement gets a semicolon. No special cases.
 
 ```flux
-import "standard.fx" as std;
-using standard::io, standard::types;
+// Always clear where blocks begin and end
+if (condition) 
+{
+    doSomething();
+};
+
+// Even single statements
+if (x > 0) { return x; };
+```
+
+### 2. **Explicit Over Implicit**
+What you write is what happens. No hidden behavior, no magic.
+
+```flux
+// Memory management is explicit
+int* ptr = malloc(sizeof(int));
+*ptr = 42;
+(void)ptr;  // Explicit free - dangerous but clear
+```
+
+### 3. **Power Without Apology**
+We trust you to be a competent programmer. Use that power wisely.
+
+---
+
+## Getting Started
+
+### Your First Program
+
+```flux
+import "standard.fx";
+using standard::io;
 
 def main() -> int
 {
-    // Variable declarations
-    int x = 42;
-    float y = 3.14159;
-    data{64} timestamp = getCurrentTime();
-    
-    // Interpolated strings
-    string message = i"Value: {}, Time: {}":{x; timestamp;};
-    print(message);
-    
+    print("Hello, Flux!");
     return 0;
 };
 ```
 
-### Object-Oriented Programming
+### Basic Syntax
 
+#### Variables and Types
 ```flux
-object Vector3D
+// Standard types
+int x = 42;
+float pi = 3.14159;
+bool isTrue = true;
+
+// Custom bit-width types
+unsigned data{8} as byte;
+signed data{13:16} as weird_int;  // 13-bit wide, 16-bit aligned
+
+byte myByte = 0xFF;
+weird_int myWeird = 1000;
+```
+
+#### Functions
+```flux
+def add(int a, int b) -> int
 {
-    float x, y, z;
-    
-    def __init(float x, float y, float z) -> this
-    {
-        this.x = x;
-        this.y = y; 
-        this.z = z;
-        return;
-    };
-    
-    def __add(this other) -> this
-    {
-        return this(this.x + other.x, this.y + other.y, this.z + other.z);
-    };
+    return a + b;
+};
+
+// Function overloading
+def add(float a, float b) -> float
+{
+    return a + b;
+};
+
+// Templates
+def maximum<T>(T a, T b) -> T
+{
+    return (a > b) ? a : b;
 };
 ```
 
-### Templates and Generics
+---
+
+## Key Features
+
+### The `data` Type System
+Flux's killer feature - precise control over memory layout:
 
 ```flux
-template <T> findMax(T[] array) -> T
+// Create custom types with exact bit widths
+unsigned data{24:32:0} as rgb_pixel;  // 24-bit, 32-bit aligned, little-endian
+
+// Perfect for hardware registers
+struct GPIO_Register
 {
-    T max_val = array[0];
-    for (T item in array)
+    unsigned data{1} as pin0;
+    unsigned data{1} as pin1;
+    unsigned data{6} as reserved;
+    unsigned data{8} as control;
+};
+
+// Memory-mapped I/O
+volatile const GPIO_Register* gpio = @0x40000000;
+gpio.pin0 = 1;  // Set pin 0 high
+```
+
+### String Interpolation
+Two powerful approaches:
+
+```flux
+// f-strings (familiar)
+string name = "World";
+string msg = f"Hello {name}!";
+
+// i-strings (first-class functions, great for logging)
+print(i"User {} logged in at {}" : {
+    username;
+    getCurrentTime();
+});
+```
+
+### Objects and Structs
+```flux
+// Objects have behavior
+object Vector2D
+{
+    float x, y;
+    
+    def __init(float x, float y) -> this
     {
-        if (item > max_val)
-        {
-            max_val = item;
-        };
+        this.x = x;
+        this.y = y;
+        return this;
     };
-    return max_val;
+    
+    def length() -> float
+    {
+        return sqrt(x*x + y*y);
+    };
+};
+
+// Structs are pure data
+struct Point
+{
+    float x, y;
+};
+
+Vector2D vec(3.0, 4.0);
+print(f"Length: {vec.length()}");  // 5.0
+```
+
+### Memory Management
+```flux
+// Manual but explicit
+int* numbers = malloc(sizeof(int) * 10);
+numbers[0] = 42;
+
+// Explicit free
+(void)numbers;  // Frees the memory immediately
+
+// Stack allocation
+int localVar = 100;
+(void)localVar;  // Also works - frees stack memory early
+```
+
+### Error Handling
+```flux
+// Traditional exceptions
+object FileError
+{
+    string message;
+    
+    def __init(string msg) -> this
+    {
+        this.message = msg;
+        return this;
+    };
+};
+
+def readFile(string filename) -> string
+{
+    if (!fileExists(filename))
+    {
+        FileError error("File not found");
+        throw(error);
+    };
+    // ... read file
 };
 
 // Usage
-int[] numbers = [5, 2, 8, 1, 9];
-int maximum = findMax<int>(numbers);
-```
----
-
-## 🏗️ Architecture
-
-Flux is implemented as a multi-stage compiler/interpreter with the following components:
-
-```
-Source Code (.fx)
-       ↓
-📝 Lexer (flexer3.py)      → Tokens
-       ↓
-🌳 Parser (fparser3.py)    → Abstract Syntax Tree
-       ↓
-🔍 Type Checker (ftyper.py) → Semantically Valid AST
-       ↓
-📦 LLVM Integration → Compile Flux code and bootstrap fc.fx (the Flux Compiler)
-       ↓
-⚡ The Flux Capacitor → Compile Flux to native binaries on multiple systems
+try
+{
+    string content = readFile("data.txt");
+    print(content);
+}
+catch (FileError e)
+{
+    print(f"Error: {e.message}");
+};
 ```
 
-### Current Status
+### Compile-Time Programming
+```flux
+// Macros
+def PI 3.14159;
+def DEBUG_MODE true;
 
-| Component | Status | Description |
-|-----------|--------|-------------|
-| **Lexer** | ✅ Complete | Tokenizes Flux source code |
-| **AST** | ✅ Complete | Comprehensive AST node definitions |
-| **Parser** | ✅ Complete | Recursive descent parser for all language features |
-| **Type Checker** | 🚧 In Progress | Semantic analysis and type checking |
-| **LLVM Integration** | 📅 Planned | Compile Flux code |
-| **Native Flux Compiler** | 📅 Planned | Bootstrap the Flux Capacitor (Compiler) |
+// Compile-time execution
+compt
+{
+    if (def(DEBUG_MODE))
+    {
+        def LOG_LEVEL 3;
+    }
+    else
+    {
+        def LOG_LEVEL 1;
+    };
+};
 
----
+// Compile-time functions
+compt def factorial(int n) -> int
+{
+    if (n <= 1) { return 1; };
+    return n * factorial(n - 1);
+};
 
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Python 3.8 or higher
-- Git
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/flux-lang.git
-cd flux-lang
-
-# Run a Flux program
-python3 fparser3.py
-```
-
-### Running Examples
-
-```bash
-# Parse the comprehensive test file
-python3 fparser3.py
-# Output: Parsing successful! AST has 20 global items
-
-# Try your own Flux code
-echo 'def main() -> int { return 42; };' > hello.fx
-python3 -c "
-from fparser3 import parse_flux_program
-with open('hello.fx') as f:
-    ast = parse_flux_program(f.read())
-print('Parsed successfully!')
-"
+// Computed at compile time
+const int fact_10 = factorial(10);
 ```
 
 ---
 
-## 📚 Language Reference
+## Advanced Features
 
-### Keywords
+### Pointers and References
+```flux
+int value = 42;
+int* ptr = @value;      // Get address
+*ptr = 100;             // Dereference
+print(value);           // 100
+
+// Function pointers
+int (*op)(int, int) = @add;
+int result = (*op)(5, 3);  // 8
 ```
-alignof, and, asm, assert, auto, break, bool, case, catch, const, continue, data, def
-default, do, else, enum, false, float, for, if, import, in, int, is, namespace
-not, object, or, return, signed, sizeof, struct, super, switch, template, this,
-throw, true, try, typeof, unsigned, using, void, volatile, while, xor
+
+### Templates
+```flux
+// Function templates
+def swap<T>(T* a, T* b) -> void
+{
+    T temp = *a;
+    *a = *b;
+    *b = temp;
+};
+
+// Object templates
+object Container<T>
+{
+    T* data;
+    int size;
+    
+    def __init(int capacity) -> this
+    {
+        this.data = malloc(sizeof(T) * capacity);
+        this.size = 0;
+        return this;
+    };
+};
 ```
 
-### Built-in Types
-- **Integers**: `int` (platform-dependent), `signed`/`unsigned` qualifiers
-- **Floating-point**: `float` (platform-dependent)
-- **Characters**: `char`
-- **Binary data**: `data{n}` (custom bit-width)
-- **Arrays**: `type[]`, `type[][]` (multi-dimensional)
-- **Pointers**: `type*`
+### Inline Assembly
+```flux
+def optimizedCopy(void* dest, void* src, int size) -> void
+{
+    asm
+    {
+        mov eax, [src]
+        mov ebx, [dest]
+        mov ecx, [size]
+        rep movsb
+    };
+};
+```
 
-### Control Flow
-- **Conditionals**: `if`/`else if`/`else`
-- **Loops**: `while`, `do-while`, `for`, `for-in`
-- **Pattern matching**: `switch`/`case`
-- **Exception handling**: `try`/`catch`/`throw`
+### Lambdas
+```flux
+// Basic lambda
+auto square = [](int x) { return x * x; };
 
----
+// With capture
+int multiplier = 10;
+auto scale = [multiplier](int x) { return x * multiplier; };
 
-## 🎯 Roadmap
-
-### Phase 1: Core Language (Current)
-- [x] Lexical analysis
-- [x] Syntax parsing
-- [x] AST generation
-- [ ] Type checking and semantic analysis
-
-### Phase 2: Optimization
-- [ ] LLVM backend integration
-
-### Phase 3: Code Generation
-- [ ] Standard library
-- [ ] Documentation
-- [ ] Self-hosting compiler
-- [ ] Performance optimizations
-
-### Phase 4: Ecosystem
-- [ ] Package manager
-- [ ] IDE tooling [VysualPy](https://github.com/kvthweatt/VysualPy) and language server
-- [ ] Testing framework
+// Usage
+int result = square(5);     // 25
+int scaled = scale(3);      // 30
+```
 
 ---
 
-## 🤝 Contributing
+## Best Practices
 
-We welcome contributions to Flux! Here's how you can help:
+### 1. Embrace Explicitness
+```flux
+// Good: Clear intent
+if (ptr != void) { *ptr = value; };
 
-### Getting Involved
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Make your changes** and add tests
-4. **Commit your changes**: `git commit -m 'Add amazing feature'`
-5. **Push to the branch**: `git push origin feature/amazing-feature`
-6. **Open a Pull Request**
+// Bad: Implicit behavior
+if (ptr) { *ptr = value; };
+```
 
-### Areas We Need Help
-- 🔍 **Type Checker Implementation** - Core semantic analysis
-- 📦 **Bytecode Generator** - Code generation backend
-- 🖥️ **Virtual Machine** - Runtime execution engine
-- 📚 **Documentation** - Language guides and tutorials
-- 🧪 **Testing** - Comprehensive test suite
-- 🛠️ **Tooling** - IDE support, syntax highlighting
+### 2. Use the Type System
+```flux
+// Good: Precise types
+unsigned data{8} as StatusRegister;
+unsigned data{16:32} as NetworkPort;
 
-### Development Guidelines
-- Follow the existing code style and patterns
-- Add comprehensive tests for new features
-- Update documentation for language changes
-- Ensure all tests pass before submitting PRs
+// Less good: Generic types
+int status;
+int port;
+```
 
----
+### 3. Handle Errors Appropriately
+```flux
+// For recoverable errors
+try
+{
+    result = riskyOperation();
+}
+catch (OperationError e)
+{
+    // Handle gracefully
+};
 
-## 📖 Examples
+// For programmer errors
+assert(ptr != void, "Null pointer passed to function");
+```
 
-Check out the comprehensive language test in [`master_example2.fx`](master_example2.fx) which demonstrates:
+### 4. Leverage Compile-Time Features
+```flux
+// Generate lookup tables at compile time
+compt
+{
+    def generateSinTable() -> float[]
+    {
+        float[] table = new float[360];
+        for (int i = 0; i < 360; i++)
+        {
+            table[i] = sin(i * PI / 180.0);
+        };
+        return table;
+    };
+};
 
-- Complex object hierarchies with templates
-- Multiple inheritance patterns
-- Advanced template metaprogramming
-- Custom operator definitions
-- Async programming patterns
-- Low-level systems programming features
-
----
-
-## 🔧 Development Setup
-
-- Will update
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- Inspired by the design philosophies of C++, Zig, and Python
-- Special thanks to the systems programming community
-- Built with passion for developer productivity and performance
+const float[] SIN_TABLE = generateSinTable();
+```
 
 ---
 
-## 📞 Contact
+## Common Patterns
 
-- **GitHub Issues**: [Report bugs and request features](https://github.com/yourusername/flux-lang/issues)
-- **Discussions**: [Join the community discussions](https://github.com/yourusername/flux-lang/discussions)
+### RAII with Objects
+```flux
+object FileHandle
+{
+    void* file;
+    
+    def __init(string filename) -> this
+    {
+        this.file = fopen(filename, "r");
+        if (this.file == void)
+        {
+            throw("Failed to open file");
+        };
+        return this;
+    };
+    
+    def __exit() -> void
+    {
+        if (this.file != void)
+        {
+            fclose(this.file);
+        };
+    };
+};
+
+// Automatic cleanup
+{
+    FileHandle handle("data.txt");
+    // Use handle...
+}  // __exit() called automatically
+```
+
+### Bit Manipulation
+```flux
+// Define custom operators for clarity
+def SET_BIT `|
+def CLEAR_BIT `&
+def TOGGLE_BIT `^^
+
+unsigned data{8} as Register;
+
+Register status = 0x00;
+status SET_BIT 0x01;      // Set bit 0
+status CLEAR_BIT 0xFE;    // Clear bit 0
+status TOGGLE_BIT 0x01;   // Toggle bit 0
+```
+
+### Generic Programming
+```flux
+// Generic container
+object Array<T>
+{
+    T* data;
+    int size, capacity;
+    
+    def push(T item) -> void
+    {
+        if (size >= capacity)
+        {
+            resize(capacity * 2);
+        };
+        data[size++] = item;
+    };
+    
+    def get(int index) -> T
+    {
+        assert(index >= 0 && index < size, "Index out of bounds");
+        return data[index];
+    };
+};
+
+Array<int> numbers;
+numbers.push(42);
+numbers.push(100);
+```
 
 ---
 
-<div align="center">
+## Performance Considerations
 
-**⚡ Flux - Where Performance Meets Productivity ⚡**
+### Memory Layout
+```flux
+// Tightly packed structs
+struct NetworkPacket
+{
+    unsigned data{8} as type;
+    unsigned data{16} as length;
+    unsigned data{8}[256] as payload;
+};  // Exactly 275 bytes
 
-[Getting Started](#-getting-started) • [Documentation](#-language-reference) • [Contributing](#-contributing) • [Examples](#-examples)
+// Aligned for performance
+struct CacheAligned
+{
+    unsigned data{64:64} as value;  // 64-byte aligned
+};
+```
 
-</div>
+### Compile-Time Optimization
+```flux
+// Pre-compute expensive operations
+compt def fibonacci(int n) -> int
+{
+    if (n <= 1) { return n; };
+    return fibonacci(n-1) + fibonacci(n-2);
+};
+
+// Computed once at compile time
+const int[] FIB_SEQUENCE = [
+    fibonacci(0), fibonacci(1), fibonacci(2), 
+    fibonacci(3), fibonacci(4), fibonacci(5)
+];
+```
+
+### Zero-Cost Abstractions
+```flux
+// High-level interface with zero runtime cost
+def forEach<T>(T[] array, void (*func)(T)) -> void
+{
+    for (int i = 0; i < len(array); i++)
+    {
+        (*func)(array[i]);
+    };
+};
+
+// Inlined completely
+forEach(numbers, @print);
+```
+
+---
+
+## Safety Guidelines
+
+### Memory Safety
+```flux
+// Always check pointers
+if (ptr != void)
+{
+    *ptr = value;
+};
+
+// Use RAII patterns
+object SafeBuffer
+{
+    void* data;
+    
+    def __init(int size) -> this
+    {
+        this.data = malloc(size);
+        return this;
+    };
+    
+    def __exit() -> void
+    {
+        if (this.data != void)
+        {
+            (void)this.data;  // Explicit free
+        };
+    };
+};
+```
+
+### Thread Safety
+```flux
+// Use explicit synchronization
+volatile int shared_counter = 0;
+
+def increment() -> void
+{
+    asm { lock inc [shared_counter] };  // Atomic increment
+};
+```
+
+---
+
+## Conclusion
+
+Flux gives you the power to write efficient, expressive systems code without artificial limitations. It trusts you to make the right decisions while providing the tools to make those decisions safely and clearly.
+
+The learning curve is steep, but the payoff is immense: **one language that can handle everything from bit manipulation to high-level abstractions, from bare-metal programming to application development.**
+
+Welcome to Flux. Use it wisely.
+
+---
+
+*"Here's a Swiss Army chainsaw. Don't cut your leg off."*
