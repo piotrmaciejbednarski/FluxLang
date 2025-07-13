@@ -12,8 +12,9 @@ Usage:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional, Union, Any
+from typing import List, Optional, Union, Any, Tuple
 from enum import Enum, auto
+import sys
 
 # ============================================================================
 # Base AST Node
@@ -39,14 +40,9 @@ class GlobalItem(ASTNode):
     """Base class for top-level program items"""
     pass
 
-# ============================================================================
-# Function Definitions
-# ============================================================================
-
-class FunctionModifier(Enum):
+class CVModifier(Enum):
     VOLATILE = "volatile"
     CONST = "const"
-    COMPT = "compt"
 
 @dataclass
 class Parameter(ASTNode):
@@ -58,16 +54,7 @@ class Parameter(ASTNode):
 class TemplateParameter(ASTNode):
     """Template parameter"""
     name: str = ""
-
-@dataclass
-class FunctionDef(GlobalItem):
-    """Function definition"""
-    name: str = ""
-    parameters: List[Parameter] = field(default_factory=list)
-    return_type: 'Type' = None
-    body: List['Statement'] = field(default_factory=list)
-    modifiers: List[FunctionModifier] = field(default_factory=list)
-    template_params: List[TemplateParameter] = field(default_factory=list)
+    constraints: Optional['Type'] = None  # Added constraint support
 
 # ============================================================================
 # Object Definitions
@@ -83,30 +70,18 @@ class ObjectMember(ASTNode):
     access: Optional[AccessSpecifier] = None
 
 @dataclass
-class ObjectFunctionDef(ObjectMember):
-    """Function definition inside an object"""
-    function: 'FunctionDef' = None
-
-@dataclass
-class ObjectVariableDecl(ObjectMember):
-    """Variable declaration inside an object"""
-    declaration: 'VariableDeclaration' = None
-
-@dataclass
-class ObjectObjectDef(ObjectMember):
-    """Nested object definition"""
-    object_def: 'ObjectDef' = None
-
-@dataclass
-class ObjectStructDef(ObjectMember):
-    """Nested struct definition"""
-    struct_def: 'StructDef' = None
+class MagicMethod(ASTNode):
+    """Magic method in objects"""
+    name: str = ""  # __init, __exit, etc.
+    parameters: List[Parameter] = field(default_factory=list)
+    return_type: 'Type' = None
+    body: List['Statement'] = field(default_factory=list)
 
 @dataclass
 class ObjectDef(GlobalItem):
     """Object definition"""
     name: str = ""
-    members: List[ObjectMember] = field(default_factory=list)
+    members: List[Union['FunctionDef', 'VariableDeclaration', MagicMethod, 'ObjectDef']] = field(default_factory=list)
     inheritance: List['QualifiedName'] = field(default_factory=list)
     template_params: List[TemplateParameter] = field(default_factory=list)
     is_forward_decl: bool = False
@@ -140,35 +115,10 @@ class NamespaceMember(ASTNode):
     pass
 
 @dataclass
-class NamespaceFunctionDef(NamespaceMember):
-    """Function definition in namespace"""
-    function: 'FunctionDef' = None
-
-@dataclass
-class NamespaceObjectDef(NamespaceMember):
-    """Object definition in namespace"""
-    object_def: 'ObjectDef' = None
-
-@dataclass
-class NamespaceStructDef(NamespaceMember):
-    """Struct definition in namespace"""
-    struct_def: 'StructDef' = None
-
-@dataclass
-class NamespaceNamespaceDef(NamespaceMember):
-    """Nested namespace definition"""
-    namespace_def: 'NamespaceDef' = None
-
-@dataclass
-class NamespaceVariableDecl(NamespaceMember):
-    """Variable declaration in namespace"""
-    declaration: 'VariableDeclaration' = None
-
-@dataclass
 class NamespaceDef(GlobalItem):
     """Namespace definition"""
     name: str = ""
-    members: List[NamespaceMember] = field(default_factory=list)
+    members: List[Union['FunctionDef', 'ObjectDef', 'StructDef', 'VariableDeclaration', 'NamespaceDef']] = field(default_factory=list)
 
 # ============================================================================
 # Import and Using Statements
@@ -183,24 +133,17 @@ class ImportStmt(GlobalItem):
 @dataclass
 class UsingStmt(GlobalItem):
     """Using statement"""
-    names: List['QualifiedName'] = field(default_factory=list)
+    names: List[Union['QualifiedName', 'Identifier']] = field(default_factory=list)
 
 # ============================================================================
 # External FFI
 # ============================================================================
 
 @dataclass
-class ExternDecl(ASTNode):
-    """External function declaration"""
-    name: str = ""
-    parameters: List[Parameter] = field(default_factory=list)
-    return_type: 'Type' = None
-
-@dataclass
 class ExternBlock(GlobalItem):
     """External function block"""
     language: str = ""
-    declarations: List[ExternDecl] = field(default_factory=list)
+    declarations: List['FunctionDecl'] = field(default_factory=list)
 
 # ============================================================================
 # Compile-time Blocks
@@ -219,16 +162,11 @@ class ComptBlock(GlobalItem):
 class MacroDef(GlobalItem):
     """Macro definition"""
     name: str = ""
-    value: Optional['Expression'] = None
+    value: Optional[Union['Expression', str]] = None  # Can be expression or operator string
 
 # ============================================================================
 # Type System
 # ============================================================================
-
-@dataclass
-class Type(ASTNode):
-    """Base class for all types"""
-    pass
 
 class TypeQualifier(Enum):
     VOLATILE = "volatile"
@@ -241,51 +179,47 @@ class PrimitiveTypeKind(Enum):
     CHAR = "char"
     VOID = "void"
 
+class Endianness(Enum):
+    LITTLE = 0
+    BIG = 1
+
+@dataclass
+class Type(ASTNode):
+    """Base class for all types"""
+    qualifiers: List[TypeQualifier] = field(default_factory=list)
+
 @dataclass
 class PrimitiveType(Type):
     """Primitive type (int, float, bool, char, void)"""
     kind: PrimitiveTypeKind = PrimitiveTypeKind.VOID
-    qualifiers: List[TypeQualifier] = field(default_factory=list)
-
-class DataSignedness(Enum):
-    SIGNED = "signed"
-    UNSIGNED = "unsigned"
 
 @dataclass
 class DataType(Type):
     """Data type with bit width and optional alignment"""
     bit_width: int = 0
     alignment: Optional[int] = None
-    signedness: Optional[DataSignedness] = None
-    qualifiers: List[TypeQualifier] = field(default_factory=list)
+    endianness: Endianness = Endianness.BIG
+    is_signed: bool = False
+    is_array: bool = False
+    array_size: Optional[int] = None
 
 @dataclass
 class NamedType(Type):
     """Named type (user-defined types, templates)"""
     name: 'QualifiedName' = None
     template_args: List[Union['Type', 'Expression']] = field(default_factory=list)
-    qualifiers: List[TypeQualifier] = field(default_factory=list)
 
 @dataclass
 class PointerType(Type):
     """Pointer type"""
     pointee_type: 'Type' = None
-    qualifiers: List[TypeQualifier] = field(default_factory=list)
-
-@dataclass
-class ArrayType(Type):
-    """Array type"""
-    element_type: 'Type' = None
-    qualifiers: List[TypeQualifier] = field(default_factory=list)
 
 @dataclass
 class FunctionPointerType(Type):
     """Function pointer type"""
-    name: str = ""
-    parameters: List[Parameter] = field(default_factory=list)
     return_type: 'Type' = None
+    parameters: List[Parameter] = field(default_factory=list)
     template_params: List[TemplateParameter] = field(default_factory=list)
-    qualifiers: List[TypeQualifier] = field(default_factory=list)
 
 # ============================================================================
 # Variable Declarations
@@ -308,26 +242,16 @@ class ArrayVariableDeclarator(VariableDeclarator):
     initializer: Optional['ArrayInitializer'] = None
 
 @dataclass
-class ObjectInstantiationDeclarator(VariableDeclarator):
-    """Object instantiation declarator"""
-    arguments: List['Expression'] = field(default_factory=list)
-
-@dataclass
 class VariableDeclaration(ASTNode):
     """Variable declaration"""
-    type: 'Type' = None
+    type: Type = None
     declarators: List[VariableDeclarator] = field(default_factory=list)
 
 @dataclass
-class FunctionPointerDeclaration(ASTNode):
-    """Function pointer declaration"""
-    return_type: 'Type' = None
-    name: str = ""
-    parameters: List[Parameter] = field(default_factory=list)
-    template_params: List[TemplateParameter] = field(default_factory=list)
-    initializer: Optional['Expression'] = None
-    is_array: bool = False
-    array_initializer: Optional['ArrayInitializer'] = None
+class TypeAlias(ASTNode):
+    """Type alias (using 'as' keyword)"""
+    original_type: Type = None
+    alias: str = ""
 
 # ============================================================================
 # Statements
@@ -344,16 +268,16 @@ class ExpressionStmt(Statement):
     expression: Optional['Expression'] = None
 
 @dataclass
-class CompoundStmt(Statement):
+class BlockStmt(Statement):
     """Compound statement (block)"""
-    statements: List['Statement'] = field(default_factory=list)
+    statements: List[Statement] = field(default_factory=list)
 
 @dataclass
 class IfStmt(Statement):
     """If statement"""
     condition: 'Expression' = None
     then_stmt: 'Statement' = None
-    elif_parts: List[tuple['Expression', 'Statement']] = field(default_factory=list)
+    elif_parts: List[Tuple['Expression', 'Statement']] = field(default_factory=list)
     else_stmt: Optional['Statement'] = None
 
 @dataclass
@@ -395,12 +319,6 @@ class SwitchCase(ASTNode):
     body: 'Statement' = None
 
 @dataclass
-class MatchCase(ASTNode):
-    """Match case with pattern"""
-    pattern: 'Pattern' = None
-    body: 'Statement' = None
-
-@dataclass
 class DefaultCase(ASTNode):
     """Default case for switch/match"""
     body: 'Statement' = None
@@ -413,16 +331,9 @@ class SwitchStmt(Statement):
     default_case: Optional[DefaultCase] = None
 
 @dataclass
-class MatchStmt(Statement):
-    """Match statement"""
-    expression: 'Expression' = None
-    cases: List[MatchCase] = field(default_factory=list)
-    default_case: Optional[DefaultCase] = None
-
-@dataclass
 class CatchClause(ASTNode):
     """Catch clause for try-catch"""
-    type: 'Type' = None
+    type: Type = None
     variable: str = ""
     body: 'Statement' = None
 
@@ -469,11 +380,6 @@ class VariableDeclStmt(Statement):
     declaration: 'VariableDeclaration' = None
 
 @dataclass
-class FunctionPointerDeclStmt(Statement):
-    """Function pointer declaration statement"""
-    declaration: 'FunctionPointerDeclaration' = None
-
-@dataclass
 class DestructuringStmt(Statement):
     """Destructuring assignment statement"""
     target_vars: List[str] = field(default_factory=list)
@@ -500,11 +406,6 @@ class RangePattern(Pattern):
     """Pattern: expression in range"""
     expr: 'Expression' = None
     range_expr: 'RangeExpression' = None
-
-@dataclass
-class SimplePattern(Pattern):
-    """Simple expression pattern"""
-    expression: 'Expression' = None
 
 # ============================================================================
 # Expressions
@@ -541,6 +442,11 @@ class StringLiteral(Expression):
 class BooleanLiteral(Expression):
     """Boolean literal"""
     value: bool = False
+
+@dataclass
+class VoidLiteral(Expression):
+    """Void literal"""
+    pass
 
 # Identifiers and names
 @dataclass
@@ -587,10 +493,8 @@ class BinaryOperator(Enum):
     GREATER_EQUAL = ">="
     
     # Logical
-    LOGICAL_AND = "&&"
-    LOGICAL_OR = "||"
-    LOGICAL_NAND = "!&"
-    LOGICAL_NOR = "!|"
+    LOGICAL_AND = "&"
+    LOGICAL_OR = "|"
     AND_KEYWORD = "and"
     OR_KEYWORD = "or"
     
@@ -599,16 +503,6 @@ class BinaryOperator(Enum):
     BITWISE_OR = "|"
     BITWISE_XOR = "^^"
     XOR_KEYWORD = "xor"
-    
-    # Bitwise with backtick prefix
-    BITWISE_B_AND = "`&"
-    BITWISE_B_NAND = "`!&"
-    BITWISE_B_OR = "`|"
-    BITWISE_B_NOR = "`!|"
-    BITWISE_B_XOR = "`^^"
-    BITWISE_B_XNOR = "`^!|"
-    BITWISE_B_XAND = "`^&"
-    BITWISE_B_XNAND = "`^!&"
     
     # Shift
     LEFT_SHIFT = "<<"
@@ -630,7 +524,6 @@ class UnaryOperator(Enum):
     MINUS = "-"
     LOGICAL_NOT = "!"
     NOT_KEYWORD = "not"
-    BITWISE_NOT = "~"
     ADDRESS_OF = "@"
     DEREFERENCE = "*"
     PRE_INCREMENT = "++"
@@ -655,12 +548,6 @@ class AssignmentOperator(Enum):
     XOR_ASSIGN = "^^="
     LEFT_SHIFT_ASSIGN = "<<="
     RIGHT_SHIFT_ASSIGN = ">>="
-    B_AND_ASSIGN = "`&="
-    B_NAND_ASSIGN = "`!&="
-    B_OR_ASSIGN = "`|="
-    B_NOR_ASSIGN = "`!|="
-    B_XOR_ASSIGN = "`^="
-    B_NOT_ASSIGN = "`!="
 
 @dataclass
 class BinaryExpression(Expression):
@@ -693,7 +580,7 @@ class ConditionalExpression(Expression):
 @dataclass
 class CastExpression(Expression):
     """Type cast expression"""
-    type: 'Type' = None
+    type: Type = None
     expression: 'Expression' = None
 
 @dataclass
@@ -701,12 +588,7 @@ class FunctionCall(Expression):
     """Function call expression"""
     function: 'Expression' = None
     arguments: List['Expression'] = field(default_factory=list)
-
-@dataclass
-class FunctionPointerCall(Expression):
-    """Function pointer call (*ptr)(args)"""
-    pointer: 'Expression' = None
-    arguments: List['Expression'] = field(default_factory=list)
+    template_args: List[Union[Type, 'Expression']] = field(default_factory=list)
 
 @dataclass
 class MemberAccess(Expression):
@@ -726,7 +608,6 @@ class ArrayAccess(Expression):
     array: 'Expression' = None
     index: 'Expression' = None
 
-# Array literals and comprehensions
 @dataclass
 class ArrayLiteral(Expression):
     """Array literal [1, 2, 3]"""
@@ -772,20 +653,54 @@ class StructInitializer(Expression):
 
 @dataclass
 class ArrayInitializer(Expression):
-    """Array initializer [1, 2, 3] or {x = 1, y = 2}"""
+    """Array initializer [1, 2, 3]"""
     elements: List['Expression'] = field(default_factory=list)
-    struct_items: List[StructInitItem] = field(default_factory=list)
-    is_struct_style: bool = False
 
 # Object instantiation
 @dataclass
 class ObjectInstantiation(Expression):
-    """Object instantiation (Type name(args) or super.Type name(args))"""
-    type_name: Union['QualifiedName', str] = ""
-    instance_name: str = ""
+    """Object instantiation"""
+    type_name: Union['QualifiedName', 'Identifier'] = None
     arguments: List['Expression'] = field(default_factory=list)
-    is_super: bool = False
-    is_virtual: bool = False
+
+# ============================================================================
+# Function Definition
+# ============================================================================
+
+@dataclass
+class FunctionDecl(ASTNode):
+    """Function declaration"""
+    name: str = ""
+    parameters: List[Parameter] = field(default_factory=list)
+    return_type: Type = None
+    template_params: List[TemplateParameter] = field(default_factory=list)
+
+@dataclass
+class FunctionContract(ASTNode):
+    """Function contract"""
+    name: str = ""
+    parameters: List[Parameter] = field(default_factory=list)
+    body: List[AssertStmt] = field(default_factory=list)
+
+@dataclass
+class FunctionDef(GlobalItem):
+    """Function definition"""
+    name: str = ""
+    parameters: List[Parameter] = field(default_factory=list)
+    return_type: Type = None
+    body: List[Statement] = field(default_factory=list)
+    template_params: List[TemplateParameter] = field(default_factory=list)
+    contracts: List[FunctionContract] = field(default_factory=list)
+    is_compt: bool = False  # Compile-time function
+
+@dataclass
+class OperatorOverload(ASTNode):
+    """Operator overload definition"""
+    operator: str = ""
+    left_type: Type = None
+    right_type: Optional[Type] = None
+    return_type: Type = None
+    body: List[Statement] = field(default_factory=list)
 
 # ============================================================================
 # AST Visitor Pattern (for traversal)
@@ -826,7 +741,7 @@ def create_program() -> Program:
     """Create an empty program node"""
     return Program()
 
-def create_function_def(name: str, return_type: 'Type' = None) -> FunctionDef:
+def create_function_def(name: str, return_type: Type = None) -> FunctionDef:
     """Create a function definition node"""
     return FunctionDef(name=name, return_type=return_type or PrimitiveType(PrimitiveTypeKind.VOID))
 
@@ -838,13 +753,13 @@ def create_struct_def(name: str) -> StructDef:
     """Create a struct definition node"""
     return StructDef(name=name)
 
-def create_primitive_type(kind: PrimitiveTypeKind, qualifiers: List[TypeQualifier] = None) -> PrimitiveType:
+def create_primitive_type(kind: PrimitiveTypeKind) -> PrimitiveType:
     """Create a primitive type node"""
-    return PrimitiveType(kind=kind, qualifiers=qualifiers or [])
+    return PrimitiveType(kind=kind)
 
-def create_data_type(bit_width: int, alignment: int = None, signedness: DataSignedness = None) -> DataType:
+def create_data_type(bit_width: int, alignment: int = None, is_signed: bool = False) -> DataType:
     """Create a data type node"""
-    return DataType(bit_width=bit_width, alignment=alignment, signedness=signedness)
+    return DataType(bit_width=bit_width, alignment=alignment, is_signed=is_signed)
 
 def create_identifier(name: str) -> Identifier:
     """Create an identifier expression"""
@@ -910,437 +825,7 @@ class ASTValidator(ASTVisitor):
 
 if __name__ == "__main__":
     # Example usage and testing - Representing test.fx as AST
-    import sys
-    
     def main():
         print("Flux AST Module - fast.py")
-        print("Representing test.fx as AST structure")
-        print("=" * 50)
-        
-        # Create the main program
-        program = create_program()
-        
-        # 1. Import statements
-        import1 = ImportStmt(path="standard.fx", alias="std")
-        import2 = ImportStmt(path="math.fx")
-        program.global_items.extend([import1, import2])
-        
-        # 2. Using statement
-        using_stmt = UsingStmt(names=[
-            create_qualified_name(["std", "io"]),
-            create_qualified_name(["std", "types"])
-        ])
-        program.global_items.append(using_stmt)
-        
-        # 3. Data type definitions
-        i32_type = DataType(bit_width=32, signedness=DataSignedness.SIGNED)
-        i32_decl = VariableDeclaration(
-            type=i32_type,
-            declarators=[SimpleVariableDeclarator(name="i32")]
-        )
-        program.global_items.append(i32_decl)
-        
-        ui16_aligned_type = DataType(bit_width=16, alignment=32, signedness=DataSignedness.UNSIGNED)
-        ui16_decl = VariableDeclaration(
-            type=ui16_aligned_type,
-            declarators=[SimpleVariableDeclarator(name="ui16_aligned")]
-        )
-        program.global_items.append(ui16_decl)
-        
-        # String type (unsigned data{8}[])
-        string_type = ArrayType(
-            element_type=DataType(bit_width=8, signedness=DataSignedness.UNSIGNED)
-        )
-        string_decl = VariableDeclaration(
-            type=string_type,
-            declarators=[SimpleVariableDeclarator(name="string")]
-        )
-        program.global_items.append(string_decl)
-        
-        # 4. Macro definitions
-        debug_macro = MacroDef(name="DEBUG_MODE", value=BooleanLiteral(value=True))
-        max_size_macro = MacroDef(name="MAX_SIZE", value=IntegerLiteral(value="1024"))
-        program.global_items.extend([debug_macro, max_size_macro])
-        
-        # 5. External FFI block
-        extern_block = ExternBlock(
-            language="C",
-            declarations=[
-                ExternDecl(
-                    name="malloc",
-                    parameters=[Parameter(name="size", type=NamedType(name=create_qualified_name(["ui64"])))],
-                    return_type=PointerType(pointee_type=PrimitiveType(PrimitiveTypeKind.VOID))
-                ),
-                ExternDecl(
-                    name="free",
-                    parameters=[Parameter(name="ptr", type=PointerType(pointee_type=PrimitiveType(PrimitiveTypeKind.VOID)))],
-                    return_type=PrimitiveType(PrimitiveTypeKind.VOID)
-                ),
-                ExternDecl(
-                    name="printf",
-                    parameters=[Parameter(name="format", type=NamedType(name=create_qualified_name(["string"])))],
-                    return_type=PrimitiveType(PrimitiveTypeKind.INT)
-                )
-            ]
-        )
-        program.global_items.append(extern_block)
-        
-        # 6. Namespace definition
-        test_namespace = NamespaceDef(
-            name="TestNamespace",
-            members=[
-                NamespaceVariableDecl(
-                    declaration=VariableDeclaration(
-                        type=PrimitiveType(
-                            PrimitiveTypeKind.INT,
-                            qualifiers=[TypeQualifier.VOLATILE, TypeQualifier.CONST]
-                        ),
-                        declarators=[SimpleVariableDeclarator(
-                            name="global_counter",
-                            initializer=IntegerLiteral(value="42")
-                        )]
-                    )
-                ),
-                NamespaceFunctionDef(
-                    function=FunctionDef(
-                        name="utility_func",
-                        parameters=[
-                            Parameter(name="x", type=PrimitiveType(PrimitiveTypeKind.INT)),
-                            Parameter(name="y", type=PrimitiveType(PrimitiveTypeKind.FLOAT))
-                        ],
-                        return_type=PrimitiveType(PrimitiveTypeKind.BOOL),
-                        body=[
-                            ReturnStmt(
-                                value=BinaryExpression(
-                                    left=Identifier(name="x"),
-                                    operator=BinaryOperator.GREATER_THAN,
-                                    right=CastExpression(
-                                        type=PrimitiveType(PrimitiveTypeKind.INT),
-                                        expression=Identifier(name="y")
-                                    )
-                                )
-                            )
-                        ]
-                    )
-                ),
-                NamespaceNamespaceDef(
-                    namespace_def=NamespaceDef(
-                        name="NestedNamespace",
-                        members=[
-                            NamespaceVariableDecl(
-                                declaration=VariableDeclaration(
-                                    type=NamedType(name=create_qualified_name(["string"])),
-                                    declarators=[SimpleVariableDeclarator(
-                                        name="nested_message",
-                                        initializer=StringLiteral(value="Hello from nested namespace")
-                                    )]
-                                )
-                            )
-                        ]
-                    )
-                )
-            ]
-        )
-        program.global_items.append(test_namespace)
-        
-        # 7. Base object definition
-        base_object = ObjectDef(
-            name="BaseObject",
-            members=[
-                ObjectVariableDecl(
-                    access=AccessSpecifier.PRIVATE,
-                    declaration=VariableDeclaration(
-                        type=PrimitiveType(PrimitiveTypeKind.INT),
-                        declarators=[SimpleVariableDeclarator(name="base_value")]
-                    )
-                ),
-                ObjectFunctionDef(
-                    access=AccessSpecifier.PUBLIC,
-                    function=FunctionDef(
-                        name="__init",
-                        parameters=[Parameter(name="val", type=PrimitiveType(PrimitiveTypeKind.INT))],
-                        return_type=NamedType(name=create_qualified_name(["this"])),
-                        body=[
-                            ExpressionStmt(
-                                expression=AssignmentExpression(
-                                    left=MemberAccess(object=ThisExpression(), member="base_value"),
-                                    operator=AssignmentOperator.ASSIGN,
-                                    right=Identifier(name="val")
-                                )
-                            ),
-                            ReturnStmt(value=ThisExpression())
-                        ]
-                    )
-                ),
-                ObjectFunctionDef(
-                    access=AccessSpecifier.PUBLIC,
-                    function=FunctionDef(
-                        name="__exit",
-                        parameters=[],
-                        return_type=PrimitiveType(PrimitiveTypeKind.VOID),
-                        body=[
-                            ReturnStmt(value=Identifier(name="void"))
-                        ]
-                    )
-                )
-            ]
-        )
-        program.global_items.append(base_object)
-        
-        # 8. Template object with inheritance
-        template_object = ObjectDef(
-            name="TemplateObject",
-            template_params=[
-                TemplateParameter(name="T"),
-                TemplateParameter(name="K")
-            ],
-            inheritance=[create_qualified_name(["BaseObject"])],
-            members=[
-                ObjectVariableDecl(
-                    access=AccessSpecifier.PRIVATE,
-                    declaration=VariableDeclaration(
-                        type=NamedType(name=create_qualified_name(["T"])),
-                        declarators=[SimpleVariableDeclarator(name="template_data")]
-                    )
-                ),
-                ObjectVariableDecl(
-                    access=AccessSpecifier.PRIVATE,
-                    declaration=VariableDeclaration(
-                        type=NamedType(name=create_qualified_name(["K"])),
-                        declarators=[SimpleVariableDeclarator(name="secondary_data")]
-                    )
-                )
-            ]
-        )
-        program.global_items.append(template_object)
-        
-        # 9. Struct definitions
-        point_struct = StructDef(
-            name="Point",
-            members=[
-                StructMember(
-                    access=AccessSpecifier.PUBLIC,
-                    declaration=VariableDeclaration(
-                        type=PrimitiveType(PrimitiveTypeKind.FLOAT),
-                        declarators=[
-                            SimpleVariableDeclarator(name="x"),
-                            SimpleVariableDeclarator(name="y"),
-                            SimpleVariableDeclarator(name="z")
-                        ]
-                    )
-                ),
-                StructMember(
-                    access=AccessSpecifier.PRIVATE,
-                    declaration=VariableDeclaration(
-                        type=PrimitiveType(PrimitiveTypeKind.BOOL),
-                        declarators=[SimpleVariableDeclarator(name="is_valid")]
-                    )
-                )
-            ]
-        )
-        program.global_items.append(point_struct)
-        
-        vector3d_struct = StructDef(
-            name="Vector3D",
-            inheritance=[create_qualified_name(["Point"])],
-            members=[
-                StructMember(
-                    declaration=VariableDeclaration(
-                        type=PrimitiveType(PrimitiveTypeKind.FLOAT),
-                        declarators=[SimpleVariableDeclarator(name="magnitude")]
-                    )
-                ),
-                StructMember(
-                    declaration=VariableDeclaration(
-                        type=DataType(bit_width=1, signedness=DataSignedness.UNSIGNED),
-                        declarators=[SimpleVariableDeclarator(name="normalized")]
-                    )
-                )
-            ]
-        )
-        program.global_items.append(vector3d_struct)
-        
-        # 10. Compile-time block
-        compt_block = ComptBlock(
-            statements=[
-                IfStmt(
-                    condition=FunctionCall(
-                        function=Identifier(name="def"),
-                        arguments=[Identifier(name="DEBUG_MODE")]
-                    ),
-                    then_stmt=CompoundStmt(
-                        statements=[
-                            ExpressionStmt(
-                                expression=MacroDef(name="LOG_LEVEL", value=IntegerLiteral(value="3"))
-                            )
-                        ]
-                    ),
-                    elif_parts=[
-                        (
-                            UnaryExpression(
-                                operator=UnaryOperator.LOGICAL_NOT,
-                                operand=FunctionCall(
-                                    function=Identifier(name="def"),
-                                    arguments=[Identifier(name="DEBUG_MODE")]
-                                )
-                            ),
-                            CompoundStmt(
-                                statements=[
-                                    ExpressionStmt(
-                                        expression=MacroDef(name="LOG_LEVEL", value=IntegerLiteral(value="0"))
-                                    )
-                                ]
-                            )
-                        )
-                    ]
-                )
-            ]
-        )
-        program.global_items.append(compt_block)
-        
-        # 11. Main function with comprehensive features
-        main_func = FunctionDef(
-            name="main",
-            parameters=[],
-            return_type=PrimitiveType(PrimitiveTypeKind.INT),
-            body=[
-                # Variable declaration
-                VariableDeclStmt(
-                    declaration=VariableDeclaration(
-                        type=NamedType(name=create_qualified_name(["string"])),
-                        declarators=[SimpleVariableDeclarator(
-                            name="test_msg",
-                            initializer=StringLiteral(value="Testing all features")
-                        )]
-                    )
-                ),
-                
-                # Array literal
-                VariableDeclStmt(
-                    declaration=VariableDeclaration(
-                        type=ArrayType(element_type=PrimitiveType(PrimitiveTypeKind.INT)),
-                        declarators=[ArrayVariableDeclarator(
-                            name="numbers",
-                            initializer=ArrayInitializer(elements=[
-                                IntegerLiteral(value="1"),
-                                IntegerLiteral(value="2"),
-                                IntegerLiteral(value="3"),
-                                IntegerLiteral(value="4"),
-                                IntegerLiteral(value="5")
-                            ])
-                        )]
-                    )
-                ),
-                
-                # For loop
-                CStyleForStmt(
-                    init=VariableDeclaration(
-                        type=PrimitiveType(PrimitiveTypeKind.INT),
-                        declarators=[SimpleVariableDeclarator(
-                            name="i",
-                            initializer=IntegerLiteral(value="0")
-                        )]
-                    ),
-                    condition=BinaryExpression(
-                        left=Identifier(name="i"),
-                        operator=BinaryOperator.LESS_THAN,
-                        right=Identifier(name="MAX_SIZE")
-                    ),
-                    update=UnaryExpression(
-                        operator=UnaryOperator.POST_INCREMENT,
-                        operand=Identifier(name="i"),
-                        is_postfix=True
-                    ),
-                    body=CompoundStmt(
-                        statements=[
-                            IfStmt(
-                                condition=BinaryExpression(
-                                    left=BinaryExpression(
-                                        left=Identifier(name="i"),
-                                        operator=BinaryOperator.MODULO,
-                                        right=IntegerLiteral(value="2")
-                                    ),
-                                    operator=BinaryOperator.EQUAL,
-                                    right=IntegerLiteral(value="0")
-                                ),
-                                then_stmt=CompoundStmt(statements=[ContinueStmt()])
-                            ),
-                            IfStmt(
-                                condition=BinaryExpression(
-                                    left=Identifier(name="i"),
-                                    operator=BinaryOperator.GREATER_THAN,
-                                    right=IntegerLiteral(value="100")
-                                ),
-                                then_stmt=CompoundStmt(statements=[BreakStmt()])
-                            )
-                        ]
-                    )
-                ),
-                
-                # Python-style for loop
-                PythonStyleForStmt(
-                    variables=["val"],
-                    iterable=RangeExpression(
-                        start=IntegerLiteral(value="1"),
-                        end=IntegerLiteral(value="10")
-                    ),
-                    body=CompoundStmt(statements=[])
-                ),
-                
-                # Try-catch block
-                TryCatchStmt(
-                    try_body=CompoundStmt(
-                        statements=[
-                            AssertStmt(
-                                condition=BinaryExpression(
-                                    left=Identifier(name="i"),
-                                    operator=BinaryOperator.GREATER_THAN,
-                                    right=IntegerLiteral(value="0")
-                                ),
-                                message=StringLiteral(value="Value must be positive")
-                            )
-                        ]
-                    ),
-                    catch_clauses=[
-                        CatchClause(
-                            type=NamedType(name=create_qualified_name(["string"])),
-                            variable="error_msg",
-                            body=CompoundStmt(
-                                statements=[ReturnStmt(value=UnaryExpression(
-                                    operator=UnaryOperator.MINUS,
-                                    operand=IntegerLiteral(value="1")
-                                ))]
-                            )
-                        )
-                    ]
-                ),
-                
-                # Return statement
-                ReturnStmt(value=IntegerLiteral(value="0"))
-            ]
-        )
-        program.global_items.append(main_func)
-        
-        # Validate the AST
-        validator = ASTValidator()
-        errors = validator.validate(program)
-        
-        if errors:
-            print("AST Validation Errors:")
-            for error in errors:
-                print(f"  - {error}")
-        else:
-            print("AST validation passed!")
-            print(f"Program has {len(program.global_items)} global items")
-            
-            # Count different types of items
-            item_counts = {}
-            for item in program.global_items:
-                item_type = type(item).__name__
-                item_counts[item_type] = item_counts.get(item_type, 0) + 1
-            
-            print("Global item breakdown:")
-            for item_type, count in sorted(item_counts.items()):
-                print(f"  {item_type}: {count}")
     
     main()

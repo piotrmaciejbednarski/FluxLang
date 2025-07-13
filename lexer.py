@@ -1,215 +1,30 @@
-#!/usr/bin/env python3
-"""
-Flux Language Lexer - Command Line Tool
+# Flux Lexer
 
-Usage:
-    python3 flexer.py file.fx          # Basic token output
-    python3 flexer.py file.fx -v       # Verbose output with token positions
-    python3 flexer.py file.fx -c       # Show token count summary
-    python3 flexer.py file.fx -v -c    # Both verbose and count summary
-"""
 
-import re
-from enum import Enum, auto
-from dataclasses import dataclass
-from typing import List, Optional, Iterator
 
-class TokenType(Enum):
-    # Literals
-    INTEGER = auto()
-    FLOAT = auto()
-    STRING = auto()
-    BOOL = auto()
-    
-    # String interpolation
-    I_STRING = auto()
-    F_STRING = auto()
-    
-    # Identifiers and keywords
-    IDENTIFIER = auto()
-    
-    # Keywords
-    ALIGNOF = auto()
-    AND = auto()
-    AS = auto()
-    ASM = auto()
-    ASSERT = auto()
-    AUTO = auto()
-    BREAK = auto()
-    BOOL_KW = auto()
-    CASE = auto()
-    CATCH = auto()
-    COMPT = auto()
-    CONST = auto()
-    CONTINUE = auto()
-    CONTRACT = auto()
-    DATA = auto()
-    DEF = auto()
-    DEFAULT = auto()
-    DO = auto()
-    ELSE = auto()
-    EXTERN = auto()
-    FALSE = auto()
-    FLOAT_KW = auto()
-    FOR = auto()
-    IF = auto()
-    IMPORT = auto()
-    IN = auto()
-    INT = auto()
-    NAMESPACE = auto()
-    NOT = auto()
-    OBJECT = auto()
-    OR = auto()
-    PRIVATE = auto()
-    PUBLIC = auto()
-    RETURN = auto()
-    SIGNED = auto()
-    SIZEOF = auto()
-    STRUCT = auto()
-    SUPER = auto()
-    SWITCH = auto()
-    THIS = auto()
-    THROW = auto()
-    TRUE = auto()
-    TRY = auto()
-    TYPEOF = auto()
-    UNSIGNED = auto()
-    USING = auto()
-    VIRTUAL = auto()
-    VOID = auto()
-    VOLATILE = auto()
-    WHILE = auto()
-    XOR = auto()
-    
-    # Operators
-    PLUS = auto()           # +
-    MINUS = auto()          # -
-    MULTIPLY = auto()       # *
-    DIVIDE = auto()         # /
-    MODULO = auto()         # %
-    POWER = auto()          # ^
-    INCREMENT = auto()      # ++
-    DECREMENT = auto()      # --
-    
-    # Comparison
-    EQUAL = auto()          # ==
-    NOT_EQUAL = auto()      # !=
-    LESS_THAN = auto()      # <
-    LESS_EQUAL = auto()     # <=
-    GREATER_THAN = auto()   # >
-    GREATER_EQUAL = auto()  # >=
-    
-    # Shift
-    LEFT_SHIFT = auto()     # <<
-    RIGHT_SHIFT = auto()    # >>
-    
-    # Assignment
-    ASSIGN = auto()         # =
-    PLUS_ASSIGN = auto()    # +=
-    MINUS_ASSIGN = auto()   # -=
-    MULTIPLY_ASSIGN = auto()# *=
-    DIVIDE_ASSIGN = auto()  # /=
-    MODULO_ASSIGN = auto()  # %=
-    POWER_ASSIGN = auto()   # ^=
-    LEFT_SHIFT_ASSIGN = auto()  # <<=
-    RIGHT_SHIFT_ASSIGN = auto() # >>=
-    
-    # Other operators
-    ADDRESS_OF = auto()     # @
-    RANGE = auto()          # ..
-    SCOPE = auto()          # ::
-    QUESTION = auto()       # ?
-    COLON = auto()          # :
-
-    # Directionals
-    RETURN_ARROW = auto()   # ->
-    CHAIN_ARROW = auto()    # <-
-    RECURSE_ARROW = auto()  # <~
-    
-    # Delimiters
-    LEFT_PAREN = auto()     # (
-    RIGHT_PAREN = auto()    # )
-    LEFT_BRACKET = auto()   # [
-    RIGHT_BRACKET = auto()  # ]
-    LEFT_BRACE = auto()     # {
-    RIGHT_BRACE = auto()    # }
-    SEMICOLON = auto()      # ;
-    COMMA = auto()          # ,
-    DOT = auto()            # .
-    
-    # Special
-    EOF = auto()
-    NEWLINE = auto()
-
-@dataclass
 class Token:
-    type: TokenType
-    value: str
-    line: int
-    column: int
+	lexeme = None
+	name = None
+	row = 0
+	col = 0
 
-class FluxLexer:
-    def __init__(self, source_code: str):
-        self.source = source_code
-        self.position = 0
-        self.line = 1
-        self.column = 1
-        self.length = len(source_code)
-        
-        # Keywords mapping
-        self.keywords = {
-            'alignof': TokenType.ALIGNOF,
-            'and': TokenType.AND,
-            'as': TokenType.AS,
-            'asm': TokenType.ASM,
-            'assert': TokenType.ASSERT,
-            'auto': TokenType.AUTO,
-            'break': TokenType.BREAK,
-            'bool': TokenType.BOOL_KW,
-            'case': TokenType.CASE,
-            'catch': TokenType.CATCH,
-            'compt': TokenType.COMPT,
-            'const': TokenType.CONST,
-            'continue': TokenType.CONTINUE,
-            'data': TokenType.DATA,
-            'def': TokenType.DEF,
-            'default': TokenType.DEFAULT,
-            'do': TokenType.DO,
-            'else': TokenType.ELSE,
-            'extern': TokenType.EXTERN,
-            'false': TokenType.FALSE,
-            'float': TokenType.FLOAT_KW,
-            'for': TokenType.FOR,
-            'if': TokenType.IF,
-            'import': TokenType.IMPORT,
-            'in': TokenType.IN,
-            'int': TokenType.INT,
-            'namespace': TokenType.NAMESPACE,
-            'not': TokenType.NOT,
-            'object': TokenType.OBJECT,
-            'or': TokenType.OR,
-            'private': TokenType.PRIVATE,
-            'public': TokenType.PUBLIC,
-            'return': TokenType.RETURN,
-            'signed': TokenType.SIGNED,
-            'sizeof': TokenType.SIZEOF,
-            'struct': TokenType.STRUCT,
-            'super': TokenType.SUPER,
-            'switch': TokenType.SWITCH,
-            'this': TokenType.THIS,
-            'throw': TokenType.THROW,
-            'true': TokenType.TRUE,
-            'try': TokenType.TRY,
-            'typeof': TokenType.TYPEOF,
-            'unsigned': TokenType.UNSIGNED,
-            'using': TokenType.USING,
-            'virtual': TokenType.VIRTUAL,
-            'void': TokenType.VOID,
-            'volatile': TokenType.VOLATILE,
-            'while': TokenType.WHILE,
-            'as': TokenType.AS,
-        }
-    
+	def __init__(row: int, col: int, name: str, lexeme: str):
+		self.row = row
+		self.col = col
+		self.name = name
+		self.lexeme = lexeme
+		return
+
+
+class Lexer:
+	position = 0
+	row = 0
+	col = 0
+	tokens = []
+
+	def __init__():
+		return
+
     def current_char(self) -> Optional[str]:
         if self.position >= self.length:
             return None
@@ -221,7 +36,7 @@ class FluxLexer:
             return None
         return self.source[pos]
     
-    def advance(self, count=1) -> None:
+    def advance(self, count: int = 1) -> None:
         if self.position < self.length and self.source[self.position] == '\n':
             self.line += 1
             self.column = count
@@ -263,6 +78,18 @@ class FluxLexer:
                     if hex_digits:
                         result += chr(int(hex_digits, 16))
                         continue
+                elif escape_char and escape_char.isdigit():
+                    # Octal escape
+                    octal_digits = escape_char
+                    self.advance()
+                    for _ in range(2):
+                        if self.current_char() and self.current_char() in '01234567':
+                            octal_digits += self.current_char()
+                            self.advance()
+                        else:
+                            break
+                    result += chr(int(octal_digits, 8))
+                    continue
                 else:
                     result += escape_char if escape_char else '\\'
             else:
@@ -352,6 +179,7 @@ class FluxLexer:
             while self.current_char() and self.current_char().isdigit():
                 result += self.current_char()
                 self.advance()
+        
 
         
         token_type = TokenType.FLOAT if is_float else TokenType.INTEGER
@@ -371,7 +199,7 @@ class FluxLexer:
         
         # Special handling for boolean literals
         if result == 'true' or result == 'false':
-            token_type = TokenType.BOOL
+            token_type = TokenType.BOOLEAN
         
         return Token(token_type, result, start_pos[0], start_pos[1])
     
@@ -448,7 +276,7 @@ class FluxLexer:
                     tokens.append(Token(TokenType.STRING, content, start_pos[0], start_pos[1]))
                 else:
                     content = self.read_string("'")
-                    tokens.append(Token(TokenType.STRING, content, start_pos[0], start_pos[1]))
+                    tokens.append(Token(TokenType.CHAR, content, start_pos[0], start_pos[1]))
                 continue
             
             # Numbers
@@ -477,8 +305,90 @@ class FluxLexer:
                 self.advance(count=3)
                 continue
             
-            # Bitwise operators AND with backtick prefix (TODO - VERY EXTENSIVE)
-            # Must add corresponding keywords.
+            # Bitwise operators with backtick prefix
+            if char == '`':
+                next_char = self.peek_char()
+                third_char = self.peek_char(2)
+                fourth_char = self.peek_char(3)
+                
+                # 4-character bitwise operators
+                if next_char == '^' and third_char == '!' and fourth_char in '&|':
+                    if fourth_char == '&':
+                        if self.peek_char(4) == '=':
+                            tokens.append(Token(TokenType.B_NOT_ASSIGN, '`^!&=', start_pos[0], start_pos[1]))
+                            for _ in range(5): self.advance()
+                        else:
+                            tokens.append(Token(TokenType.BITWISE_B_XNAND, '`^!&', start_pos[0], start_pos[1]))
+                            for _ in range(4): self.advance()
+                    else:  # fourth_char == '|'
+                        if self.peek_char(4) == '=':
+                            tokens.append(Token(TokenType.B_NOT_ASSIGN, '`^!|=', start_pos[0], start_pos[1]))
+                            for _ in range(5): self.advance()
+                        else:
+                            tokens.append(Token(TokenType.BITWISE_B_XNOR, '`^!|', start_pos[0], start_pos[1]))
+                            for _ in range(4): self.advance()
+                    continue
+                
+                # 3-character bitwise operators
+                if next_char == '!' and third_char in '&|':
+                    if third_char == '&':
+                        if self.peek_char(3) == '=':
+                            tokens.append(Token(TokenType.B_NAND_ASSIGN, '`!&=', start_pos[0], start_pos[1]))
+                            for _ in range(4): self.advance()
+                        else:
+                            tokens.append(Token(TokenType.BITWISE_B_NAND, '`!&', start_pos[0], start_pos[1]))
+                            for _ in range(3): self.advance()
+                    else:  # third_char == '|'
+                        if self.peek_char(3) == '=':
+                            tokens.append(Token(TokenType.B_NOR_ASSIGN, '`!|=', start_pos[0], start_pos[1]))
+                            for _ in range(4): self.advance()
+                        else:
+                            tokens.append(Token(TokenType.BITWISE_B_NOR, '`!|', start_pos[0], start_pos[1]))
+                            for _ in range(3): self.advance()
+                    continue
+                
+                if next_char == '^' and third_char == '&':
+                    if self.peek_char(3) == '=':
+                        tokens.append(Token(TokenType.B_AND_ASSIGN, '`^&=', start_pos[0], start_pos[1]))
+                        for _ in range(4): self.advance()
+                    else:
+                        tokens.append(Token(TokenType.BITWISE_B_XAND, '`^&', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    continue
+                
+                if next_char == '^' and third_char == '^':
+                    if self.peek_char(3) == '=':
+                        tokens.append(Token(TokenType.B_XOR_ASSIGN, '`^=', start_pos[0], start_pos[1]))
+                        for _ in range(4): self.advance()
+                    else:
+                        tokens.append(Token(TokenType.BITWISE_B_XOR, '`^^', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    continue
+                
+                # 2-character bitwise operators
+                if next_char == '&':
+                    if third_char == '=':
+                        tokens.append(Token(TokenType.B_AND_ASSIGN, '`&=', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    else:
+                        tokens.append(Token(TokenType.BITWISE_B_AND, '`&', start_pos[0], start_pos[1]))
+                        self.advance(count=2)
+                    continue
+                
+                if next_char == '|':
+                    if third_char == '=':
+                        tokens.append(Token(TokenType.B_OR_ASSIGN, '`|=', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    else:
+                        tokens.append(Token(TokenType.BITWISE_B_OR, '`|', start_pos[0], start_pos[1]))
+                        self.advance(count=2)
+                    continue
+                
+                if next_char == '!':
+                    if third_char == '=':
+                        tokens.append(Token(TokenType.B_NOT_ASSIGN, '`!=', start_pos[0], start_pos[1]))
+                        for _ in range(3): self.advance()
+                    continue
             
             # Two-character operators
             if char == '=' and self.peek_char() == '=':
@@ -491,25 +401,15 @@ class FluxLexer:
                 self.advance(count=2)
                 continue
             
-            if char == '<':
-                if self.peek_char() == '=':
-                    tokens.append(Token(TokenType.LESS_EQUAL, '<=', start_pos[0], start_pos[1]))
-                    self.advance(count=2)
-                    continue
-                elif self.peek_char() == "-":
-                    tokens.append(Token(TokenType.CHAIN_ARROW, '<-', start_pos[0], start_pos[1]))
-                    self.advance(count=2)
-                    continue
-                elif self.peek_char() == "~":
-                    tokens.append(Token(TokenType.RECURSE_ARROW, '<~', start_pos[0], start_pos[1]))
-                    self.advance(count=2)
-                    continue
+            if char == '<' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.LESS_EQUAL, '<=', start_pos[0], start_pos[1]))
+                self.advance(count=2)
+                continue
             
-            if char == '>':
-                if self.peek_char() == '=':
-                    tokens.append(Token(TokenType.GREATER_EQUAL, '>=', start_pos[0], start_pos[1]))
-                    self.advance(count=2)
-                    continue
+            if char == '>' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.GREATER_EQUAL, '>=', start_pos[0], start_pos[1]))
+                self.advance(count=2)
+                continue
             
             if char == '<' and self.peek_char() == '<':
                 tokens.append(Token(TokenType.LEFT_SHIFT, '<<', start_pos[0], start_pos[1]))
@@ -518,6 +418,31 @@ class FluxLexer:
             
             if char == '>' and self.peek_char() == '>':
                 tokens.append(Token(TokenType.RIGHT_SHIFT, '>>', start_pos[0], start_pos[1]))
+                self.advance(count=2)
+                continue
+            
+            if char == '&' and self.peek_char() == '&':
+                tokens.append(Token(TokenType.LOGICAL_AND, '&&', start_pos[0], start_pos[1]))
+                self.advance(count=2)
+                continue
+            
+            if char == '|' and self.peek_char() == '|':
+                tokens.append(Token(TokenType.LOGICAL_OR, '||', start_pos[0], start_pos[1]))
+                self.advance(count=2)
+                continue
+            
+            if char == '!' and self.peek_char() == '&':
+                tokens.append(Token(TokenType.LOGICAL_NAND, '!&', start_pos[0], start_pos[1]))
+                self.advance(count=2)
+                continue
+            
+            if char == '!' and self.peek_char() == '|':
+                tokens.append(Token(TokenType.LOGICAL_NOR, '!|', start_pos[0], start_pos[1]))
+                self.advance(count=2)
+                continue
+            
+            if char == '^' and self.peek_char() == '^':
+                tokens.append(Token(TokenType.BITWISE_XOR, '^^', start_pos[0], start_pos[1]))
                 self.advance(count=2)
                 continue
             
@@ -536,54 +461,56 @@ class FluxLexer:
                 self.advance(count=2)
                 continue
             
-            if char == '-':
-                if self.peek_char() == '=':
-                    tokens.append(Token(TokenType.MINUS_ASSIGN, '-=', start_pos[0], start_pos[1]))
-                    self.advance(count=2)
-                    continue
-                if self.peek_char() == '>':
-                    tokens.append(Token(TokenType.RETURN_ARROW, '-=', start_pos[0], start_pos[1]))
-                    self.advance(count=2)
-                    continue
+            if char == '-' and self.peek_char() == '=':
+                tokens.append(Token(TokenType.MINUS_ASSIGN, '-=', start_pos[0], start_pos[1]))
+                self.advance(count=2)
+                continue
             
             if char == '*' and self.peek_char() == '=':
                 tokens.append(Token(TokenType.MULTIPLY_ASSIGN, '*=', start_pos[0], start_pos[1]))
-                self.advance(count=2)
+                self.advance()
                 continue
             
             if char == '/' and self.peek_char() == '=':
                 tokens.append(Token(TokenType.DIVIDE_ASSIGN, '/=', start_pos[0], start_pos[1]))
-                self.advance(count=2)
+                self.advance()
+                self.advance()
                 continue
             
             if char == '%' and self.peek_char() == '=':
                 tokens.append(Token(TokenType.MODULO_ASSIGN, '%=', start_pos[0], start_pos[1]))
-                self.advance(count=2)
+                self.advance()
+                self.advance()
                 continue
             
             if char == '^' and self.peek_char() == '=':
                 tokens.append(Token(TokenType.POWER_ASSIGN, '^=', start_pos[0], start_pos[1]))
-                self.advance(count=2)
+                self.advance()
+                self.advance()
                 continue
             
             if char == '&' and self.peek_char() == '=':
                 tokens.append(Token(TokenType.AND_ASSIGN, '&=', start_pos[0], start_pos[1]))
-                self.advance(count=2)
+                self.advance()
+                self.advance()
                 continue
             
             if char == '|' and self.peek_char() == '=':
                 tokens.append(Token(TokenType.OR_ASSIGN, '|=', start_pos[0], start_pos[1]))
-                self.advance(count=2)
+                self.advance()
+                self.advance()
                 continue
             
             if char == '.' and self.peek_char() == '.':
                 tokens.append(Token(TokenType.RANGE, '..', start_pos[0], start_pos[1]))
-                self.advance(count=2)
+                self.advance()
+                self.advance()
                 continue
             
             if char == ':' and self.peek_char() == ':':
                 tokens.append(Token(TokenType.SCOPE, '::', start_pos[0], start_pos[1]))
-                self.advance(count=2)
+                self.advance()
+                self.advance()
                 continue
             
             # Single-character operators and delimiters
@@ -596,9 +523,10 @@ class FluxLexer:
                 '^': TokenType.POWER,
                 '<': TokenType.LESS_THAN,
                 '>': TokenType.GREATER_THAN,
-                '&': TokenType.AND,
-                '|': TokenType.OR,
-                '!': TokenType.NOT,
+                '&': TokenType.BITWISE_AND,
+                '|': TokenType.BITWISE_OR,
+                '!': TokenType.LOGICAL_NOT,
+                '~': TokenType.BITWISE_NOT,
                 '@': TokenType.ADDRESS_OF,
                 '=': TokenType.ASSIGN,
                 '?': TokenType.QUESTION,
@@ -625,68 +553,3 @@ class FluxLexer:
         # Add EOF token
         tokens.append(Token(TokenType.EOF, '', self.line, self.column))
         return tokens
-
-# Example usage and testing
-if __name__ == "__main__":
-    import sys
-    import argparse
-    
-    def main():
-        parser = argparse.ArgumentParser(description='Flux Language Lexer (flexer.py)')
-        parser.add_argument('file', help='Flux source file to tokenize (.fx)')
-        parser.add_argument('-v', '--verbose', action='store_true', 
-                          help='Show detailed token information')
-        parser.add_argument('-c', '--count', action='store_true',
-                          help='Show token count summary')
-        
-        args = parser.parse_args()
-        
-        try:
-            with open(args.file, 'r', encoding='utf-8') as f:
-                source_code = f.read()
-        except FileNotFoundError:
-            print(f"Error: File '{args.file}' not found.", file=sys.stderr)
-            sys.exit(1)
-        except IOError as e:
-            print(f"Error reading file '{args.file}': {e}", file=sys.stderr)
-            sys.exit(1)
-        
-        lexer = FluxLexer(source_code)
-        
-        try:
-            tokens = lexer.tokenize()
-        except Exception as e:
-            print(f"Lexer error: {e}", file=sys.stderr)
-            sys.exit(1)
-        
-        # Filter out EOF token for cleaner output unless verbose
-        display_tokens = tokens[:-1] if not args.verbose else tokens
-        
-        if args.count:
-            # Token count summary
-            token_counts = {}
-            for token in tokens:
-                if token.type != TokenType.EOF:
-                    token_counts[token.type.name] = token_counts.get(token.type.name, 0) + 1
-            
-            print(f"=== Token Summary for {args.file} ===")
-            print(f"Total tokens: {len(tokens) - 1}")  # Exclude EOF
-            print(f"Token types: {len(token_counts)}")
-            print("\nToken counts:")
-            for token_type, count in sorted(token_counts.items()):
-                print(f"  {token_type:20} : {count:4}")
-            print()
-        
-        if args.verbose:
-            print(f"=== Detailed Tokens for {args.file} ===")
-            for i, token in enumerate(display_tokens):
-                print(f"{i+1:4}: {token.type.name:20} | {repr(token.value):25} | Line {token.line:3}, Col {token.column:3}")
-        else:
-            print(f"=== Tokens for {args.file} ===")
-            for token in display_tokens:
-                if token.value.strip():  # Only show tokens with non-empty values
-                    print(f"{token.type.name:20} | {repr(token.value):20} | L{token.line}:C{token.column}")
-                else:
-                    print(f"{token.type.name:20} | {'<empty>':20} | L{token.line}:C{token.column}")
-    
-    main()

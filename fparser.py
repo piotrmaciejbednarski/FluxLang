@@ -33,7 +33,7 @@ class ParseError(Exception):
         return f"Parse error: {self.message}"
 
 class FluxParser:
-    """Recursive descent parser for Flux language"""
+    """Expectation-based parser for Flux language"""
     
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens
@@ -60,35 +60,19 @@ class FluxParser:
             self.current += 1
         return token
     
-    def match(self, *token_types: TokenType) -> bool:
-        """Check if current token matches any of the given types"""
+    # Core expectation method
+    def expect(self, token_type: TokenType, message: str = "") -> Token:
+        """Expect specific token type - consumes and returns the token"""
         current = self.current_token()
         if not current:
-            return False
-        return current.type in token_types
-    
-    def consume(self, token_type: TokenType, message: str = "") -> Token:
-        """Consume token of expected type or raise error"""
-        current = self.current_token()
-        if not current or current.type != token_type:
-            if not message:
-                message = f"Expected {token_type.name}"
-            raise ParseError(message, current)
-        return self.advance()
-    
-    def synchronize(self) -> None:
-        """Synchronize after parse error by finding next statement boundary"""
-        while self.current_token() and not self.match(
-            TokenType.SEMICOLON, TokenType.LEFT_BRACE, TokenType.RIGHT_BRACE,
-            TokenType.DEF, TokenType.OBJECT, TokenType.STRUCT, TokenType.NAMESPACE,
-            TokenType.IF, TokenType.WHILE, TokenType.FOR, TokenType.RETURN,
-            TokenType.EOF
-        ):
-            self.advance()
+            raise ParseError(f"Expected {token_type.name} but reached end of file")
         
-        # Consume synchronization tokens to avoid getting stuck
-        if self.match(TokenType.SEMICOLON, TokenType.RIGHT_BRACE):
-            self.advance()
+        if current.type != token_type:
+            if not message:
+                message = f"Expected {token_type.name}, got {current.type.name}"
+            raise ParseError(message, current)
+        
+        return self.advance()
     
     # ============================================================================
     # Top-level parsing

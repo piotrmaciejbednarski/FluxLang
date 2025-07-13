@@ -1,248 +1,322 @@
-// Flux Language Grammar for Lark Parser
+// Flux Programming Language - Lark BNF Grammar
 // Based on the Flux language specification
 
-?start: program
+start: program
 
-program: (import_stmt | using_stmt | global_item)*
+program: (top_level_statement)*
 
-// Import and using statements
-import_stmt: "import" STRING ";"
-using_stmt: "using" using_list ";"
-using_list: using_item ("," using_item)*
-using_item: IDENTIFIER ("::" IDENTIFIER)*
+top_level_statement: import_statement
+                  | using_statement
+                  | function_definition
+                  | object_definition
+                  | struct_definition
+                  | namespace_definition
+                  | extern_block
+                  | compt_block
+                  | contract_definition
+                  | operator_overload
+                  | macro_definition
+                  | global_variable_declaration
+                  | type_alias
 
-// Global items
-global_item: function_def
-          | object_def
-          | struct_def
-          | namespace_def
-          | macro_def
-          | extern_block
-          | compt_block
+// Import and Using
+import_statement: "import" STRING ";"
+using_statement: "using" using_list ";"
+using_list: qualified_name ("," qualified_name)*
 
-// Function definitions
-function_def: ["volatile"] "def" IDENTIFIER template_params? "(" param_list? ")" "->" type_spec block_stmt
-param_list: param ("," param)*
-param: type_spec IDENTIFIER
+// Function Definition
+function_definition: "def" IDENTIFIER template_params? "(" parameter_list? ")" "->" type_specifier contracts? function_body ";"
+parameter_list: parameter ("," parameter)*
+parameter: type_specifier IDENTIFIER
+function_body: "{" statement* "}" contracts?
+contracts: ":" IDENTIFIER
 
-// Template parameters
+// Access specifiers need separate struct/object versions
+struct_access_specifier: "public" "{" struct_member* "}" ";"
+                       | "private" "{" struct_member* "}" ";"
+
+object_access_specifier: "public" "{" object_member* "}" ";"
+                       | "private" "{" object_member* "}" ";"
+
+// Object Definition
+object_definition: "object" IDENTIFIER template_params? inheritance? "{"  object_body "}" ";"
+object_body: (object_member)*
+object_member: function_definition
+            | variable_declaration
+            | object_definition
+            | struct_definition
+            | object_access_specifier
+            | magic_method
+inheritance: ":" inheritance_list
+inheritance_list: qualified_name ("," qualified_name)*
+magic_method: "__init" "(" parameter_list? ")" "->" "this" function_body
+           | "__exit" "(" ")" "->" "void" function_body
+           | "__expr" "(" ")" "->" type_specifier function_body
+           | "__has" "(" ")" "->" type_specifier function_body
+           | "__cast" "(" parameter ")" function_body
+           | "__eq" "(" parameter ")" "->" "this" function_body
+
+// Struct Definition
+struct_definition: "struct" IDENTIFIER template_params? inheritance? "{" struct_body "}" ";"
+struct_body: (struct_member)*
+struct_member: variable_declaration
+            | struct_definition
+            | struct_access_specifier
+
+// Namespace Definition
+namespace_definition: "namespace" IDENTIFIER "{" namespace_body "}" ";"
+namespace_body: (namespace_member)*
+namespace_member: function_definition
+               | object_definition
+               | struct_definition
+               | namespace_definition
+               | variable_declaration
+               | type_alias
+
+// Access Specifiers
+access_specifier: "public" "{" (object_member | struct_member)* "}" ";"
+               | "private" "{" (object_member | struct_member)* "}" ";"
+
+// Templates
 template_params: "<" template_param_list ">"
 template_param_list: IDENTIFIER ("," IDENTIFIER)*
 
-// Object definitions
-object_def: "object" IDENTIFIER template_params? [":" inheritance_list] ["{" object_body "}"] ";"
-inheritance_list: inheritance_item ("," inheritance_item)*
-inheritance_item: ["virtual" "::"] IDENTIFIER template_params?
-object_body: (access_spec | object_member)*
-object_member: function_def
-             | object_def
-             | struct_def
-             | variable_decl ";"
-access_spec: ("public" | "private") "{" (object_member)* "}" ";"
+// Type System - Fixed to properly capture tokens
+?type_specifier: primitive_type
+              | data_type
+              | array_type
+              | pointer_type
+              | function_pointer_type
+              | named_type
+              | "voidtype"
+              | "auto"
 
-// Struct definitions
-struct_def: "struct" IDENTIFIER template_params? [":" inheritance_list] ["{" struct_body "}"] ";"
-struct_body: (access_spec | struct_member)*
-struct_member: variable_decl ";"
-            | struct_def
+// Higher priority for types in type contexts
+named_type.10: IDENTIFIER ("::" IDENTIFIER)*
+            | IDENTIFIER "<" type_list ">"
+            | IDENTIFIER ("::" IDENTIFIER)+ "<" type_list ">"
 
-// Namespace definitions
-namespace_def: "namespace" IDENTIFIER "{" namespace_body "}" ";"
-namespace_body: (function_def | object_def | struct_def | namespace_def)*
+type_list: type_specifier ("," type_specifier)*
 
-// Macro definitions
-macro_def: "def" IDENTIFIER expr ";"
+// Fixed primitive types to capture tokens properly
+primitive_type: "int"    -> int_type
+              | "float"  -> float_type
+              | "char"   -> char_type
+              | "bool"   -> bool_type
 
-// External FFI
-extern_block: "extern" "(" STRING ")" "{" extern_decl* "}" ";"
-extern_decl: "def" IDENTIFIER "(" param_list? ")" "->" type_spec ";"
+data_type: ("signed" | "unsigned") "data" "{" bit_spec "}" ("as" IDENTIFIER)?
+bit_spec: NUMBER (":" NUMBER)? (":" NUMBER)?
 
-// Compile-time blocks
-compt_block: "compt" "{" stmt* "}" ";"
+array_type: type_specifier "[]"
+pointer_type: type_specifier "*"
+function_pointer_type: type_specifier "*" IDENTIFIER "(" type_list? ")"
 
-// Type specifications
-type_spec: data_type
-         | basic_type
-         | void_type  // <-- Add this
-         | array_type
-         | pointer_type
-         | function_pointer_type
-         | template_type
+// Variables and Declarations
+variable_declaration: ("const")? ("volatile")? type_specifier variable_declarator_list ";"
+variable_declarator_list: variable_declarator ("," variable_declarator)*
+variable_declarator: IDENTIFIER ("=" expression)?
 
-data_type: ["signed" | "unsigned"] "data" "{" data_spec "}"
-data_spec: NUMBER
-        | NUMBER ":" NUMBER
-        | NUMBER ":" NUMBER ":" NUMBER
-        | NUMBER "::" NUMBER
+global_variable_declaration: variable_declaration
 
-basic_type: "bool" | "int" | "float" | "char"  // Remove "void"
-void_type: "void"  // Explicit rule for void-as-type
-literal: NUMBER | FLOAT | STRING | CHAR | BOOLEAN | "void"
-array_type: type_spec "[" [expr] "]"
-pointer_type: type_spec "*"
-function_pointer_type: type_spec "(" "*" IDENTIFIER ")" "(" param_list? ")" "->" type_spec
-template_type: IDENTIFIER template_args?
-template_args: "<" template_arg_list ">"
-template_arg_list: type_spec ("," type_spec)*
-
-// Variable declarations
-variable_decl: type_spec variable_list
-variable_list: variable_item ("," variable_item)*
-variable_item: IDENTIFIER ["=" expr]
+type_alias: type_specifier "as" IDENTIFIER ";"
 
 // Statements
-stmt: block_stmt
-    | expr_stmt
-    | if_stmt
-    | for_stmt
-    | while_stmt
-    | do_while_stmt
-    | switch_stmt
-    | try_catch_stmt
-    | return_stmt
-    | break_stmt
-    | continue_stmt
-    | throw_stmt
-    | assert_stmt
-    | asm_stmt
-    | variable_decl ";"
+statement: expression_statement
+        | compound_statement
+        | if_statement
+        | while_statement
+        | do_while_statement
+        | for_statement
+        | switch_statement
+        | try_catch_statement
+        | return_statement
+        | break_statement
+        | continue_statement
+        | assert_statement
+        | throw_statement
+        | variable_declaration
+        | asm_statement
 
-block_stmt: "{" stmt* "}" ";"
+expression_statement: expression ";"
+compound_statement: "{" statement* "}"
 
-expr_stmt: expr ";"
+if_statement: "if" "(" expression ")" statement ("else" "if" "(" expression ")" statement)* ("else" statement)? ";"
 
-if_stmt: "if" "(" expr ")" stmt ("else" "if" "(" expr ")" stmt)* ["else" stmt] ";"
+while_statement: "while" "(" expression ")" statement ";"
 
-for_stmt: "for" "(" (for_init | for_range) ")" stmt ";"
-for_init: [variable_decl | expr] ";" [expr] ";" [expr]
-for_range: IDENTIFIER ["," IDENTIFIER] "in" expr
+do_while_statement: "do" statement "while" "(" expression ")" ";"
 
-while_stmt: "while" "(" expr ")" stmt ";"
+for_statement: for_c_style | for_python_style
+for_c_style: "for" "(" (variable_declaration | expression)? ";" expression? ";" expression? ")" statement ";"
+for_python_style: "for" "(" for_targets "in" expression ")" statement ";"
+for_targets: IDENTIFIER ("," IDENTIFIER)*
 
-do_while_stmt: "do" stmt "while" "(" expr ")" ";"
+switch_statement: "switch" "(" expression ")" "{" switch_case* default_case? "}" ";"
+switch_case: "case" "(" expression ")" statement
+default_case: "default" statement ";"
 
-switch_stmt: "switch" "(" expr ")" "{" case_list "}" ";"
-case_list: (case_stmt | default_stmt)*
-case_stmt: "case" "(" expr ")" stmt
-default_stmt: "default" stmt ";"
+try_catch_statement: "try" statement catch_clause+ ";"
+catch_clause: "catch" "(" type_specifier IDENTIFIER ")" statement
 
-try_catch_stmt: "try" stmt catch_list ";"
-catch_list: catch_clause+
-catch_clause: "catch" "(" type_spec IDENTIFIER ")" stmt
+return_statement: "return" expression? ";"
+break_statement: "break" ";"
+continue_statement: "continue" ";"
+assert_statement: "assert" "(" expression ("," expression)? ")" ";"
+throw_statement: "throw" "(" expression ")" ";"
 
-return_stmt: "return" [expr] ";"
-break_stmt: "break" ";"
-continue_stmt: "continue" ";"
-throw_stmt: "throw" "(" expr ")" ";"
-assert_stmt: "assert" "(" expr ["," expr] ")" ";"
+asm_statement: "asm" "{" asm_code? "}" ";"
+asm_code: /[^}]+/
 
-asm_stmt: "asm" "{" asm_content "}" ";"
-asm_content: /[^}]*/
+// Expressions
+?expression: assignment_expression
 
-// Expressions (with precedence)
-?expr: conditional_expr
+assignment_expression: conditional_expression
+                     | conditional_expression assignment_operator assignment_expression
 
-?conditional_expr: logical_or_expr ["?" expr ":" conditional_expr]
+assignment_operator: "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
 
-?logical_or_expr: logical_and_expr (("or" | "||" | "!|") logical_and_expr)*
+conditional_expression: logical_or_expression
+                      | logical_or_expression "?" expression ":" conditional_expression
 
-?logical_and_expr: bitwise_or_expr (("and" | "&&" | "!&") bitwise_or_expr)*
+logical_or_expression: logical_and_expression
+                    | logical_or_expression "||" logical_and_expression
 
-?bitwise_or_expr: bitwise_xor_expr (("|" | "`|" | "`!|") bitwise_xor_expr)*
+logical_and_expression: inclusive_or_expression
+                     | logical_and_expression "&&" inclusive_or_expression
 
-?bitwise_xor_expr: bitwise_and_expr (("^^" | "xor" | "`^^" | "`^!|") bitwise_and_expr)*
+inclusive_or_expression: exclusive_or_expression
+                      | inclusive_or_expression "|" exclusive_or_expression
 
-?bitwise_and_expr: identity_expr (("&" | "`&" | "`!&" | "`^&" | "`^!&") identity_expr)*
+exclusive_or_expression: and_expression
+                      | exclusive_or_expression "^" and_expression
+                      | exclusive_or_expression "^^" and_expression
 
-?identity_expr: equality_expr (("is" | "not") equality_expr)*
+and_expression: equality_expression
+             | and_expression "&" equality_expression
 
-?equality_expr: relational_expr (("==" | "!=") relational_expr)*
+equality_expression: relational_expression
+                  | equality_expression "==" relational_expression
+                  | equality_expression "!=" relational_expression
 
-?relational_expr: range_expr
-                | range_expr ("<" | "<=" | ">" | ">=" | "in") range_expr
+relational_expression: shift_expression
+                    | relational_expression "<" shift_expression
+                    | relational_expression ">" shift_expression
+                    | relational_expression "<=" shift_expression
+                    | relational_expression ">=" shift_expression
+                    | relational_expression "is" shift_expression
+                    | relational_expression "is" "!" shift_expression
 
-?range_expr: shift_expr (".." shift_expr)*
+shift_expression: additive_expression
+               | shift_expression "<<" additive_expression
+               | shift_expression ">>" additive_expression
 
-?shift_expr: additive_expr (("<<" | ">>") additive_expr)*
+additive_expression: multiplicative_expression
+                  | additive_expression "+" multiplicative_expression
+                  | additive_expression "-" multiplicative_expression
 
-?additive_expr: multiplicative_expr (("+" | "-") multiplicative_expr)*
+multiplicative_expression: cast_expression
+                        | multiplicative_expression "*" cast_expression
+                        | multiplicative_expression "/" cast_expression
+                        | multiplicative_expression "%" cast_expression
 
-?multiplicative_expr: exponential_expr (("*" | "/" | "%") exponential_expr)*
+cast_expression: unary_expression
+              | "(" type_specifier ")" cast_expression
 
-?exponential_expr: cast_expr ("^" exponential_expr)?
+unary_expression: postfix_expression
+               | "++" unary_expression
+               | "--" unary_expression
+               | unary_operator cast_expression
+               | "sizeof" "(" (expression | type_specifier) ")"
+               | "alignof" "(" type_specifier ")"
+               | "typeof" "(" expression ")"
 
-?cast_expr: "(" type_spec ")" cast_expr  // Explicit cast
-          | unary_expr                   // Otherwise, treat as unary
+unary_operator: "&" | "*" | "+" | "-" | "~" | "!" | "@"
 
-?unary_expr: postfix_expr
-           | "++" unary_expr
-           | "--" unary_expr
-           | ("+" | "-" | "!" | "~" | "@" | "*" | "not") unary_expr
-           | ("sizeof" | "typeof" | "alignof") "(" type_spec ")"
+postfix_expression: primary_expression
+                 | postfix_expression "[" expression "]"
+                 | postfix_expression "(" argument_list? ")"
+                 | postfix_expression "." IDENTIFIER
+                 | postfix_expression "::" IDENTIFIER
+                 | postfix_expression "++"
+                 | postfix_expression "--"
+                 | postfix_expression "{" member_list "}"
 
-?postfix_expr: primary_expr postfix_suffix*
+argument_list: expression ("," expression)*
+member_list: IDENTIFIER ("," IDENTIFIER)*
 
-postfix_suffix: "++"
-             | "--"
-             | "[" expr "]"
-             | "." IDENTIFIER
-             | "::" IDENTIFIER
-             | "(" arg_list? ")"
-             | template_args
+?primary_expression: literal
+                  | "(" expression ")"
+                  | array_literal
+                  | i_string
+                  | f_string
+                  | array_comprehension
+                  | this_expression
+                  | super_expression
+                  | qualified_name
 
-arg_list: expr ("," expr)*
+this_expression: "this"
+super_expression: "super"
 
-?primary_expr: IDENTIFIER
-            | literal
-            | "(" expr ")"
-            | "this"
-            | "super"
-            | array_literal
-            | object_init
-            | function_call_chain
-            | i_string
-            | f_string
-            | array_comprehension
-            | destructuring_assignment
+// Literals
+literal: NUMBER
+      | FLOAT
+      | STRING
+      | CHAR
+      | "true"
+      | "false"
+      | "void"
 
-array_literal: "[" [expr_list] "]"
-expr_list: expr ("," expr)*
+array_literal: "[" [expression ("," expression)*] "]"
 
-object_init: IDENTIFIER template_args? "(" arg_list? ")"
+// String Interpolation
+i_string: "i" STRING ":" "{" expression_list "}"
+f_string: "f" STRING
+expression_list: expression (";" expression)*
 
-function_call_chain: expr "<-" expr
+// Array Comprehension
+array_comprehension: "[" expression "for" "(" for_targets "in" expression ")" ("if" "(" expression ")")? "]"
 
-// String interpolation
-i_string: "i" STRING ":" "{" expr_list "}" ";"
-f_string: "f" STRING ";"
+// Contract Definition
+contract_definition: "contract" IDENTIFIER ("(" parameter_list? ")")? "{" statement* "}" ";"
 
-// Array comprehension
-array_comprehension: "[" expr "for" "(" for_range ")" ["if" "(" expr ")"] "]"
+// Operator Overloading
+operator_overload: "operator" "(" parameter_list ")" "[" operator_symbol "]" "->" type_specifier function_body ";"
+operator_symbol: "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" | "&" | "|" | "^" | "<<" | ">>" | "++" | "--" | "!" | "~" | "[]" | "()" | CUSTOM_OPERATOR
 
-// Destructuring assignment
-destructuring_assignment: "auto" "{" identifier_list "}" "=" expr "{" identifier_list "}"
-identifier_list: IDENTIFIER ("," IDENTIFIER)*
+// Macro Definition
+macro_definition: "def" IDENTIFIER macro_value ";"
+macro_value: expression | "`" operator_symbol
 
-// Assignment expressions
-assignment_expr: conditional_expr
-              | unary_expr assignment_op assignment_expr
+// Extern Block
+extern_block: "extern" "(" STRING ")" "{" extern_declaration* "}" ";"
+extern_declaration: function_prototype ";"
+function_prototype: "def" IDENTIFIER "(" parameter_list? ")" "->" type_specifier
 
-assignment_op: "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^=" | "&=" | "|=" | "^^=" | "<<=" | ">>=" | "`&=" | "`!&=" | "`|=" | "`!|=" | "`^=" | "`!="
+// Compile-time Block
+compt_block: "compt" "{" statement* "}"
+
+// Lower priority for names in expression contexts
+qualified_name.5: IDENTIFIER ("::" IDENTIFIER)*
+
+// Destructuring
+destructure_assignment: "auto" "{" IDENTIFIER ("," IDENTIFIER)* "}" "=" expression "{" member_list "}" ";"
 
 // Terminals
 IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9_]*/
-NUMBER: /0x[0-9a-fA-F]+/ | /0b[01]+/ | /\d+/
+NUMBER: /\d+/
 FLOAT: /\d+\.\d+/
-STRING: /"[^"]*"/
-CHAR: /'[^']'/
-BOOLEAN: "true" | "false"
+STRING: /"([^"\\]|\\.)*"/
+CHAR: /'([^'\\]|\\.)*'/
+CUSTOM_OPERATOR: /`[!@#$%^&*+=<>?\/\\|-]+/
 
 // Comments
-COMMENT: "//" /[^\n]*/
-MULTILINE_COMMENT: "/*" /(.|\n)*?/ "*/"
+COMMENT: "//" /[^\n]*/ NEWLINE
+       | "/*" /(.|\n)*?/ "*/"
 
 // Whitespace
 %import common.WS
 %ignore WS
 %ignore COMMENT
-%ignore MULTILINE_COMMENT
+%ignore NEWLINE
+
+NEWLINE: /\r?\n/

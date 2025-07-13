@@ -34,6 +34,7 @@ class FluxCompiler(Transformer):
         self.current_function = None
         self.symbols = {}  # Symbol table
         self.types = self._init_types()
+        self.global_vars = {}  # Global variables
         
     def _init_types(self):
         """Initialize built-in types"""
@@ -43,6 +44,7 @@ class FluxCompiler(Transformer):
             'char': FluxType('char', ir.IntType(8)),
             'bool': FluxType('bool', ir.IntType(1)),
             'void': FluxType('void', ir.VoidType()),
+            'voidtype': FluxType('voidtype', ir.VoidType()),
         }
     
     def _get_llvm_type(self, type_name: str) -> ir.Type:
@@ -51,341 +53,341 @@ class FluxCompiler(Transformer):
             return self.types[type_name].llvm_type
         raise ValueError(f"Unknown type: {type_name}")
     
+    def _get_token_value(self, item):
+        """Extract value from token or tree node"""
+        if isinstance(item, Token):
+            return item.value
+        elif isinstance(item, Tree):
+            return self.visit(item)
+        else:
+            return str(item)
+    
+    def _extract_tokens_from_tree(self, tree):
+        """Extract all tokens from a tree recursively"""
+        if isinstance(tree, Token):
+            return [tree]
+        elif isinstance(tree, Tree):
+            tokens = []
+            for child in tree.children:
+                tokens.extend(self._extract_tokens_from_tree(child))
+            return tokens
+        else:
+            return []
+    
+    # Top-level rules
     def program(self, items):
         """Handle program node"""
         for item in items:
-            pass  # Items are processed as they're encountered
+            if item is not None:
+                self.visit(item)
         return self.module
     
-    def function_definition(self, items):
-        """Handle function definition"""
-        # Parse function components
-        volatile = False
-        idx = 0
-        
-        if items[idx] == "volatile":
-            volatile = True
-            idx += 1
-        
-        # Skip 'def' keyword
-        idx += 1
-        
-        func_name = str(items[idx])
-        idx += 1
-        
-        # Skip template params if present
-        if idx < len(items) and isinstance(items[idx], list):
-            idx += 1
-        
-        # Skip opening paren
-        idx += 1
-        
-        # Parse parameters
-        params = []
-        if idx < len(items) and isinstance(items[idx], list):
-            params = items[idx]
-            idx += 1
-        
-        # Skip closing paren and arrow
-        idx += 2
-        
-        # Get return type
-        return_type = self._get_llvm_type(str(items[idx]))
-        idx += 1
-        
-        # Create function type
-        param_types = [self._get_llvm_type(p[0]) for p in params] if params else []
-        func_type = ir.FunctionType(return_type, param_types)
-        
-        # Create function
-        func = ir.Function(self.module, func_type, name=func_name)
-        self.current_function = func
-        
-        # Create entry block
-        block = func.append_basic_block(name="entry")
-        self.builder = ir.IRBuilder(block)
-        
-        # Add parameters to symbol table
-        for i, (param_type, param_name) in enumerate(params or []):
-            param_val = func.args[i]
-            param_val.name = param_name
-            self.symbols[param_name] = FluxSymbol(
-                param_name, 
-                self.types[param_type], 
-                param_val
-            )
-        
-        # Process function body (statements between braces)
-        body_start = idx + 1  # Skip opening brace
-        statements = []
-        brace_count = 1
-        
-        for i in range(body_start, len(items)):
-            if items[i] == "{":
-                brace_count += 1
-            elif items[i] == "}":
-                brace_count -= 1
-                if brace_count == 0:
-                    break
-            elif brace_count == 1:
-                statements.append(items[i])
-        
-        # Process statements
-        for stmt in statements:
-            if stmt is not None:
-                self.visit(stmt)
-        
-        # Add return void if no return statement
-        if not self.builder.block.is_terminated:
-            if return_type == ir.VoidType():
-                self.builder.ret_void()
-            else:
-                # Return zero/default value
-                if isinstance(return_type, ir.IntType):
-                    self.builder.ret(ir.Constant(return_type, 0))
-                elif isinstance(return_type, ir.FloatType):
-                    self.builder.ret(ir.Constant(return_type, 0.0))
-        
-        return func
+    def top_level_statement(self, items):
+        """Handle top-level statement"""
+        if items:
+            return self.visit(items[0])
+        return None
     
-    def parameter_list(self, items):
-        """Handle parameter list"""
-        return items
-    
-    def parameter(self, items):
-        """Handle single parameter"""
-        type_spec = str(items[0])
-        param_name = str(items[1])
-        return (type_spec, param_name)
+    # Variable declarations
+    def global_variable_declaration(self, items):
+        """Handle global variable declaration"""
+        return self.visit(items[0])
     
     def variable_declaration(self, items):
         """Handle variable declaration"""
-        type_spec = str(items[0])
-        declarators = items[1] if len(items) > 1 else []
+        type_node = items[0]
+        declarator_list = items[1]
+        
+        # Get type name - handle both Tree and direct string
+        if isinstance(type_node, Tree):
+            type_name = self.visit(type_node)
+        else:
+            type_name = str(type_node)
+        
+        # Process declarators
+        declarators = self.visit(declarator_list)
+        
+        # Rest of the method remains the same...
+        # Handle single declarator vs list
+        if not isinstance(declarators, list):
+            declarators = [declarators]
         
         for declarator in declarators:
             if isinstance(declarator, tuple):
                 var_name, init_expr = declarator
+                init_val = init_expr
             else:
-                var_name = str(declarator)
-                init_expr = None
+                var_name = declarator
+                init_val = None
             
-            # Allocate variable
-            var_type = self._get_llvm_type(type_spec)
-            var_ptr = self.builder.alloca(var_type, name=var_name)
-            
-            # Initialize if provided
-            if init_expr is not None:
-                init_val = self.visit(init_expr)
-                self.builder.store(init_val, var_ptr)
-            
-            # Add to symbol table
-            self.symbols[var_name] = FluxSymbol(
-                var_name,
-                self.types[type_spec],
-                var_ptr
-            )
+            if self.builder is None:
+                # Global variable
+                var_type = self._get_llvm_type(type_name)
+                if init_val is not None:
+                    global_var = ir.GlobalVariable(self.module, var_type, name=var_name)
+                    global_var.initializer = init_val
+                else:
+                    global_var = ir.GlobalVariable(self.module, var_type, name=var_name)
+                    global_var.initializer = ir.Constant(var_type, 0)
+                
+                self.global_vars[var_name] = global_var
+            else:
+                # Local variable
+                var_type = self._get_llvm_type(type_name)
+                var_ptr = self.builder.alloca(var_type, name=var_name)
+                
+                if init_val is not None:
+                    self.builder.store(init_val, var_ptr)
+                
+                self.symbols[var_name] = FluxSymbol(
+                    var_name,
+                    self.types[type_name],
+                    var_ptr
+                )
+        
+        return None
     
-    def declarator_list(self, items):
-        """Handle declarator list"""
-        return items
+    def variable_declarator_list(self, items):
+        """Handle variable declarator list"""
+        return [self.visit(item) for item in items]
     
-    def declarator(self, items):
-        """Handle single declarator"""
+    def variable_declarator(self, items):
+        """Handle single variable declarator"""
         if len(items) == 1:
-            return str(items[0])
+            return self.visit(items[0])
         else:
             # Variable with initializer
-            var_name = str(items[0])
-            init_expr = items[2]  # Skip '=' token
+            var_name = self.visit(items[0])
+            init_expr = self.visit(items[1])  # Process the assignment expression
             return (var_name, init_expr)
     
-    def return_statement(self, items):
-        """Handle return statement"""
-        if len(items) > 1:  # Has return value
-            ret_val = self.visit(items[1])
-            self.builder.ret(ret_val)
-        else:
-            self.builder.ret_void()
-    
-    def if_statement(self, items):
-        """Handle if statement"""
-        condition = self.visit(items[2])  # Skip 'if' and '('
-        
-        # Create blocks
-        then_block = self.current_function.append_basic_block(name="if_then")
-        else_block = self.current_function.append_basic_block(name="if_else")
-        merge_block = self.current_function.append_basic_block(name="if_merge")
-        
-        # Branch based on condition
-        self.builder.cbranch(condition, then_block, else_block)
-        
-        # Generate then block
-        self.builder.position_at_end(then_block)
-        self.visit(items[4])  # Then statement
-        if not self.builder.block.is_terminated:
-            self.builder.branch(merge_block)
-        
-        # Generate else block
-        self.builder.position_at_end(else_block)
-        if len(items) > 6:  # Has else clause
-            self.visit(items[6])  # Else statement
-        if not self.builder.block.is_terminated:
-            self.builder.branch(merge_block)
-        
-        # Continue from merge block
-        self.builder.position_at_end(merge_block)
-    
-    def while_statement(self, items):
-        """Handle while statement"""
-        # Create blocks
-        cond_block = self.current_function.append_basic_block(name="while_cond")
-        body_block = self.current_function.append_basic_block(name="while_body")
-        exit_block = self.current_function.append_basic_block(name="while_exit")
-        
-        # Jump to condition
-        self.builder.branch(cond_block)
-        
-        # Generate condition block
-        self.builder.position_at_end(cond_block)
-        condition = self.visit(items[2])  # Skip 'while' and '('
-        self.builder.cbranch(condition, body_block, exit_block)
-        
-        # Generate body block
-        self.builder.position_at_end(body_block)
-        self.visit(items[4])  # Body statement
-        if not self.builder.block.is_terminated:
-            self.builder.branch(cond_block)
-        
-        # Continue from exit block
-        self.builder.position_at_end(exit_block)
-    
-    def assignment_expression(self, items):
-        """Handle assignment expression"""
-        if len(items) == 1:
-            return self.visit(items[0])
-        
-        # Assignment: identifier = expression
-        var_name = str(items[0])
-        expr_val = self.visit(items[2])  # Skip '=' token
-        
-        if var_name in self.symbols:
-            var_ptr = self.symbols[var_name].llvm_value
-            self.builder.store(expr_val, var_ptr)
-            return expr_val
-        else:
-            raise ValueError(f"Undefined variable: {var_name}")
-    
-    def additive_expression(self, items):
-        """Handle addition and subtraction"""
-        if len(items) == 1:
-            return self.visit(items[0])
-        
-        left = self.visit(items[0])
-        op = str(items[1])
-        right = self.visit(items[2])
-        
-        if op == '+':
-            return self.builder.add(left, right)
-        elif op == '-':
-            return self.builder.sub(left, right)
-    
-    def multiplicative_expression(self, items):
-        """Handle multiplication, division, and modulo"""
-        if len(items) == 1:
-            return self.visit(items[0])
-        
-        left = self.visit(items[0])
-        op = str(items[1])
-        right = self.visit(items[2])
-        
-        if op == '*':
-            return self.builder.mul(left, right)
-        elif op == '/':
-            return self.builder.sdiv(left, right)
-        elif op == '%':
-            return self.builder.srem(left, right)
-    
-    def equality_expression(self, items):
-        """Handle equality and inequality"""
-        if len(items) == 1:
-            return self.visit(items[0])
-        
-        left = self.visit(items[0])
-        op = str(items[1])
-        right = self.visit(items[2])
-        
-        if op == '==':
-            return self.builder.icmp_signed('==', left, right)
-        elif op == '!=':
-            return self.builder.icmp_signed('!=', left, right)
-    
-    def relational_expression(self, items):
-        """Handle relational operators"""
-        if len(items) == 1:
-            return self.visit(items[0])
-        
-        left = self.visit(items[0])
-        op = str(items[1])
-        right = self.visit(items[2])
-        
-        if op == '<':
-            return self.builder.icmp_signed('<', left, right)
-        elif op == '>':
-            return self.builder.icmp_signed('>', left, right)
-        elif op == '<=':
-            return self.builder.icmp_signed('<=', left, right)
-        elif op == '>=':
-            return self.builder.icmp_signed('>=', left, right)
-    
-    def unary_expression(self, items):
-        """Handle unary expressions"""
-        if len(items) == 1:
-            return self.visit(items[0])
-        
-        op = str(items[0])
-        operand = self.visit(items[1])
-        
-        if op == '+':
-            return operand
-        elif op == '-':
-            return self.builder.neg(operand)
-        elif op == '!':
-            return self.builder.not_(operand)
-    
-    def identifier(self, items):
-        """Handle identifier"""
-        name = str(items[0])
-        if name in self.symbols:
-            symbol = self.symbols[name]
-            # Load value if it's a pointer (variable)
-            if isinstance(symbol.llvm_value.type, ir.PointerType):
-                return self.builder.load(symbol.llvm_value)
-            else:
-                return symbol.llvm_value
-        else:
-            raise ValueError(f"Undefined identifier: {name}")
-    
-    def integer_literal(self, items):
-        """Handle integer literal"""
-        return ir.Constant(ir.IntType(32), int(items[0]))
-    
-    def float_literal(self, items):
-        """Handle float literal"""
-        return ir.Constant(ir.FloatType(), float(items[0]))
-    
-    def boolean_literal(self, items):
-        """Handle boolean literal"""
-        value = str(items[0]) == 'true'
-        return ir.Constant(ir.IntType(1), value)
-    
+    # Types
     def primitive_type(self, items):
         """Handle primitive type"""
-        return str(items[0])
+        if not items:
+            return 'int'  # Default fallback
+        
+        item = items[0]
+        if isinstance(item, Token):
+            return item.value
+        elif isinstance(item, str):
+            return item
+        else:
+            return str(item)
     
     def type_specifier(self, items):
         """Handle type specifier"""
+        # Handle both direct type names and type nodes
+        if isinstance(items[0], str):
+            return items[0]
         return self.visit(items[0])
+
+    def ret(self, value=None):
+        """Generate a return instruction"""
+        if value is None:
+            return self.builder.ret_void()
+        else:
+            return self.builder.ret(value)
+    
+    # Function definitions
+    def function_definition(self, items):
+        """Handle function definition"""
+        # Extract function components
+        func_name = None
+        return_type = 'int'  # Default return type
+        body = None
+        
+        for item in items:
+            if isinstance(item, Token) and item.type == 'IDENTIFIER':
+                func_name = item.value
+            elif isinstance(item, Tree) and item.data == 'function_body':
+                body = item
+            elif isinstance(item, (str, Tree)) and (isinstance(item, str) or item.data in ['primitive_type', 'type_specifier']):
+                return_type = self.visit(item) if isinstance(item, Tree) else item
+
+        # Create function
+        llvm_return_type = self._get_llvm_type(return_type)
+        func_type = ir.FunctionType(llvm_return_type, [])
+        func = ir.Function(self.module, func_type, name=func_name)
+
+        # Create entry block and set builder
+        entry_block = func.append_basic_block(name="entry")
+        old_builder = self.builder
+        self.builder = ir.IRBuilder(entry_block)
+
+        # Process function body
+        if body:
+            self.visit(body)
+
+        # Ensure function has terminator
+        if not self.builder.block.is_terminated:
+            if llvm_return_type == ir.VoidType():
+                self.builder.ret_void()
+            else:
+                self.builder.ret(ir.Constant(llvm_return_type, 0))
+
+        # Restore previous builder
+        self.builder = old_builder
+        return func
+    
+    def function_body(self, items):
+        """Handle function body"""
+        for item in items:
+            if item is not None:
+                self.visit(item)
+    
+    # Statements
+    def statement(self, items):
+        """Handle statement"""
+        if items:
+            return self.visit(items[0])
+        return None
+    
+    def return_statement(self, items):
+        """Handle return statement"""
+        if len(items) > 0:
+            ret_val = self.visit(items[0])
+            self.builder.ret(ret_val)
+        else:
+            self.builder.ret_void()
+
+    def int_type(self, items):
+        """Handle int type"""
+        return 'int'
+
+    def float_type(self, items):
+        """Handle float type"""
+        return 'float'
+
+    def char_type(self, items):
+        """Handle char type"""
+        return 'char'
+
+    def bool_type(self, items):
+        """Handle bool type"""
+        return 'bool'
+
+    # Expressions - create a chain of delegation
+    def assignment_expression(self, items):
+        """Handle assignment expression"""
+        return self.visit(items[0])
+    
+    def conditional_expression(self, items):
+        """Handle conditional expression"""
+        return self.visit(items[0])
+    
+    def logical_or_expression(self, items):
+        """Handle logical OR expression"""
+        return self.visit(items[0])
+    
+    def logical_and_expression(self, items):
+        """Handle logical AND expression"""
+        return self.visit(items[0])
+    
+    def inclusive_or_expression(self, items):
+        """Handle inclusive OR expression"""
+        return self.visit(items[0])
+    
+    def exclusive_or_expression(self, items):
+        """Handle exclusive OR expression"""
+        return self.visit(items[0])
+    
+    def and_expression(self, items):
+        """Handle AND expression"""
+        return self.visit(items[0])
+    
+    def equality_expression(self, items):
+        """Handle equality expression"""
+        return self.visit(items[0])
+    
+    def relational_expression(self, items):
+        """Handle relational expression"""
+        return self.visit(items[0])
+    
+    def shift_expression(self, items):
+        """Handle shift expression"""
+        return self.visit(items[0])
+    
+    def additive_expression(self, items):
+        """Handle additive expression"""
+        return self.visit(items[0])
+    
+    def multiplicative_expression(self, items):
+        """Handle multiplicative expression"""
+        return self.visit(items[0])
+    
+    def cast_expression(self, items):
+        """Handle cast expression"""
+        return self.visit(items[0])
+    
+    def unary_expression(self, items):
+        """Handle unary expression"""
+        return self.visit(items[0])
+    
+    def postfix_expression(self, items):
+        """Handle postfix expression"""
+        return self.visit(items[0])
+    
+    def primary_expression(self, items):
+        """Handle primary expression"""
+        return self.visit(items[0])
+    
+    # Literals
+    def literal(self, items):
+        """Handle literal values"""
+        if not items:
+            raise ValueError("Empty literal")
+        
+        item = items[0]
+        
+        # Handle case where we already have an LLVM constant
+        if hasattr(item, 'type') and isinstance(item.type, ir.IntType):
+            return item
+        
+        # Handle tokens and other cases
+        if isinstance(item, Token):
+            if item.type == 'NUMBER':
+                return ir.Constant(ir.IntType(32), int(item.value))
+            elif item.type == 'FLOAT':
+                return ir.Constant(ir.FloatType(), float(item.value))
+            elif item.type == 'STRING':
+                return ir.Constant(ir.IntType(8), ord(item.value[1]))
+            elif item.type == 'CHAR':
+                return ir.Constant(ir.IntType(8), ord(item.value[1]))
+            elif item.value == 'true':
+                return ir.Constant(ir.IntType(1), 1)
+            elif item.value == 'false':
+                return ir.Constant(ir.IntType(1), 0)
+        
+        # Handle as string value
+        value = str(item)
+        if value.isdigit():
+            return ir.Constant(ir.IntType(32), int(value))
+        elif value in ['true', 'false']:
+            return ir.Constant(ir.IntType(1), value == 'true')
+        
+        raise ValueError(f"Unknown literal: {item}")
+    
+    # Handle terminals (tokens) that reach the transformer
+    def IDENTIFIER(self, token):
+        """Handle identifier tokens"""
+        return token.value
+    
+    def NUMBER(self, token):
+        """Handle number tokens"""
+        return ir.Constant(ir.IntType(32), int(token.value))
+    
+    def FLOAT(self, token):
+        """Handle float tokens"""
+        return ir.Constant(ir.FloatType(), float(token.value))
+
+    def visit(self, node):
+        """Visit a node in the parse tree"""
+        if isinstance(node, Tree):
+            return self.transform(node)
+        elif isinstance(node, Token):
+            return node.value
+        return node
 
 def load_grammar(filename: str) -> str:
     """Load grammar from file"""
@@ -420,6 +422,8 @@ def compile_flux(source_code: str, grammar_file: str = 'flux_lark.bnf.txt') -> i
         return module
     except Exception as e:
         print(f"Compilation error: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def execute_llvm_module(module: ir.Module):
