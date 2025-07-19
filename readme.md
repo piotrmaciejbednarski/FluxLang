@@ -31,9 +31,10 @@ import "random.fx";
 
 def main() -> int
 {
+    unsigned data{3} as threebit randval;
     while(true)
     {
-        unsigned data{3} as threebit randval = randint(1..6);
+        randval = randint(1..6);
         if ((int)input("Enter a number (1-6): ") != randval)
         {
             print("You lose! Goodbye!");
