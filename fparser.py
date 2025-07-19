@@ -14,7 +14,7 @@ Usage:
 import sys
 from typing import List, Optional, Union, Any
 from flexer import FluxLexer, TokenType, Token
-from dc import *
+from fast import *
 
 class ParseError(Exception):
     """Exception raised when parsing fails"""
