@@ -33,7 +33,7 @@ def main() -> int
 {
     while(true)
     {
-        unsigned data{3} as randval = randint(1..6);
+        unsigned data{3} as threebit randval = randint(1..6);
         if ((int)input("Enter a number (1-6): ") != randval)
         {
             print("You lose! Goodbye!");
