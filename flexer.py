@@ -18,7 +18,8 @@ class TokenType(Enum):
     # Literals
     INTEGER = auto()
     FLOAT = auto()
-    STRING = auto()
+    CHAR = auto()
+    STRING_LITERAL = auto()
     BOOL = auto()
     
     # String interpolation
@@ -33,6 +34,8 @@ class TokenType(Enum):
     AND = auto()
     AS = auto()
     ASM = auto()
+    ASM_BLOCK = auto()
+    AT = auto()
     ASSERT = auto()
     AUTO = auto()
     BREAK = auto()
@@ -47,11 +50,13 @@ class TokenType(Enum):
     DEF = auto()
     DEFAULT = auto()
     DO = auto()
+    ELIF = auto()
     ELSE = auto()
     EXTERN = auto()
     FALSE = auto()
     FLOAT_KW = auto()
     FOR = auto()
+    FROM = auto()
     IF = auto()
     IMPORT = auto()
     IN = auto()
@@ -136,7 +141,7 @@ class TokenType(Enum):
     SEMICOLON = auto()      # ;
     COMMA = auto()          # ,
     DOT = auto()            # .
-    
+
     # Special
     EOF = auto()
     NEWLINE = auto()
@@ -162,12 +167,15 @@ class FluxLexer:
             'and': TokenType.AND,
             'as': TokenType.AS,
             'asm': TokenType.ASM,
+            'at': TokenType.AT,
+            'asm': TokenType.ASM,
             'assert': TokenType.ASSERT,
             'auto': TokenType.AUTO,
             'break': TokenType.BREAK,
             'bool': TokenType.BOOL_KW,
             'case': TokenType.CASE,
             'catch': TokenType.CATCH,
+            'char': TokenType.CHAR,
             'compt': TokenType.COMPT,
             'const': TokenType.CONST,
             'continue': TokenType.CONTINUE,
@@ -175,10 +183,12 @@ class FluxLexer:
             'def': TokenType.DEF,
             'default': TokenType.DEFAULT,
             'do': TokenType.DO,
+            'elif': TokenType.ELIF,
             'else': TokenType.ELSE,
             'extern': TokenType.EXTERN,
             'false': TokenType.FALSE,
             'float': TokenType.FLOAT_KW,
+            'from': TokenType.FROM,
             'for': TokenType.FOR,
             'if': TokenType.IF,
             'import': TokenType.IMPORT,
@@ -207,7 +217,7 @@ class FluxLexer:
             'void': TokenType.VOID,
             'volatile': TokenType.VOLATILE,
             'while': TokenType.WHILE,
-            'as': TokenType.AS,
+            'xor': TokenType.XOR
         }
     
     def current_char(self) -> Optional[str]:
@@ -238,6 +248,21 @@ class FluxLexer:
             # Skip until end of line
             while self.current_char() and self.current_char() != '\n':
                 self.advance()
+
+    def read_asm_block(self) -> Token:
+        """Read an inline assembly block"""
+        start_pos = (self.line, self.column)
+        self.advance()  # Skip opening quote
+        
+        result = ""
+        while self.current_char() and not (self.current_char() == '"' and self.peek_char() == '"'):
+            result += self.current_char()
+            self.advance()
+        
+        if self.current_char() == '"' and self.peek_char() == '"':
+            self.advance(count=2)  # Skip closing quotes
+        
+        return Token(TokenType.ASM_BLOCK, result, start_pos[0], start_pos[1])
     
     def read_string(self, quote_char: str) -> str:
         result = ""
@@ -445,10 +470,16 @@ class FluxLexer:
             if char in '"\'':
                 if char == '"':
                     content = self.read_string('"')
-                    tokens.append(Token(TokenType.STRING, content, start_pos[0], start_pos[1]))
+                    tokens.append(Token(TokenType.STRING_LITERAL, content, start_pos[0], start_pos[1]))
                 else:
                     content = self.read_string("'")
-                    tokens.append(Token(TokenType.STRING, content, start_pos[0], start_pos[1]))
+                    tokens.append(Token(TokenType.STRING_LITERAL, content, start_pos[0], start_pos[1]))
+                continue
+
+            if char == 'a' and self.peek_char() == 's' and self.peek_char(2) == 'm' and self.peek_char(3) == '"':
+                self.advance(count=3)  # Skip 'asm'
+                tokens.append(Token(TokenType.ASM, 'asm', start_pos[0], start_pos[1]))
+                tokens.append(self.read_asm_block())
                 continue
             
             # Numbers

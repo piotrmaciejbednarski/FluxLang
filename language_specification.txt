@@ -1,39 +1,19 @@
 # Flux
 
-Flux is a systems programming language mix of C++, Zig, and Python, and has a slightly more strict syntax than either of them.
+# Flux
+Flux is a systems programming language, resembling C++ and Python.
 
-It chooses clarity over brevity, and is consequently - and intentionally - verbose; in a good way.
-It uses a consistent mental model where all important constructs look similar, with no special cases to remember.
-If it's important, it gets braces, and if it's the end of a statement, or compound statement (if/elif/else;, try/catch/.../catch;, case/case/default;), it gets a semicolon.
-You will never (or rather should never) encounter a time when reading Flux code where you ask, "Where does this block end?"
-
-I created Flux because I wanted a language that sits between Python's high level expressiveness and the low level control of C++.
+It borrows elements from C++, Python, Zig, and Rust.
 
 Flux supports RAII.
 
 Flux has a manual memory model. Memory management is up to the programmer.
+
 A Flux program must have a main() function, and must be defined in global scope.
 
-Hidden behavior is avoided at all costs, what you write is what happens, nothing is limited for your own good.
-Everything in Flux is explicit and never clever. There are only a few syntactic sugar cases.
+----
 
-Q: What if someone writes slow compile-time code?
-A: That's that specific programmer's problem.
-
-Q: What if someone corrupts memory?
-A: Don't do that.
-
-Q: What is someone writes dangerous assembly?
-A: Then it does dangerous things.
-
-Here's a Swiss Army chainsaw. Don't cut your leg off.
-To make that chainsaw safe, there's a standard library that puts anti-chainsaw pants on you.
-
-Flux attempts to solve the Rust "Borrow Checker" problem by providing a way to manually borrow check.
-You can do it a variety of ways, but the most fundamental way is with operator overloading and contracts (see near end of document for a unique_ptr example).
-
-
-**Function definition:**
+## **Function definition:**
 ```
 def name (parameters) -> return_type
 {
@@ -481,7 +461,7 @@ int 0x80
 ```
 
 
-**If/Else If/Else:**
+**if/elif/else:**
 ```
 if (condition1)
 {
@@ -1252,10 +1232,10 @@ myVar2 rotl 2;              //0b10100000;
 
 Keyword list:
 ```
-alignof, and, as, asm, assert, auto, band, bitrev, bnand, bnot, break, bnor, bor, bool, bxnand, bxnor, case, catch, clz, compt,
-ctz, const, continue, contract, data, def, default, do, elif, else, endiswap, extern, false, float, for, global, if, import, in,
-is, int, namespace, nand, new, nor, not, object, operator, or, popcount, private, public, return, rotl, rotr, signed, sizeof,
-struct, super, switch, this, throw, true, try, typeof, unsigned, using, virtual, void, volatile, while, xnand, xnor, xor
+alignof, and, as, asm, assert, auto, break, bool, case, catch, compt, const, continue, data, def, default, do,
+elif, else, extern, false, float, for, global, if, import, in, is, int, namespace, new, not, object, operator,
+private, public, return, signed, sizeof, struct, super, switch, this, throw, true, try, typeof, union, unsigned,
+void, volatile, while, xor
 ```
 
 Literal types:
