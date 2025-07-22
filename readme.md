@@ -79,20 +79,20 @@ gcc --version            # Should show GCC
 
 ***Compilation:***
 
-- 1. Compile Flux to LLVM IR  
+1. Compile Flux to LLVM IR  
 `python3 fc.py input.fx > output.ll`
 
-- 2. Compile LLVM IR to assembly  
+2. Compile LLVM IR to assembly  
 `llc output.ll -o output.s`  
 *or*  
 `llc-14 output.ll -o output.s  # Use version-specific llc`
 
-- 3. Assemble to object file  
+3. Assemble to object file  
 `as output.s -o output.o`
 
-- 4. Link executable  
+4. Link executable  
 `gcc output.o -o program`
 `gcc output.o -o program -no-pie  # Disable PIE for better compatibility`
 
-- 5. Run
+5. Run
 `./program`
