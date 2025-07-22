@@ -27,6 +27,8 @@ unsinged data{8}[] as noopstr;
 ```
 
 #### Russian Roulette:
+***Warning, do not run this program, or any program resembling it in any language.***  
+***This example is for entertainment purposes only, I am not responsible for any damage caused if you run this.***
 ```
 import "standard.fx";
 import "system.fx";
