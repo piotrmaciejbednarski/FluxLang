@@ -52,6 +52,8 @@ def main() -> int
 };
 ```
 
+#### [SHA256](https://github.com/kvthweatt/FluxLang/blob/main/sha256.fx)
+
 ---
 
 ## Compiling Flux
