@@ -1007,21 +1007,26 @@ const def myconstexpr(int x, int y) -> int {return x * y;};  // Basic syntax
 
 **Custom Smart Pointers:**
 ```
-object unique_ptr<T> {
+object unique_ptr<T>
+{
     T* ptr;
     
-    def __init(T* p) -> this {
+    def __init(T* p) -> this
+    {
         this.ptr = p;
         return this;
     };
     
-    def __exit() -> void {
-        if (this.ptr == !void) {
+    def __exit() -> void
+    {
+        if (this.ptr == !void)
+        {
             (void)this.ptr;  // Explicit deallocation
         };
     };
     
-    def __eq(unique_ptr<T> other) -> this {
+    def __eq(unique_ptr<T> other) -> this
+    {
         if (this.ptr == !void) { (void)this.ptr; };
         this.ptr = other.ptr;  // Transfer ownership
         (void)other.ptr;       // Clean up

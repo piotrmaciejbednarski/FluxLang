@@ -52,7 +52,46 @@ def main() -> int
 };
 ```
 
-#### [SHA256](https://github.com/kvthweatt/FluxLang/blob/main/sha256.fx)
+#### An example of [SHA256](https://github.com/kvthweatt/FluxLang/blob/main/sha256.fx)
+
+#### Full-specification Smart Pointers (includes use of templates, and operators)
+```
+object unique_ptr<T>
+{
+    T* ptr;
+    
+    def __init(T* p) -> this
+    {
+        this.ptr = p;
+        return this;
+    };
+    
+    def __exit() -> void
+    {
+        if (this.ptr == !void)
+        {
+            (void)this.ptr;  // Explicit deallocation, very readable
+        };
+    };
+};
+
+operator (unique_ptr<T> L, unique_ptr<T> R) -> unique_ptr<T>
+{
+    if (L.ptr == !void) { (void)L.ptr; };
+    L.ptr = R.ptr;  // Transfer ownership
+    (void)R.ptr;    // Clean up
+    return L;
+};
+
+int x = 5;
+
+unique_ptr<int> a(@x);   // Alternatively `a(@new int);`
+unique_ptr<int> b;
+
+b = a;         // Ownership moved to b, a.ptr is now void
+
+doThing(a);    // Use-after-free, a no longer exists.
+```
 
 ---
 
@@ -87,16 +126,13 @@ gcc --version            # Should show GCC
 `python3 fc.py input.fx > output.ll`
 
 2. Compile LLVM IR to assembly  
-`llc output.ll -o output.s`  
-*or*  
-`llc-14 output.ll -o output.s  # Use version-specific llc`
+`llc output.ll -o output.s`
 
 3. Assemble to object file  
 `as output.s -o output.o`
 
 4. Link executable  
 `gcc output.o -o program`
-`gcc output.o -o program -no-pie  # Disable PIE for better compatibility`
 
 5. Run
 `./program`
