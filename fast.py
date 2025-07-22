@@ -1,12 +1,14 @@
 from dataclasses import dataclass, field
 from typing import List, Any, Optional, Union, Tuple
 from enum import Enum
+from llvmlite import ir
 
 # Base classes first
 @dataclass
 class ASTNode:
     """Base class for all AST nodes"""
-    pass
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> Any:
+        raise NotImplementedError(f"codegen not implemented for {self.__class__.__name__}")
 
 # Enums and simple types
 class DataType(Enum):
@@ -45,9 +47,50 @@ class Literal(ASTNode):
     value: Any
     type: DataType
 
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        if self.type == DataType.INT:
+            # Check if we have a custom type for this width
+            if hasattr(module, '_type_aliases'):
+                for name, llvm_type in module._type_aliases.items():
+                    if isinstance(llvm_type, ir.IntType) and llvm_type.width == 64 and name.startswith('i'):
+                        return ir.Constant(llvm_type, int(self.value))
+            return ir.Constant(ir.IntType(32), int(self.value))
+        elif self.type == DataType.FLOAT:
+            return ir.Constant(ir.FloatType(), float(self.value))
+        elif self.type == DataType.BOOL:
+            return ir.Constant(ir.IntType(1), bool(self.value))
+        elif self.type == DataType.CHAR:
+            return ir.Constant(ir.IntType(8), ord(self.value[0]) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.VOID:
+            return None
+        else:
+            # Handle custom types
+            if hasattr(module, '_type_aliases') and str(self.type) in module._type_aliases:
+                llvm_type = module._type_aliases[str(self.type)]
+                if isinstance(llvm_type, ir.IntType):
+                    return ir.Constant(llvm_type, int(self.value))
+                elif isinstance(llvm_type, ir.FloatType):
+                    return ir.Constant(llvm_type, float(self.value))
+            raise ValueError(f"Unsupported literal type: {self.type}")
+
 @dataclass
 class Identifier(ASTNode):
     name: str
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        # Look up the name in the current scope
+        if self.name in builder.scope:
+            ptr = builder.scope[self.name]
+            # Load the value if it's a pointer type
+            if isinstance(ptr.type, ir.PointerType):
+                return builder.load(ptr, name=self.name)
+            return ptr
+        
+        # Check if this is a custom type
+        if hasattr(module, '_type_aliases') and self.name in module._type_aliases:
+            return module._type_aliases[self.name]
+            
+        raise NameError(f"Unknown identifier: {self.name}")
 
 # Type definitions
 @dataclass
@@ -61,6 +104,29 @@ class TypeSpec(ASTNode):
     is_array: bool = False
     array_size: Optional[int] = None
     is_pointer: bool = False
+
+
+    def get_llvm_type(self, module: ir.Module) -> ir.Type:  # Renamed from get_llvm_type
+        if isinstance(self.base_type, str):
+            # Handle custom types (like i64)
+            if hasattr(module, '_type_aliases') and self.base_type in module._type_aliases:
+                return module._type_aliases[self.base_type]
+            return ir.IntType(32)  # Default fallback
+        
+        if self.base_type == DataType.INT:
+            return ir.IntType(32)
+        elif self.base_type == DataType.FLOAT:
+            return ir.FloatType()
+        elif self.base_type == DataType.BOOL:
+            return ir.IntType(1)
+        elif self.base_type == DataType.CHAR:
+            return ir.IntType(8)
+        elif self.base_type == DataType.VOID:
+            return ir.VoidType()
+        elif self.base_type == DataType.DATA:
+            return ir.IntType(self.bit_width)
+        else:
+            raise ValueError(f"Unsupported type: {self.base_type}")
 
 @dataclass
 class CustomType(ASTNode):
@@ -90,11 +156,112 @@ class BinaryOp(Expression):
     operator: Operator
     right: Expression
 
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        left_val = self.left.codegen(builder, module)
+        right_val = self.right.codegen(builder, module)
+        
+        # Ensure types match by casting if necessary
+        if left_val.type != right_val.type:
+            if isinstance(left_val.type, ir.IntType) and isinstance(right_val.type, ir.IntType):
+                # Promote to the wider type
+                if left_val.type.width > right_val.type.width:
+                    right_val = builder.zext(right_val, left_val.type)
+                else:
+                    left_val = builder.zext(left_val, right_val.type)
+            elif isinstance(left_val.type, ir.FloatType) and isinstance(right_val.type, ir.IntType):
+                right_val = builder.sitofp(right_val, left_val.type)
+            elif isinstance(left_val.type, ir.IntType) and isinstance(right_val.type, ir.FloatType):
+                left_val = builder.sitofp(left_val, right_val.type)
+        
+        if self.operator == Operator.ADD:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fadd(left_val, right_val)
+            else:
+                return builder.add(left_val, right_val)
+        elif self.operator == Operator.SUB:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fsub(left_val, right_val)
+            else:
+                return builder.sub(left_val, right_val)
+        elif self.operator == Operator.MUL:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fmul(left_val, right_val)
+            else:
+                return builder.mul(left_val, right_val)
+        elif self.operator == Operator.DIV:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fdiv(left_val, right_val)
+            else:
+                return builder.sdiv(left_val, right_val)
+        elif self.operator == Operator.EQUAL:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fcmp_ordered('==', left_val, right_val)
+            else:
+                return builder.icmp_signed('==', left_val, right_val)
+        elif self.operator == Operator.NOT_EQUAL:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fcmp_ordered('!=', left_val, right_val)
+            else:
+                return builder.icmp_signed('!=', left_val, right_val)
+        elif self.operator == Operator.LESS_THAN:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fcmp_ordered('<', left_val, right_val)
+            else:
+                return builder.icmp_signed('<', left_val, right_val)
+        elif self.operator == Operator.LESS_EQUAL:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fcmp_ordered('<=', left_val, right_val)
+            else:
+                return builder.icmp_signed('<=', left_val, right_val)
+        elif self.operator == Operator.GREATER_THAN:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fcmp_ordered('>', left_val, right_val)
+            else:
+                return builder.icmp_signed('>', left_val, right_val)
+        elif self.operator == Operator.GREATER_EQUAL:
+            if isinstance(left_val.type, ir.FloatType):
+                return builder.fcmp_ordered('>=', left_val, right_val)
+            else:
+                return builder.icmp_signed('>=', left_val, right_val)
+        elif self.operator == Operator.AND:
+            return builder.and_(left_val, right_val)
+        elif self.operator == Operator.OR:
+            return builder.or_(left_val, right_val)
+        elif self.operator == Operator.XOR:
+            return builder.xor(left_val, right_val)
+        else:
+            raise ValueError(f"Unsupported operator: {self.operator}")
+
 @dataclass
 class UnaryOp(Expression):
     operator: Operator
     operand: Expression
     is_postfix: bool = False
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        operand_val = self.operand.codegen(builder, module)
+        
+        if self.operator == Operator.NOT:
+            return builder.not_(operand_val)
+        elif self.operator == Operator.SUB:
+            return builder.neg(operand_val)
+        elif self.operator == Operator.INCREMENT:
+            # Handle both prefix and postfix increment
+            one = ir.Constant(operand_val.type, 1)
+            new_val = builder.add(operand_val, one)
+            if isinstance(self.operand, Identifier):
+                builder.scope[self.operand.name] = new_val
+            return new_val if not self.is_postfix else operand_val
+        elif self.operator == Operator.DECREMENT:
+            # Handle both prefix and postfix decrement
+            one = ir.Constant(operand_val.type, 1)
+            new_val = builder.sub(operand_val, one)
+            if isinstance(self.operand, Identifier):
+                builder.scope[self.operand.name] = new_val
+            return new_val if not self.is_postfix else operand_val
+        else:
+            raise ValueError(f"Unsupported unary operator: {self.operator}")
 
 @dataclass
 class CastExpression(Expression):
@@ -106,10 +273,58 @@ class FunctionCall(Expression):
     name: str
     arguments: List[Expression] = field(default_factory=list)
 
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        # Look up the function in the module
+        func = module.globals.get(self.name, None)
+        if func is None or not isinstance(func, ir.Function):
+            raise NameError(f"Unknown function: {self.name}")
+        
+        # Generate code for arguments
+        arg_vals = [arg.codegen(builder, module) for arg in self.arguments]
+        return builder.call(func, arg_vals)
+
 @dataclass
 class MemberAccess(Expression):
     object: Expression
     member: str
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        # Handle static struct member access (A.x where A is a struct type)
+        if isinstance(self.object, Identifier):
+            struct_name = self.object.name
+            if hasattr(module, '_struct_types') and struct_name in module._struct_types:
+                # Look for the global variable representing this member
+                global_name = f"{struct_name}.{self.member}"
+                for global_var in module.global_values:
+                    if global_var.name == global_name:
+                        return builder.load(global_var)
+                
+                raise NameError(f"Static member '{self.member}' not found in struct '{struct_name}'")
+        
+        # Handle regular member access (obj.x where obj is an instance)
+        obj_val = self.object.codegen(builder, module)
+        
+        if isinstance(obj_val.type, ir.PointerType):
+            # Handle pointer to struct
+            if isinstance(obj_val.type.pointee, ir.LiteralStructType):
+                struct_type = obj_val.type.pointee
+                if not hasattr(struct_type, 'names'):
+                    raise ValueError("Struct type missing member names")
+                
+                try:
+                    member_index = struct_type.names.index(self.member)
+                except ValueError:
+                    raise ValueError(f"Member '{self.member}' not found in struct")
+                
+                member_ptr = builder.gep(
+                    obj_val,
+                    [ir.Constant(ir.IntType(32)), 0],
+                    [ir.Constant(ir.IntType(32)), member_index],
+                    inbounds=True
+                )
+                return builder.load(member_ptr)
+        
+        raise ValueError(f"Member access on unsupported type: {obj_val.type}")
 
 @dataclass
 class ArrayAccess(Expression):
@@ -139,17 +354,101 @@ class VariableDeclaration(ASTNode):
     type_spec: TypeSpec
     initial_value: Optional[Expression] = None
 
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        llvm_type = self.type_spec.get_llvm_type(module)  # Changed to get_llvm_type
+        
+        if builder.scope is None:  # Global variable
+            var = ir.GlobalVariable(module, llvm_type, self.name)
+            if self.initial_value:
+                var.initializer = self.initial_value.codegen(builder, module)
+        else:  # Local variable
+            var = builder.alloca(llvm_type, name=self.name)
+            if self.initial_value:
+                init_val = self.initial_value.codegen(builder, module)
+                builder.store(init_val, var)
+        
+        if builder.scope is not None:
+            builder.scope[self.name] = var
+        return var
+    
+    def get_llvm_type(self, module: ir.Module) -> ir.Type:
+        if isinstance(self.type_spec.base_type, str):
+            # Check if it's a struct type
+            if hasattr(module, '_struct_types') and self.type_spec.base_type in module._struct_types:
+                return module._struct_types[self.type_spec.base_type]
+            # Check if it's a type alias
+            if hasattr(module, '_type_aliases') and self.type_spec.base_type in module._type_aliases:
+                return module._type_aliases[self.type_spec.base_type]
+            # Default to i32
+            return ir.IntType(type_spec.bit_width)
+        
+        # Handle primitive types
+        if self.type_spec.base_type == DataType.INT:
+            return ir.IntType(32)
+        elif self.type_spec.base_type == DataType.FLOAT:
+            return ir.FloatType()
+        elif self.type_spec.base_type == DataType.BOOL:
+            return ir.IntType(1)
+        elif self.type_spec.base_type == DataType.CHAR:
+            return ir.IntType(8)
+        elif self.type_spec.base_type == DataType.VOID:
+            return ir.VoidType()
+        elif self.type_spec.base_type == DataType.DATA:
+            return ir.IntType(self.type_spec.bit_width)
+        else:
+            raise ValueError(f"Unsupported type: {self.type_spec.base_type}")
+
 # Type declarations
+@dataclass
 class TypeDeclaration(Expression):
     """AST node for type declarations using AS keyword"""
-    def __init__(self, name: str, base_type: TypeSpec, initial_value: Optional[Expression] = None):
-        self.name = name
-        self.base_type = base_type
-        self.initial_value = initial_value
-    
+    name: str
+    base_type: TypeSpec
+    initial_value: Optional[Expression] = None
+
     def __repr__(self):
         init_str = f" = {self.initial_value}" if self.initial_value else ""
         return f"TypeDeclaration({self.base_type} as {self.name}{init_str})"
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        llvm_type = self.base_type.get_llvm_type(module)
+        
+        if not hasattr(module, '_type_aliases'):
+            module._type_aliases = {}
+        module._type_aliases[self.name] = llvm_type
+        
+        if self.initial_value:
+            init_val = self.initial_value.codegen(builder, module)
+            gvar = ir.GlobalVariable(module, llvm_type, self.name)
+            gvar.linkage = 'internal'
+            gvar.global_constant = True
+            gvar.initializer = init_val
+            return gvar
+        return None
+    
+    def get_llvm_type(self, type_spec: TypeSpec) -> ir.Type:
+        if isinstance(type_spec.base_type, str):
+            # Handle custom types by looking them up in the module
+            if hasattr(module, '_type_aliases') and type_spec.base_type in module._type_aliases:
+                return module._type_aliases[type_spec.base_type]
+            # Default to i32 if type not found
+            return ir.IntType(32)
+        elif type_spec.base_type == DataType.INT:
+            return ir.IntType(32)
+        elif type_spec.base_type == DataType.FLOAT:
+            return ir.FloatType()
+        elif type_spec.base_type == DataType.BOOL:
+            return ir.IntType(1)
+        elif type_spec.base_type == DataType.CHAR:
+            return ir.IntType(8)
+        elif type_spec.base_type == DataType.VOID:
+            return ir.VoidType()
+        elif type_spec.base_type == DataType.DATA:
+            # For data types, use the specified bit width
+            width = type_spec.bit_width
+            return ir.IntType(width)
+        else:
+            raise ValueError(f"Unsupported type: {type_spec.base_type}")
 
 # Statements
 @dataclass
@@ -160,6 +459,9 @@ class Statement(ASTNode):
 class ExpressionStatement(Statement):
     expression: Expression
 
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        return self.expression.codegen(builder, module)
+
 @dataclass
 class Assignment(Statement):
     target: Expression
@@ -168,6 +470,12 @@ class Assignment(Statement):
 @dataclass
 class Block(Statement):
     statements: List[Statement] = field(default_factory=list)
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        result = None
+        for stmt in self.statements:
+            result = stmt.codegen(builder, module)
+        return result
 
 @dataclass
 class XorStatement(Statement):
@@ -180,10 +488,70 @@ class IfStatement(Statement):
     elif_blocks: List[tuple] = field(default_factory=list)  # (condition, block) pairs
     else_block: Optional[Block] = None
 
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        # Generate condition
+        cond_val = self.condition.codegen(builder, module)
+        
+        # Create basic blocks
+        func = builder.block.function
+        then_block = func.append_basic_block('then')
+        else_block = func.append_basic_block('else')
+        merge_block = func.append_basic_block('ifcont')
+        
+        builder.cbranch(cond_val, then_block, else_block)
+        
+        # Emit then block
+        builder.position_at_start(then_block)
+        self.then_block.codegen(builder, module)
+        builder.branch(merge_block)
+        
+        # Emit else block
+        builder.position_at_start(else_block)
+        if self.else_block:
+            self.else_block.codegen(builder, module)
+        builder.branch(merge_block)
+        
+        # Position builder at merge block
+        builder.position_at_start(merge_block)
+        return None
+
 @dataclass
 class WhileLoop(Statement):
     condition: Expression
     body: Block
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        func = builder.block.function
+        cond_block = func.append_basic_block('while.cond')
+        body_block = func.append_basic_block('while.body')
+        end_block = func.append_basic_block('while.end')
+        
+        # Save current break/continue targets
+        old_break = getattr(builder, 'break_block', None)
+        old_continue = getattr(builder, 'continue_block', None)
+        builder.break_block = end_block
+        builder.continue_block = cond_block
+        
+        # Jump to condition block
+        builder.branch(cond_block)
+        
+        # Emit condition block
+        builder.position_at_start(cond_block)
+        cond_val = self.condition.codegen(builder, module)
+        builder.cbranch(cond_val, body_block, end_block)
+        
+        # Emit body block
+        builder.position_at_start(body_block)
+        self.body.codegen(builder, module)
+        builder.branch(cond_block)  # Loop back
+        
+        # Restore break/continue targets
+        builder.break_block = old_break
+        builder.continue_block = old_continue
+        
+        # Position builder at end block
+        builder.position_at_start(end_block)
+        return None
 
 @dataclass
 class DoWhileLoop(Statement):
@@ -206,6 +574,17 @@ class ForInLoop(Statement):
 @dataclass
 class ReturnStatement(Statement):
     value: Optional[Expression] = None
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        if self.value is not None:
+            ret_val = self.value.codegen(builder, module)
+            # Ensure we're not returning a pointer
+            if isinstance(ret_val.type, ir.PointerType):
+                ret_val = builder.load(ret_val)
+            builder.ret(ret_val)
+        else:
+            builder.ret_void()
+        return None
 
 @dataclass
 class BreakStatement(Statement):
@@ -261,6 +640,67 @@ class FunctionDef(ASTNode):
     is_const: bool = False
     is_volatile: bool = False
 
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Function:
+        # Convert return type
+        ret_type = self._convert_type(self.return_type)
+        
+        # Convert parameter types
+        param_types = [self._convert_type(param.type_spec) for param in self.parameters]
+        
+        # Create function type
+        func_type = ir.FunctionType(ret_type, param_types)
+        
+        # Create function
+        func = ir.Function(module, func_type, self.name)
+        
+        # Set parameter names
+        for i, param in enumerate(func.args):
+            param.name = self.parameters[i].name
+        
+        # Create entry block
+        entry_block = func.append_basic_block('entry')
+        builder.position_at_start(entry_block)
+        
+        # Create new scope for function body
+        old_scope = builder.scope
+        builder.scope = {}
+        
+        # Allocate space for parameters and store initial values
+        for i, param in enumerate(func.args):
+            alloca = builder.alloca(param.type, name=f"{param.name}.addr")
+            builder.store(param, alloca)
+            builder.scope[self.parameters[i].name] = alloca
+        
+        # Generate function body
+        self.body.codegen(builder, module)
+        
+        # Add implicit return if needed
+        if not builder.block.is_terminated:
+            if isinstance(ret_type, ir.VoidType):
+                builder.ret_void()
+            else:
+                raise RuntimeError("Function must end with return statement")
+        
+        # Restore previous scope
+        builder.scope = old_scope
+        return func
+    
+    def _convert_type(self, type_spec: TypeSpec) -> ir.Type:
+        if type_spec.base_type == DataType.INT:
+            return ir.IntType(32)
+        elif type_spec.base_type == DataType.FLOAT:
+            return ir.FloatType()
+        elif type_spec.base_type == DataType.BOOL:
+            return ir.IntType(1)
+        elif type_spec.base_type == DataType.CHAR:
+            return ir.IntType(8)
+        elif type_spec.base_type == DataType.VOID:
+            return ir.VoidType()
+        elif type_spec.base_type == DataType.DATA:
+            return ir.IntType(type_spec.bit_width or 8)
+        else:
+            raise ValueError(f"Unsupported type: {type_spec.base_type}")
+
 @dataclass
 class DestructuringAssignment(Statement):
     """Destructuring assignment"""
@@ -274,6 +714,7 @@ class DestructuringAssignment(Statement):
 class StructMember(ASTNode):
     name: str
     type_spec: TypeSpec
+    initial_value: Optional[Expression] = None
     is_private: bool = False
 
 # Struct definition
@@ -283,6 +724,65 @@ class StructDef(ASTNode):
     members: List[StructMember] = field(default_factory=list)
     base_structs: List[str] = field(default_factory=list)  # inheritance
     nested_structs: List['StructDef'] = field(default_factory=list)
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Type:
+        # Convert member types
+        member_types = []
+        member_names = []
+        for member in self.members:
+            member_type = self._convert_type(member.type_spec, module)
+            member_types.append(member_type)
+            member_names.append(member.name)
+        
+        # Create the struct type
+        struct_type = ir.LiteralStructType(member_types)
+        struct_type.names = member_names
+        
+        # Store the type in the module's context
+        if not hasattr(module, '_struct_types'):
+            module._struct_types = {}
+        module._struct_types[self.name] = struct_type
+        
+        # Create global variables for initialized members
+        for member in self.members:
+            if member.initial_value is not None:  # Check for initial_value here
+                # Create global variable for initialized members
+                gvar = ir.GlobalVariable(
+                    module, 
+                    member_type, 
+                    f"{self.name}.{member.name}"
+                )
+                gvar.initializer = member.initial_value.codegen(builder, module)
+                gvar.linkage = 'internal'
+        
+        return struct_type
+    
+    def _convert_type(self, type_spec: TypeSpec, module: ir.Module) -> ir.Type:
+        if isinstance(type_spec.base_type, str):
+            # Check if it's a struct type
+            if hasattr(module, '_struct_types') and type_spec.base_type in module._struct_types:
+                return module._struct_types[type_spec.base_type]
+            # Check if it's a type alias
+            if hasattr(module, '_type_aliases') and type_spec.base_type in module._type_aliases:
+                return module._type_aliases[type_spec.base_type]
+            # Default to i32
+            return ir.IntType(type_spec.bit_width)
+        
+        # Handle primitive types
+        if type_spec.base_type == DataType.INT:
+            return ir.IntType(32)
+        elif type_spec.base_type == DataType.FLOAT:
+            return ir.FloatType()
+        elif type_spec.base_type == DataType.BOOL:
+            return ir.IntType(1)
+        elif type_spec.base_type == DataType.CHAR:
+            return ir.IntType(8)
+        elif type_spec.base_type == DataType.VOID:
+            return ir.VoidType()
+        elif type_spec.base_type == DataType.DATA:
+            return ir.IntType(type_spec.bit_width)
+        else:
+            raise ValueError(f"Unsupported type: {type_spec.base_type}")
 
 # Object method
 @dataclass
@@ -335,10 +835,18 @@ class CustomTypeStatement(Statement):
 class FunctionDefStatement(Statement):
     function_def: FunctionDef
 
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        # Delegate codegen to the contained FunctionDef
+        return self.function_def.codegen(builder, module)
+
 # Struct definition statement
 @dataclass
 class StructDefStatement(Statement):
     struct_def: StructDef
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        # Delegate codegen to the contained StructDef
+        return self.struct_def.codegen(builder, module)
 
 # Object definition statement
 @dataclass
@@ -354,6 +862,27 @@ class NamespaceDefStatement(Statement):
 @dataclass
 class Program(ASTNode):
     statements: List[Statement] = field(default_factory=list)
+
+    def codegen(self, module: ir.Module = None) -> ir.Module:
+        # Create module if not provided
+        if module is None:
+            module = ir.Module(name='flux_module')
+        
+        # Create a dummy builder for global scope
+        builder = ir.IRBuilder()
+        builder.scope = {}  # Global scope
+        
+        # First pass: process all type declarations (structs, type aliases)
+        for stmt in self.statements:
+            if isinstance(stmt, (StructDefStatement, TypeDeclaration)):
+                stmt.codegen(builder, module)
+        
+        # Second pass: process everything else
+        for stmt in self.statements:
+            if not isinstance(stmt, (StructDefStatement, TypeDeclaration)):
+                stmt.codegen(builder, module)
+        
+        return module
 
 # Example usage
 if __name__ == "__main__":

@@ -302,11 +302,17 @@ class FluxParser:
         """
         struct_member -> type_spec IDENTIFIER ';' // OR STRUCT, for nested
         """
-        var = self.variable_declaration()
-        type_spec = var.type_spec
-        name = var.name
+        type_spec = self.type_spec()
+        name = self.consume(TokenType.IDENTIFIER).value
+        
+        # Handle optional initial value
+        initial_value = None
+        if self.expect(TokenType.ASSIGN):
+            self.advance()
+            initial_value = self.expression()
+        
         self.consume(TokenType.SEMICOLON)
-        return StructMember(name, type_spec)
+        return StructMember(name, type_spec, initial_value)
     
     def object_def_statement(self) -> ObjectDefStatement:
         """
