@@ -149,7 +149,7 @@ def print_hash(uint8[32] hash) {
     for (uint32 i = 0; i < 32; i++) {
         print(f"{hash[i]:02x}");
     }
-    println("");
+    print("\n");
 }
 
 // Example usage
