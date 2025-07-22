@@ -8,6 +8,9 @@ For the full specification, go [here](https://github.com/kvthweatt/FluxLang/blob
 
 ---
 
+**Please note,** the following are example programs demonstrating what Flux looks like.  
+The Standard Library is not implemented yet, so these programs will not compile.  
+
 #### Hello World:
 ```
 import "standard.fx";
@@ -46,3 +49,50 @@ def main() -> int
     };
 };
 ```
+
+---
+
+## Compiling Flux
+
+**Linux instructions:**  
+You will need:  
+- LLVM Toolchain
+```
+sudo apt install llvm-14 clang-14 lld-14
+```
+- Assembler & Linker
+```
+sudo apt install binutils gcc g++ make     # GNU toolchain
+```
+- Python Packages
+```
+pip install llvmlite==0.41.0 dataclasses
+```
+
+*Verify your installation:*
+```
+python3 --version        # Should show 3.8+
+llc --version            # Should show LLVM 14.x
+as --version             # Should show GNU assembler
+gcc --version            # Should show GCC
+```
+
+***Compilation:***
+
+- 1. Compile Flux to LLVM IR  
+`python3 fc.py input.fx > output.ll`
+
+- 2. Compile LLVM IR to assembly  
+`llc output.ll -o output.s`  
+*or*  
+`llc-14 output.ll -o output.s  # Use version-specific llc`
+
+- 3. Assemble to object file  
+`as output.s -o output.o`
+
+- 4. Link executable  
+`gcc output.o -o program`
+`gcc output.o -o program -no-pie  # Disable PIE for better compatibility`
+
+- 5. Run
+`./program`
