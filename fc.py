@@ -12,10 +12,11 @@ from fparser import FluxParser, ParseError
 from fast import Program
 
 class FluxCompiler:
-    def __init__(self):
+    def __init__(self, /, verbosity: int = None):
+        self.verbosity = int(verbosity)
         self.module = ir.Module(name="flux_module")
         self.module.triple = "x86_64-pc-linux-gnu"
-        self.module.data_layout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
+        #self.module.data_layout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
         self.temp_files = []
 
     def compile_file(self, filename: str, output_bin: str = None) -> str:
@@ -26,12 +27,21 @@ class FluxCompiler:
             
             lexer = FluxLexer(source)
             tokens = lexer.tokenize()
+
+            if self.verbosity == 0:
+                print(tokens)
             
             parser = FluxParser(tokens)
             ast = parser.parse()
+
+            if self.verbosity == 1:
+                print(ast)
             
             self.module = ast.codegen(self.module)
             llvm_ir = str(self.module)
+
+            if self.verbosity == 2:
+                print(llvm_ir)
             
             # Create temp directory
             base_name = Path(filename).stem
@@ -53,6 +63,11 @@ class FluxCompiler:
                 "-o", str(asm_file)
             ], check=True)
             self.temp_files.append(asm_file)
+
+            if self.verbosity == 3:
+                with open(asm_file, "r") as f:
+                    f.seek(0)
+                    print(f.read())
             
             # 4. Assemble to object file
             obj_file = temp_dir / f"{base_name}.o"
@@ -63,6 +78,14 @@ class FluxCompiler:
                 "-o", str(obj_file)
             ], check=True)
             self.temp_files.append(obj_file)
+
+            if self.verbosity == 4:
+                print(tokens)
+                print(ast)
+                print(llvm_ir)
+                with open(asm_file, "r") as f:
+                    f.seek(0)
+                    print(f.read())
             
             # 5. Link executable
             output_bin = output_bin or f"./{base_name}"
@@ -92,17 +115,48 @@ class FluxCompiler:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python fc.py input.fx [output_binary]")
+        print("Usage: python fc.py input.fx [output_binary] ...arguments...\n\n")
+        print("\tArguments:\n")
+        print("\t\t-vX\tVerbose output. X = 0..4\n")
+        print("\t\t\t\t0: Tokens")
+        print("\t\t\t\t1: AST")
+        print("\t\t\t\t2: LLVM IR")
+        print("\t\t\t\t3: ASM")
+        print("\t\t\t\t4: Everything")
         sys.exit(1)
-    
-    input_file = sys.argv[1]
-    output_bin = sys.argv[2] if len(sys.argv) > 2 else None
+
+    input_file = None
+    output_bin = None
+
+    if len(sys.argv) == 2:
+        input_file = sys.argv[1]
+        output_bin = sys.argv[2] if len(sys.argv) > 2 else None
+
+    verbosity = None
+
+    if len(sys.argv) > 2:
+        input_file = sys.argv[1]
+        output_bin = sys.argv[2] if len(sys.argv) > 2 else None
+        for arg in sys.argv:
+            match (arg.lower()[0:2]):
+                case ("-v"):
+                    match (arg.lower()[2:]):
+                        case ("0"):
+                            verbosity = int(arg[2:])
+                        case ("1"):
+                            verbosity = int(arg[2:])
+                        case ("2"):
+                            verbosity = int(arg[2:])
+                        case ("3"):
+                            verbosity = int(arg[2:])
+                        case ("4"):
+                            verbosity = int(arg[2:])
     
     if not input_file.endswith('.fx'):
         print("Error: Input file must have .fx extension", file=sys.stderr)
         sys.exit(1)
     
-    compiler = FluxCompiler()
+    compiler = FluxCompiler(verbosity=verbosity)
     try:
         binary_path = compiler.compile_file(input_file, output_bin)
         print(f"Executable created at: {binary_path}")
