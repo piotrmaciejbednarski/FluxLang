@@ -49,6 +49,7 @@ def rsub(int x, int y) -> int
 Any file you import will take the place of the import statement.
 ```
 import "standard.fx";
+import "mylib.fx", "foobar.fx";  // Multi-line imports are processed from left to right in the order they appear.
 ```
 
 Example:  
@@ -779,7 +780,7 @@ int* ptr = new int;  // Allocate
 # Keyword list:
 ```
 alignof, and, as, asm, assert, auto, break, bool, case, catch, const, continue, data, def, default,
-do, elif, else, false, float, for, global, if, import, in, is, int, namespace, new, not, object,
+do, elif, else, false, float, for, global, if, import, in, is, int, namespace, new, not, object, or,
 private, public, return, signed, sizeof, struct, super, switch, this, throw, true, try, typeof,
 union, unsigned, void, volatile, while, xor
 ```

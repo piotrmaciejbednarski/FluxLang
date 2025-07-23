@@ -13,14 +13,6 @@ contexts:
     - match: '//.*$\n?'
       scope: comment.line.double-slash.flux
 
-    - match: '/\*'
-      scope: punctuation.definition.comment.begin.flux
-      push:
-        - meta_scope: comment.block.flux
-        - match: '\*/'
-          scope: punctuation.definition.comment.end.flux
-          pop: true
-
     # i-strings (fixed)
     - match: 'i"'
       scope: string.quoted.double.flux punctuation.definition.string.begin.flux
@@ -47,11 +39,11 @@ contexts:
           scope: constant.character.escape.flux
 
     # Keywords
-    - match: '\b(as|asm|and|async|break|case|catch|char|class|const|continue|data|def|default|do|else|enum|false|for|if|import|in|is|namespace|not|object|op|operator|or|return|signed|sizeof|struct|super|switch|template|this|throw|true|try|typeof|unsigned|using|void|volatile|while|xor)\b'
+    - match: '\b(alignof|and|as|asm|assert|auto|break|bool|case|catch|char|const|continue|data|def|default|do|elif|else|false|float|for|global|if|import|in|is|int|namespace|new|not|object|or|private|public|return|signed|sizeof|struct|super|switch|this|throw|true|try|typeof|union|unsigned|void|volatile|while|xor)\b'
       scope: keyword.control.flux
 
     # Types
-    - match: '\b(int|float|void|data|const|volatile|char)\b'
+    - match: '\b(struct|object|union|int|float|void|data|const|volatile|char)\b'
       scope: storage.type.flux
 
     # Functions

@@ -9,7 +9,7 @@
     <key>settings</key>
     <dict>
         <key>increaseIndentPattern</key>
-        <string>.*(\{|\(|\[|else|case|default)\s*$</string>
+        <string>.*(\{|\(|\[|if|elif|else|case|default)\s*$</string>
     </dict>
 </dict>
 </plist>
