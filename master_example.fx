@@ -10,7 +10,7 @@ using std::io, std::types;
 namespace MathUtils
 {
     // Template function with volatile modifier
-    volatile template <T> max(T x, T y) -> T
+    volatile def max<T>(T x, T y) -> T
     {
         return (x > y) ? x : y;
     };
@@ -28,7 +28,7 @@ namespace DataStructures
     struct Point
     {
         float x, y;
-        unsigned data{16} flags;
+        unsigned data{16} as flags;
     };
 
     // Object with inheritance and magic methods
@@ -88,14 +88,14 @@ namespace DataStructures
         };
     };
 
-    // Inherited object demonstrating super keyword
+    // Inherited object method usage
     object Vector3D : Vector
     {
         float w;
 
         def __init(float x, float y, float z, float w) -> this
         {
-            super.__init(x, y, z);
+            virtual::__init(x, y, z);
             this.w = w;
             return this;
         };
@@ -149,7 +149,7 @@ object MathError
 };
 
 // Template function with multiple parameters
-template <V, K, R> convert_and_operate(V value1, K value2) -> R
+def convert_and_operate<V,K,R>(V value1, K value2) -> R
 {
     R result = (R)(value1 + value2);
     return result;
@@ -201,7 +201,7 @@ def demonstrate_data_types() -> void
     print(i"Dereferenced int_ptr: {}":{*int_ptr;});
 
     // Auto type inference
-    auto {a, b} = DataStructures::Point{x = 10.0, y = 20.0};
+    auto {a, b} = DataStructures::Point{x,y};
 
     return void;
 };
@@ -365,7 +365,7 @@ def demonstrate_assembly() -> int
     // Inline assembly block
     asm
     {
-        mov eax, 1
+        mov eax, result
         mov ebx, 0
         int 0x80
     };
