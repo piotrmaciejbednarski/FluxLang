@@ -109,6 +109,8 @@ class TypeSpec(ASTNode):
 
 
     def get_llvm_type(self, module: ir.Module) -> ir.Type:  # Renamed from get_llvm_type
+        if hasattr(module, '_union_types') and self.base_type in module._union_types:
+            return module._union_types[self.base_type]
         if isinstance(self.base_type, str):
             # Handle custom types (like i64)
             if hasattr(module, '_type_aliases') and self.base_type in module._type_aliases:
@@ -735,6 +737,66 @@ class DestructuringAssignment(Statement):
     source: Expression
     source_type: Optional[Identifier]  # For the "from" clause
     is_explicit: bool  # True if using "as" syntax
+
+@dataclass
+class UnionMember(ASTNode):
+    name: str
+    type_spec: TypeSpec
+    initial_value: Optional[Expression] = None
+
+@dataclass
+class UnionDef(ASTNode):
+    name: str
+    members: List[UnionMember] = field(default_factory=list)
+    
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Type:
+        # First convert all member types to LLVM types
+        member_types = []
+        member_names = []
+        max_size = 0
+        max_type = None
+        
+        for member in self.members:
+            member_type = member.type_spec.get_llvm_type(module)
+            if isinstance(member_type, str):
+                # Handle named types
+                if hasattr(module, '_type_aliases') and member_type in module._type_aliases:
+                    member_type = module._type_aliases[member_type]
+                else:
+                    raise ValueError(f"Unknown type: {member_type}")
+            
+            member_types.append(member_type)
+            member_names.append(member.name)
+            
+            # Calculate size
+            if hasattr(member_type, 'width'):  # For integer types
+                size = (member_type.width + 7) // 8  # Convert bits to bytes
+            else:
+                size = module.data_layout.get_type_size(member_type)
+                
+            if size > max_size:
+                max_size = size
+                max_type = member_type
+        
+        # Create a struct type with proper padding
+        union_type = ir.LiteralStructType([max_type])
+        union_type.names = [self.name]
+        
+        # Store the type in the module's context
+        if not hasattr(module, '_union_types'):
+            module._union_types = {}
+        module._union_types[self.name] = union_type
+        
+        # Store member info for later access
+        if not hasattr(module, '_union_member_info'):
+            module._union_member_info = {}
+        module._union_member_info[self.name] = {
+            'member_types': member_types,
+            'member_names': member_names,
+            'max_size': max_size
+        }
+        
+        return union_type
 
 # Struct member
 @dataclass

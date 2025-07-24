@@ -110,6 +110,8 @@ class FluxParser:
             return self.import_statement()
         elif self.expect(TokenType.DEF):
             return self.function_def()
+        elif self.expect(TokenType.UNION):
+            return self.union_def()
         elif self.expect(TokenType.STRUCT):
             return self.struct_def()
         elif self.expect(TokenType.OBJECT):
@@ -234,6 +236,44 @@ class FluxParser:
         type_spec = self.type_spec()
         name = self.consume(TokenType.IDENTIFIER).value
         return Parameter(name, type_spec)
+
+    def union_def(self) -> UnionDef:
+        """
+        union_def -> 'union' IDENTIFIER (';' | '{' union_member* '}' ';')
+        """
+        self.consume(TokenType.UNION)
+        name = self.consume(TokenType.IDENTIFIER).value
+        
+        # Handle forward declaration
+        if self.expect(TokenType.SEMICOLON):
+            self.advance()
+            return UnionDef(name, [])
+        
+        self.consume(TokenType.LEFT_BRACE)
+        members = []
+        
+        while not self.expect(TokenType.RIGHT_BRACE):
+            members.append(self.union_member())
+        
+        self.consume(TokenType.RIGHT_BRACE)
+        self.consume(TokenType.SEMICOLON)
+        return UnionDef(name, members)
+
+    def union_member(self) -> UnionMember:
+        """
+        union_member -> type_spec IDENTIFIER ('=' expression)? ';'
+        """
+        type_spec = self.type_spec()
+        name = self.consume(TokenType.IDENTIFIER).value
+        
+        # Optional initial value
+        initial_value = None
+        if self.expect(TokenType.ASSIGN):
+            self.advance()
+            initial_value = self.expression()
+        
+        self.consume(TokenType.SEMICOLON)
+        return UnionMember(name, type_spec, initial_value)
     
     def struct_def(self) -> StructDef:
         """

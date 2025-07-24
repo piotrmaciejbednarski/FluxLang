@@ -78,6 +78,7 @@ class TokenType(Enum):
     TRUE = auto()
     TRY = auto()
     TYPEOF = auto()
+    UNION = auto()
     UNSIGNED = auto()
     USING = auto()
     VIRTUAL = auto()
@@ -211,6 +212,7 @@ class FluxLexer:
             'true': TokenType.TRUE,
             'try': TokenType.TRY,
             'typeof': TokenType.TYPEOF,
+            'union': TokenType.UNION,
             'unsigned': TokenType.UNSIGNED,
             'using': TokenType.USING,
             'virtual': TokenType.VIRTUAL,

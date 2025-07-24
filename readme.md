@@ -95,6 +95,23 @@ doThing(a);    // Use-after-free, a no longer exists.
 
 ---
 
+## Implemented Keywords  
+This is a list of keywords which do have LLVM `codegen()` methods attached to their AST counterparts.
+
+i. All primitive types: `int`, `float`, `bool`, `char`, `data`  
+ii. `Type` types: `union`, `struct`, `object` - and instances of each  
+iii. Namespaces  
+iv. Functions  
+v. Prototypes / Forward Declarations  
+vi. `if/elif/else`
+vii. `while`
+viii. `asm`
+
+By using assembly you can do system calls.  
+`extern` for FFI is planned. Please be patient.
+
+---
+
 ## Compiling Flux
 
 **Linux instructions:**  

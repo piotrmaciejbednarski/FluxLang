@@ -1,6 +1,10 @@
 //import "types.fx";
 
-int x;     // This fails
+union myU
+{
+    int x;
+    bool y;
+};
 
 def main() -> int
 {
