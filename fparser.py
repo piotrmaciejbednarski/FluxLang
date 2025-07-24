@@ -97,9 +97,9 @@ class FluxParser:
         """
         statement -> import_statement
                   | function_def_statement
-                  | struct_def_statement
+                  | struct_def
                   | object_def_statement
-                  | namespace_def_statement
+                  | namespace_def
                   | custom_type_statement
                   | variable_declaration ';'
                   | expression_statement
@@ -109,13 +109,13 @@ class FluxParser:
         if self.expect(TokenType.IMPORT):
             return self.import_statement()
         elif self.expect(TokenType.DEF):
-            return self.function_def_statement()
+            return self.function_def()
         elif self.expect(TokenType.STRUCT):
-            return self.struct_def_statement()
+            return self.struct_def()
         elif self.expect(TokenType.OBJECT):
-            return self.object_def_statement()
+            return self.object_def()
         elif self.expect(TokenType.NAMESPACE):
-            return self.namespace_def_statement()
+            return self.namespace_def()
         elif self.expect(TokenType.IF):
             return self.if_statement()
         elif self.expect(TokenType.WHILE):
@@ -151,7 +151,7 @@ class FluxParser:
             if self.expect(TokenType.VOLATILE):
                 self.advance()
                 if self.expect(TokenType.DEF):
-                    return self.function_def_statement()
+                    return self.function_def()
                 else:
                     return self.variable_declaration_statement()
         elif self.expect(TokenType.SEMICOLON):
@@ -176,17 +176,10 @@ class FluxParser:
         self.consume(TokenType.SEMICOLON)
         return ImportStatement(module_name)
     
-    def function_def_statement(self) -> FunctionDefStatement:
-        """
-        function_def_statement -> function_def ';'
-        """
-        func_def = self.function_def()
-        self.consume(TokenType.SEMICOLON)
-        return FunctionDefStatement(func_def)
-    
     def function_def(self) -> FunctionDef:
         """
-        function_def -> ('const')? ('volatile')? 'def' IDENTIFIER '(' parameter_list? ')' '->' type_spec block
+        function_def -> ('const')? ('volatile')? 'def' IDENTIFIER '(' parameter_list? ')' '->' type_spec ';'
+        function_def -> ('const')? ('volatile')? 'def' IDENTIFIER '(' parameter_list? ')' '->' type_spec block ';'
         """
         is_const = False
         is_volatile = False
@@ -209,9 +202,18 @@ class FluxParser:
         self.consume(TokenType.RETURN_ARROW)
         return_type = self.type_spec()
         
-        body = self.block()
+        # Check if this is a prototype (ends with semicolon) or definition (has block)
+        is_prototype = False
+        body = None
+        if self.expect(TokenType.SEMICOLON):
+            is_prototype = True
+            self.advance()
+            body = Block([])  # Empty block for prototype
+        else:
+            body = self.block()
+            self.consume(TokenType.SEMICOLON)
         
-        return FunctionDef(name, parameters, return_type, body, is_const, is_volatile)
+        return FunctionDef(name, parameters, return_type, body, is_const, is_volatile, is_prototype)
     
     def parameter_list(self) -> List[Parameter]:
         """
@@ -233,32 +235,23 @@ class FluxParser:
         name = self.consume(TokenType.IDENTIFIER).value
         return Parameter(name, type_spec)
     
-    def struct_def_statement(self) -> StructDefStatement:
-        """
-        struct_def_statement -> struct_def ';'
-        """
-        struct_def = self.struct_def()
-        self.consume(TokenType.SEMICOLON)
-        return StructDefStatement(struct_def)
-    
     def struct_def(self) -> StructDef:
         """
-        struct_def -> 'struct' IDENTIFIER (':' IDENTIFIER (',' IDENTIFIER)*)? '{' struct_member* '}'
+        struct_def -> 'struct' IDENTIFIER'{' struct_member* '}'
         """
         self.consume(TokenType.STRUCT)
         name = self.consume(TokenType.IDENTIFIER).value
         
         base_structs = []
-        if self.expect(TokenType.COLON):
-            self.advance()
-            base_structs.append(self.consume(TokenType.IDENTIFIER).value)
-            while self.expect(TokenType.COMMA):
-                self.advance()
-                base_structs.append(self.consume(TokenType.IDENTIFIER).value)
-        
-        self.consume(TokenType.LEFT_BRACE)
         members = []
         nested_structs = []
+
+        # Handle forward declarations
+        if self.expect(TokenType.SEMICOLON):
+            self.advance()
+            return StructDef(name, members, base_structs, nested_structs)
+
+        self.consume(TokenType.LEFT_BRACE)
         
         while not self.expect(TokenType.RIGHT_BRACE):
             if self.expect(TokenType.PUBLIC):
@@ -266,7 +259,8 @@ class FluxParser:
                 self.consume(TokenType.LEFT_BRACE)
                 while not self.expect(TokenType.RIGHT_BRACE):
                     if self.expect(TokenType.STRUCT):
-                        nested_structs.append(self.struct_def())
+                        nested_struct = self.struct_def()
+                        nested_structs.append(nested_struct)
                         self.consume(TokenType.SEMICOLON)
                     else:
                         member = self.struct_member()
@@ -279,7 +273,8 @@ class FluxParser:
                 self.consume(TokenType.LEFT_BRACE)
                 while not self.expect(TokenType.RIGHT_BRACE):
                     if self.expect(TokenType.STRUCT):
-                        nested_structs.append(self.struct_def())
+                        nested_struct = self.struct_def()
+                        nested_structs.append(nested_struct)
                         self.consume(TokenType.SEMICOLON)
                     else:
                         member = self.struct_member()
@@ -291,17 +286,30 @@ class FluxParser:
                 # Handle nested struct
                 nested_struct = self.struct_def()
                 nested_structs.append(nested_struct)
-                self.consume(TokenType.SEMICOLON)
+                # Allow both with and without semicolon for nested structs
+                if self.expect(TokenType.SEMICOLON):
+                    self.advance()
             else:
                 members.append(self.struct_member())
         
         self.consume(TokenType.RIGHT_BRACE)
+        # Make semicolon optional after struct definition
+        if self.expect(TokenType.SEMICOLON):
+            self.advance()
         return StructDef(name, members, base_structs, nested_structs)
     
     def struct_member(self) -> StructMember:
         """
         struct_member -> type_spec IDENTIFIER ';' // OR STRUCT, for nested
         """
+        if self.expect(TokenType.STRUCT):
+            self.advance()
+            name = self.consume(TokenType.IDENTIFIER).value
+            self.consume(TokenType.SEMICOLON)
+            # Create a dummy type spec for the forward declaration
+            type_spec = TypeSpec(name, is_signed=True)  # Using name as base_type
+            return StructMember(name, type_spec)
+
         type_spec = self.type_spec()
         name = self.consume(TokenType.IDENTIFIER).value
         
@@ -314,163 +322,127 @@ class FluxParser:
         self.consume(TokenType.SEMICOLON)
         return StructMember(name, type_spec, initial_value)
     
-    def object_def_statement(self) -> ObjectDefStatement:
-        """
-        object_def_statement -> object_def ';'
-        """
-        obj_def = self.object_def()
-        self.consume(TokenType.SEMICOLON)
-        return ObjectDefStatement(obj_def)
-    
     def object_def(self) -> ObjectDef:
         """
-        object_def -> 'object' IDENTIFIER (':' IDENTIFIER (',' IDENTIFIER)*)? '{' object_body* '}'
+        object_def -> 'object' IDENTIFIER '{' object_body '}'
+        object_body -> (object_member | access_specifier)*
         """
         self.consume(TokenType.OBJECT)
         name = self.consume(TokenType.IDENTIFIER).value
+
         
-        base_objects = []
-        if self.expect(TokenType.COLON):
-            self.advance()
-            base_objects.append(self.consume(TokenType.IDENTIFIER).value)
-            while self.expect(TokenType.COMMA):
-                self.advance()
-                base_objects.append(self.consume(TokenType.IDENTIFIER).value)
-        
-        self.consume(TokenType.LEFT_BRACE)
+        # Parse inheritance -- TODO, impelment after we have v1 Flux base
+        #base_objects = []
+        #if self.expect(TokenType.COLON):
+        #    self.advance()
+        #    base_objects.append(self.consume(TokenType.IDENTIFIER).value)
+        #    while self.expect(TokenType.COMMA):
+        #        self.advance()
+        #        base_objects.append(self.consume(TokenType.IDENTIFIER).value)
         
         methods = []
         members = []
         nested_objects = []
         nested_structs = []
+
+        if self.expect(TokenType.SEMICOLON):
+            is_prototype = True
+            self.advance()
+            return ObjectDef(name, methods, members, nested_objects, nested_structs)
+
+        self.consume(TokenType.LEFT_BRACE)
         
         while not self.expect(TokenType.RIGHT_BRACE):
-            if self.expect(TokenType.PUBLIC):
+            if self.expect(TokenType.PUBLIC, TokenType.PRIVATE):
+                is_private = self.current_token.type == TokenType.PRIVATE
                 self.advance()
                 self.consume(TokenType.LEFT_BRACE)
+                
                 while not self.expect(TokenType.RIGHT_BRACE):
-                    self.parse_object_body_item(methods, members, nested_objects, nested_structs, is_private=False)
+                    if self.expect(TokenType.DEF):
+                        method = self.function_def()
+                        method.is_private = is_private
+                        methods.append(method)
+                    elif self.expect(TokenType.OBJECT):
+                        nested_obj = self.object_def()
+                        nested_obj.is_private = is_private
+                        nested_objects.append(nested_obj)
+                        self.consume(TokenType.SEMICOLON)
+                    elif self.expect(TokenType.STRUCT):
+                        nested_struct = self.struct_def()
+                        nested_struct.is_private = is_private
+                        nested_structs.append(nested_struct)
+                        self.consume(TokenType.SEMICOLON)
+                    else:
+                        # Field declaration
+                        var = self.variable_declaration()
+                        self.consume(TokenType.SEMICOLON)
+                        member = StructMember(var.name, var.type_spec, var.initial_value, is_private)
+                        members.append(member)
+                
                 self.consume(TokenType.RIGHT_BRACE)
                 self.consume(TokenType.SEMICOLON)
-            elif self.expect(TokenType.PRIVATE):
-                self.advance()
-                self.consume(TokenType.LEFT_BRACE)
-                while not self.expect(TokenType.RIGHT_BRACE):
-                    self.parse_object_body_item(methods, members, nested_objects, nested_structs, is_private=True)
-                self.consume(TokenType.RIGHT_BRACE)
-                self.consume(TokenType.SEMICOLON)
-            elif self.expect(TokenType.OBJECT):
-                # Handle nested object - MUST have semicolon after
-                nested_obj = self.object_def()
-                nested_objects.append(nested_obj)
-                self.consume(TokenType.SEMICOLON)  # This was missing - now required
             else:
-                # Assume it's a member variable
-                var = self.variable_declaration()
-                type_spec = var.type_spec
-                name = var.name
-                self.consume(TokenType.SEMICOLON)
-                member = StructMember(name, type_spec, False)
-                members.append(member)
+                # Regular member (defaults to public)
+                if self.expect(TokenType.DEF):
+                    method = self.function_def()
+                    methods.append(method)
+                elif self.expect(TokenType.OBJECT):
+                    nested_obj = self.object_def()
+                    nested_objects.append(nested_obj)
+                    self.consume(TokenType.SEMICOLON)
+                elif self.expect(TokenType.STRUCT):
+                    nested_struct = self.struct_def()
+                    nested_structs.append(nested_struct)
+                    self.consume(TokenType.SEMICOLON)
+                else:
+                    # Field declaration
+                    var = self.variable_declaration()
+                    self.consume(TokenType.SEMICOLON)
+                    member = StructMember(var.name, var.type_spec, var.initial_value, False)
+                    members.append(member)
         
         self.consume(TokenType.RIGHT_BRACE)
-        return ObjectDef(name, methods, members, base_objects, nested_objects, nested_structs)
-    
-    def parse_object_body_item(self, methods, members, nested_objects, nested_structs, is_private=False):
-        """Parse a single item in an object body"""
-        if self.expect(TokenType.DEF):
-            method = self.function_def()
-            method.is_private = is_private
-            methods.append(method)
-        elif self.expect(TokenType.OBJECT):
-            nested_obj = self.object_def()
-            nested_objects.append(nested_obj)
-        elif self.expect(TokenType.STRUCT):
-            nested_struct = self.struct_def()
-            nested_structs.append(nested_struct)
-        else:
-            # Assume it's a member variable
-            var = self.variable_declaration()
-            type_spec = var.type_spec
-            name = var.name
-            self.consume(TokenType.SEMICOLON)
-            member = StructMember(name, type_spec, is_private)
-            members.append(member)
-    
-    def object_method(self) -> ObjectMethod:
-        """
-        object_method -> ('const')? ('volatile')? 'def' IDENTIFIER '(' parameter_list? ')' '->' type_spec block ';'
-        """
-        is_const = False
-        is_volatile = False
-        
-        if self.expect(TokenType.CONST):
-            is_const = True
-            self.advance()
-        
-        if self.expect(TokenType.VOLATILE):
-            is_volatile = True
-            self.advance()
-        
-        self.consume(TokenType.DEF)
-        name = self.consume(TokenType.IDENTIFIER).value
-        
-        self.consume(TokenType.LEFT_PAREN)
-        parameters = self.parameter_list() if not self.expect(TokenType.RIGHT_PAREN) else []
-        self.consume(TokenType.RIGHT_PAREN)
-        
-        self.consume(TokenType.RETURN_ARROW)
-        return_type = self.type_spec()
-        
-        body = self.block()
         self.consume(TokenType.SEMICOLON)
-        
-        return ObjectMethod(name, parameters, return_type, body, False, is_const, is_volatile)
-    
-    def namespace_def_statement(self) -> NamespaceDefStatement:
-        """
-        namespace_def_statement -> namespace_def ';'
-        """
-        ns_def = self.namespace_def()
-        self.consume(TokenType.SEMICOLON)
-        return NamespaceDefStatement(ns_def)
+        return ObjectDef(name, methods, members, nested_objects, nested_structs)
     
     def namespace_def(self) -> NamespaceDef:
         """
-        namespace_def -> 'namespace' IDENTIFIER (':' IDENTIFIER (',' IDENTIFIER)*)? '{' namespace_body* '}'
+        namespace_def -> 'namespace' IDENTIFIER  '{' namespace_body* '}'
         """
         self.consume(TokenType.NAMESPACE)
         name = self.consume(TokenType.IDENTIFIER).value
         
+        # INHERITANCE - TODO after v1 Flux
         base_namespaces = []
-        if self.expect(TokenType.COLON):
-            self.advance()
-            base_namespaces.append(self.consume(TokenType.IDENTIFIER).value)
-            while self.expect(TokenType.COMMA):
-                self.advance()
-                base_namespaces.append(self.consume(TokenType.IDENTIFIER).value)
-        
-        self.consume(TokenType.LEFT_BRACE)
+        #if self.expect(TokenType.COLON):
+        #    self.advance()
+        #    base_namespaces.append(self.consume(TokenType.IDENTIFIER).value)
+        #    while self.expect(TokenType.COMMA):
+        #        self.advance()
+        #        base_namespaces.append(self.consume(TokenType.IDENTIFIER).value)
         
         functions = []
         structs = []
         objects = []
         variables = []
         nested_namespaces = []
+
+        if self.expect(TokenType.SEMICOLON):
+            self.advance()
+            return NamespaceDef(name, functions, structs, objects, variables, nested_namespaces, base_namespaces)
+
+        self.consume(TokenType.LEFT_BRACE)
         
         while not self.expect(TokenType.RIGHT_BRACE):
             if self.expect(TokenType.DEF):
                 functions.append(self.function_def())
-                self.consume(TokenType.SEMICOLON)
             elif self.expect(TokenType.STRUCT):
                 structs.append(self.struct_def())
-                self.consume(TokenType.SEMICOLON)
             elif self.expect(TokenType.OBJECT):
                 objects.append(self.object_def())
-                self.consume(TokenType.SEMICOLON)
             elif self.expect(TokenType.NAMESPACE):
                 nested_namespaces.append(self.namespace_def())
-                self.consume(TokenType.SEMICOLON)
             elif self.is_variable_declaration():
                 var_decl = self.variable_declaration()
                 variables.append(var_decl)
@@ -479,6 +451,7 @@ class FluxParser:
                 self.error("Expected function, struct, object, namespace, or variable declaration")
         
         self.consume(TokenType.RIGHT_BRACE)
+        self.consume(TokenType.SEMICOLON)
         return NamespaceDef(name, functions, structs, objects, variables, nested_namespaces, base_namespaces)
     
     def type_spec(self) -> TypeSpec:

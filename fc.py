@@ -13,7 +13,7 @@ from fast import Program
 
 class FluxCompiler:
     def __init__(self, /, verbosity: int = None):
-        self.verbosity = int(verbosity)
+        self.verbosity = int(verbosity) if verbosity != None else None
         self.module = ir.Module(name="flux_module")
         self.module.triple = "x86_64-pc-linux-gnu"
         #self.module.data_layout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"

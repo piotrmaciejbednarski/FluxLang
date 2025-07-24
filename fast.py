@@ -639,6 +639,7 @@ class FunctionDef(ASTNode):
     body: Block
     is_const: bool = False
     is_volatile: bool = False
+    is_prototype: bool = False
 
     def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Function:
         # Convert return type
@@ -652,6 +653,9 @@ class FunctionDef(ASTNode):
         
         # Create function
         func = ir.Function(module, func_type, self.name)
+
+        if self.is_prototype == True:
+            return func
         
         # Set parameter names
         for i, param in enumerate(func.args):
@@ -801,12 +805,124 @@ class ObjectDef(ASTNode):
     name: str
     methods: List[ObjectMethod] = field(default_factory=list)
     members: List[StructMember] = field(default_factory=list)
-    base_objects: List[str] = field(default_factory=list)
+    #base_objects: List[str] = field(default_factory=list)
     nested_objects: List['ObjectDef'] = field(default_factory=list)
     nested_structs: List[StructDef] = field(default_factory=list)
     super_calls: List[Tuple[str, str, List[Expression]]] = field(default_factory=list)
     virtual_calls: List[Tuple[str, str, List[Expression]]] = field(default_factory=list)
     virtual_instances: List[Tuple[str, str, List[Expression]]] = field(default_factory=list)
+    is_prototype: bool = False
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Type:
+        # First create a struct type for the object's data members
+        member_types = []
+        member_names = []
+        
+        for member in self.members:
+            member_type = self._convert_type(member.type_spec, module)
+            member_types.append(member_type)
+            member_names.append(member.name)
+        
+        # Create the struct type for data members
+        struct_type = ir.LiteralStructType(member_types)
+        struct_type.names = member_names
+        
+        # Store the struct type in the module
+        if not hasattr(module, '_struct_types'):
+            module._struct_types = {}
+        module._struct_types[self.name] = struct_type
+        
+        # Create methods as functions with 'this' parameter
+        for method in self.methods:
+            # Convert return type
+            ret_type = self._convert_type(method.return_type, module)
+            
+            # Create parameter types - first parameter is always 'this' pointer
+            param_types = [ir.PointerType(struct_type)]
+            
+            # Add other parameters
+            param_types.extend([self._convert_type(param.type_spec, module) for param in method.parameters])
+            
+            # Create function type
+            func_type = ir.FunctionType(ret_type, param_types)
+            
+            # Create function with mangled name
+            func_name = f"{self.name}__{method.name}"
+            func = ir.Function(module, func_type, func_name)
+            
+            # Set parameter names
+            func.args[0].name = "this"  # First arg is 'this' pointer
+            for i, param in enumerate(func.args[1:], 1):
+                param.name = method.parameters[i-1].name
+            
+            # If it's a prototype, we're done
+            if isinstance(method, FunctionDef) and method.is_prototype:
+                continue
+            
+            # Create entry block
+            entry_block = func.append_basic_block('entry')
+            method_builder = ir.IRBuilder(entry_block)
+            
+            # Create scope for method
+            method_builder.scope = {}
+            
+            # Store parameters in scope
+            for i, param in enumerate(func.args):
+                alloca = method_builder.alloca(param.type, name=f"{param.name}.addr")
+                method_builder.store(param, alloca)
+                if i == 0:  # 'this' pointer
+                    method_builder.scope["this"] = alloca
+                else:
+                    method_builder.scope[method.parameters[i-1].name] = alloca
+            
+            # Generate method body
+            if isinstance(method, FunctionDef):
+                method.body.codegen(method_builder, module)
+            else:
+                method.body.codegen(method_builder, module)
+            
+            # Add implicit return if needed
+            if not method_builder.block.is_terminated:
+                if isinstance(ret_type, ir.VoidType):
+                    method_builder.ret_void()
+                else:
+                    raise RuntimeError(f"Method {method.name} must end with return statement")
+        
+        # Handle nested objects and structs
+        for nested_obj in self.nested_objects:
+            nested_obj.codegen(builder, module)
+        
+        for nested_struct in self.nested_structs:
+            nested_struct.codegen(builder, module)
+        
+        return struct_type
+
+    def _convert_type(self, type_spec: TypeSpec, module: ir.Module) -> ir.Type:
+        if isinstance(type_spec.base_type, str):
+            # Check if it's a struct type
+            if hasattr(module, '_struct_types') and type_spec.base_type in module._struct_types:
+                return module._struct_types[type_spec.base_type]
+            # Check if it's a type alias
+            if hasattr(module, '_type_aliases') and type_spec.base_type in module._type_aliases:
+                return module._type_aliases[type_spec.base_type]
+            # Default to i32
+            return ir.IntType(32)
+        
+        # Handle primitive types
+        if type_spec.base_type == DataType.INT:
+            return ir.IntType(32)
+        elif type_spec.base_type == DataType.FLOAT:
+            return ir.FloatType()
+        elif type_spec.base_type == DataType.BOOL:
+            return ir.IntType(1)
+        elif type_spec.base_type == DataType.CHAR:
+            return ir.IntType(8)
+        elif type_spec.base_type == DataType.VOID:
+            return ir.VoidType()
+        elif type_spec.base_type == DataType.DATA:
+            return ir.IntType(type_spec.bit_width)
+        else:
+            raise ValueError(f"Unsupported type: {type_spec.base_type}")
 
 # Namespace definition
 @dataclass
@@ -818,6 +934,61 @@ class NamespaceDef(ASTNode):
     variables: List[VariableDeclaration] = field(default_factory=list)
     nested_namespaces: List['NamespaceDef'] = field(default_factory=list)
     base_namespaces: List[str] = field(default_factory=list)  # inheritance
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> None:
+        """
+        Generate LLVM IR for a namespace definition.
+        
+        Namespaces in Flux are primarily a compile-time construct that affects name mangling.
+        At the LLVM level, we'll mangle names with the namespace prefix.
+        """
+        # Save the current module state
+        old_module = module
+        
+        # Create a new module for the namespace if we want isolation
+        # Alternatively, we can just mangle names in the existing module
+        # For now, we'll use name mangling in the existing module
+        
+        # Process all namespace members with name mangling
+        for struct in self.structs:
+            # Mangle the struct name with namespace
+            original_name = struct.name
+            struct.name = f"{self.name}__{struct.name}"
+            struct.codegen(builder, module)
+            struct.name = original_name  # Restore original name
+        
+        for obj in self.objects:
+            # Mangle the object name with namespace
+            original_name = obj.name
+            obj.name = f"{self.name}__{obj.name}"
+            obj.codegen(builder, module)
+            obj.name = original_name
+        
+        for func in self.functions:
+            # Mangle the function name with namespace
+            original_name = func.name
+            func.name = f"{self.name}__{func.name}"
+            func.codegen(builder, module)
+            func.name = original_name
+        
+        for var in self.variables:
+            # Mangle the variable name with namespace
+            original_name = var.name
+            var.name = f"{self.name}__{var.name}"
+            var.codegen(builder, module)
+            var.name = original_name
+        
+        # Process nested namespaces
+        for nested_ns in self.nested_namespaces:
+            # Mangle the nested namespace name
+            original_name = nested_ns.name
+            nested_ns.name = f"{self.name}__{nested_ns.name}"
+            nested_ns.codegen(builder, module)
+            nested_ns.name = original_name
+        
+        # Handle inheritance here
+        
+        return None
 
 # Import statement
 @dataclass
@@ -853,10 +1024,16 @@ class StructDefStatement(Statement):
 class ObjectDefStatement(Statement):
     object_def: ObjectDef
 
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        return self.object_def.codegen(builder, module)
+
 # Namespace definition statement
 @dataclass
 class NamespaceDefStatement(Statement):
     namespace_def: NamespaceDef
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        return self.namespace_def.codegen(builder, module)
 
 # Program root
 @dataclass

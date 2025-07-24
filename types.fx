@@ -4,8 +4,8 @@ namespace standard
 {
     namespace types
     {
-        global
-        {
+        //global
+        //{
             // Signed integers
             signed data{8} as i8;
             signed data{16} as i16;
@@ -20,7 +20,7 @@ namespace standard
             
             // String type (non-OOP)
             unsigned data{8}[] as noopstring;
-        };
+        //};
 
         // Non-globals, must explicitly reference / "rename" / make global
         
