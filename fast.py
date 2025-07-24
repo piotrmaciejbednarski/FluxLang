@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
-from typing import List, Any, Optional, Union, Tuple
+from typing import List, Any, Optional, Union, Tuple, ClassVar
 from enum import Enum
 from llvmlite import ir
+from pathlib import Path
+import os
 
 # Base classes first
 @dataclass
@@ -355,21 +357,42 @@ class VariableDeclaration(ASTNode):
     initial_value: Optional[Expression] = None
 
     def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
-        llvm_type = self.type_spec.get_llvm_type(module)  # Changed to get_llvm_type
+        llvm_type = self.type_spec.get_llvm_type(module)
         
-        if builder.scope is None:  # Global variable
-            var = ir.GlobalVariable(module, llvm_type, self.name)
-            if self.initial_value:
-                var.initializer = self.initial_value.codegen(builder, module)
-        else:  # Local variable
-            var = builder.alloca(llvm_type, name=self.name)
+        # Handle global variables
+        if builder.scope is None:
+            # Check if global already exists
+            if self.name in module.globals:
+                return module.globals[self.name]
+                
+            # Create new global
+            gvar = ir.GlobalVariable(module, llvm_type, self.name)
+            
+            # Set initializer
             if self.initial_value:
                 init_val = self.initial_value.codegen(builder, module)
-                builder.store(init_val, var)
+                gvar.initializer = init_val
+            else:
+                # Default initialize based on type
+                if isinstance(llvm_type, ir.IntType):
+                    gvar.initializer = ir.Constant(llvm_type, 0)
+                elif isinstance(llvm_type, ir.FloatType):
+                    gvar.initializer = ir.Constant(llvm_type, 0.0)
+                else:
+                    gvar.initializer = ir.Constant(llvm_type, None)
+            
+            # Set linkage and visibility
+            gvar.linkage = 'internal'
+            return gvar
         
-        if builder.scope is not None:
-            builder.scope[self.name] = var
-        return var
+        # Handle local variables
+        alloca = builder.alloca(llvm_type, name=self.name)
+        if self.initial_value:
+            init_val = self.initial_value.codegen(builder, module)
+            builder.store(init_val, alloca)
+        
+        builder.scope[self.name] = alloca
+        return alloca
     
     def get_llvm_type(self, module: ir.Module) -> ir.Type:
         if isinstance(self.type_spec.base_type, str):
@@ -994,6 +1017,90 @@ class NamespaceDef(ASTNode):
 @dataclass
 class ImportStatement(Statement):
     module_name: str
+    _processed_imports: ClassVar[dict] = {}
+
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> None:
+        """
+        Fully implements Flux import semantics with proper AST code generation.
+        Handles circular imports, maintains context, and properly processes all declarations.
+        """
+        resolved_path = self._resolve_path(self.module_name)
+        if not resolved_path:
+            raise ImportError(f"Module not found: {self.module_name}")
+
+        # Skip if already processed (but reuse the existing module)
+        if str(resolved_path) in self._processed_imports:
+            return
+
+        # Mark as processing to detect circular imports
+        self._processed_imports[str(resolved_path)] = None
+
+        try:
+            with open(resolved_path, 'r', encoding='utf-8') as f:
+                source = f.read()
+
+            # Create fresh parser/lexer instances
+            from flexer import FluxLexer
+            tokens = FluxLexer(source).tokenize()
+            
+            # Get parser class without circular import
+            parser_class = self._get_parser_class()
+            imported_ast = parser_class(tokens).parse()
+
+            # Create a new builder for the imported file
+            import_builder = ir.IRBuilder()
+            import_builder.scope = builder.scope  # Share the same scope
+            
+            # Generate code for each statement
+            for stmt in imported_ast.statements:
+                if isinstance(stmt, ImportStatement):
+                    stmt.codegen(import_builder, module)
+                else:
+                    try:
+                        stmt.codegen(import_builder, module)
+                    except Exception as e:
+                        raise RuntimeError(
+                            f"Failed to generate code for {resolved_path}: {str(e)}"
+                        ) from e
+
+            # Store the processed module
+            self._processed_imports[str(resolved_path)] = module
+
+        except Exception as e:
+            # Clean up failed import
+            if str(resolved_path) in self._processed_imports:
+                del self._processed_imports[str(resolved_path)]
+            raise
+
+    def _get_parser_class(self):
+        """Dynamically imports the parser class to avoid circular imports"""
+        import fparser
+        return fparser.FluxParser
+
+    def _resolve_path(self, module_name: str) -> Optional[Path]:
+        """Robust path resolution with proper error handling"""
+        try:
+            # Check direct path first
+            if (path := Path(module_name)).exists():
+                return path.resolve()
+
+            # Check in standard locations
+            search_paths = [
+                Path.cwd(),
+                Path.cwd() / "lib",
+                Path(__file__).parent.parent / "lib",
+                Path.home() / ".flux" / "lib",
+                Path("/usr/local/lib/flux"),
+                Path("/usr/lib/flux")
+            ]
+
+            for path in search_paths:
+                if (full_path := path / module_name).exists():
+                    return full_path.resolve()
+
+            return None
+        except (TypeError, OSError) as e:
+            raise ImportError(f"Invalid path resolution for {module_name}: {str(e)}")
 
 # Custom type definition
 @dataclass
@@ -1041,23 +1148,20 @@ class Program(ASTNode):
     statements: List[Statement] = field(default_factory=list)
 
     def codegen(self, module: ir.Module = None) -> ir.Module:
-        # Create module if not provided
         if module is None:
             module = ir.Module(name='flux_module')
         
-        # Create a dummy builder for global scope
+        # Create global builder with no function context
         builder = ir.IRBuilder()
-        builder.scope = {}  # Global scope
+        builder.scope = None  # Indicates global scope
         
-        # First pass: process all type declarations (structs, type aliases)
+        # Process all statements
         for stmt in self.statements:
-            if isinstance(stmt, (StructDefStatement, TypeDeclaration)):
+            try:
                 stmt.codegen(builder, module)
-        
-        # Second pass: process everything else
-        for stmt in self.statements:
-            if not isinstance(stmt, (StructDefStatement, TypeDeclaration)):
-                stmt.codegen(builder, module)
+            except Exception as e:
+                print(f"Error generating code for statement: {stmt}")
+                raise
         
         return module
 

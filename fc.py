@@ -9,7 +9,7 @@ from pathlib import Path
 from llvmlite import ir
 from flexer import FluxLexer
 from fparser import FluxParser, ParseError
-from fast import Program
+from fast import *
 
 class FluxCompiler:
     def __init__(self, /, verbosity: int = None):
@@ -37,6 +37,7 @@ class FluxCompiler:
             if self.verbosity == 1:
                 print(ast)
             
+            print(ast)
             self.module = ast.codegen(self.module)
             llvm_ir = str(self.module)
 
@@ -151,6 +152,16 @@ def main():
                             verbosity = int(arg[2:])
                         case ("4"):
                             verbosity = int(arg[2:])
+                case ("-o"):
+                    with open(input_file, 'r') as f:
+                        source = f.read()
+                    lexer = FluxLexer(source)
+                    tokens = lexer.tokenize()
+                    parser = FluxParser(tokens)
+                    ast = parser.parse()
+                    print(ast)
+                    return
+
     
     if not input_file.endswith('.fx'):
         print("Error: Input file must have .fx extension", file=sys.stderr)
