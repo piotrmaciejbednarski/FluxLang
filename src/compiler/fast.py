@@ -91,6 +91,19 @@ class Literal(ASTNode):
             return ir.Constant(ir.IntType(32), int(self.value) if isinstance(self.value, str) else self.value)
         elif self.type == DataType.INT64:
             return ir.Constant(ir.IntType(64), int(self.value) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.DATA:
+            # Handle array literals
+            if isinstance(self.value, list):
+                # For now, just return None for array literals - they should be handled at a higher level
+                return None
+            # Handle other DATA types
+            if hasattr(module, '_type_aliases') and str(self.type) in module._type_aliases:
+                llvm_type = module._type_aliases[str(self.type)]
+                if isinstance(llvm_type, ir.IntType):
+                    return ir.Constant(llvm_type, int(self.value) if isinstance(self.value, str) else self.value)
+                elif isinstance(llvm_type, ir.FloatType):
+                    return ir.Constant(llvm_type, float(self.value))
+            raise ValueError(f"Unsupported DATA literal: {self.value}")
         else:
             # Handle custom types
             if hasattr(module, '_type_aliases') and str(self.type) in module._type_aliases:
@@ -113,6 +126,10 @@ class Identifier(ASTNode):
             if isinstance(ptr.type, ir.PointerType):
                 return builder.load(ptr, name=self.name)
             return ptr
+        
+        # Check for global variables
+        if self.name in module.globals:
+            return module.globals[self.name]
         
         # Check if this is a custom type
         if hasattr(module, '_type_aliases') and self.name in module._type_aliases:
@@ -174,6 +191,17 @@ class TypeSpec(ASTNode):
             return ir.IntType(64)
         else:
             raise ValueError(f"Unsupported type: {self.base_type}")
+    
+    def get_llvm_type_with_array(self, module: ir.Module) -> ir.Type:
+        """Get LLVM type with array support"""
+        base_type = self.get_llvm_type(module)
+        
+        if self.is_array and self.array_size:
+            return ir.ArrayType(base_type, self.array_size)
+        elif self.is_pointer:
+            return ir.PointerType(base_type)
+        else:
+            return base_type
 
 @dataclass
 class CustomType(ASTNode):
@@ -377,6 +405,25 @@ class MemberAccess(Expression):
 class ArrayAccess(Expression):
     array: Expression
     index: Expression
+    
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
+        # Get the array (should be a pointer to array or global)
+        array_val = self.array.codegen(builder, module)
+        index_val = self.index.codegen(builder, module)
+        
+        # Handle global arrays (like const arrays)
+        if isinstance(array_val, ir.GlobalVariable):
+            # Create GEP to access array element
+            zero = ir.Constant(ir.IntType(32), 0)
+            gep = builder.gep(array_val, [zero, index_val], name="array_gep")
+            return builder.load(gep, name="array_load")
+        # Handle local arrays
+        elif isinstance(array_val.type, ir.PointerType) and isinstance(array_val.type.pointee, ir.ArrayType):
+            zero = ir.Constant(ir.IntType(32), 0)
+            gep = builder.gep(array_val, [zero, index_val], name="array_gep")
+            return builder.load(gep, name="array_load")
+        else:
+            raise ValueError(f"Cannot access array element for type: {array_val.type}")
 
 @dataclass
 class PointerDeref(Expression):
@@ -402,7 +449,7 @@ class VariableDeclaration(ASTNode):
     initial_value: Optional[Expression] = None
 
     def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> ir.Value:
-        llvm_type = self.type_spec.get_llvm_type(module)
+        llvm_type = self.type_spec.get_llvm_type_with_array(module)
         
         # Handle global variables
         if builder.scope is None:
@@ -415,11 +462,32 @@ class VariableDeclaration(ASTNode):
             
             # Set initializer
             if self.initial_value:
-                init_val = self.initial_value.codegen(builder, module)
-                gvar.initializer = init_val
+                # Handle array literals specially
+                if isinstance(llvm_type, ir.ArrayType) and hasattr(self.initial_value, 'value') and isinstance(self.initial_value.value, list):
+                    # Create array constant from list of values
+                    element_values = []
+                    for item in self.initial_value.value:
+                        if hasattr(item, 'value'):
+                            # Convert each element to LLVM constant
+                            element_values.append(ir.Constant(llvm_type.element, item.value))
+                        else:
+                            element_values.append(ir.Constant(llvm_type.element, item))
+                    gvar.initializer = ir.Constant(llvm_type, element_values)
+                else:
+                    init_val = self.initial_value.codegen(builder, module)
+                    if init_val is not None:
+                        gvar.initializer = init_val
+                    else:
+                        # Fallback for None return from codegen
+                        if isinstance(llvm_type, ir.ArrayType):
+                            gvar.initializer = ir.Constant(llvm_type, ir.Undefined)
+                        else:
+                            gvar.initializer = ir.Constant(llvm_type, 0)
             else:
                 # Default initialize based on type
-                if isinstance(llvm_type, ir.IntType):
+                if isinstance(llvm_type, ir.ArrayType):
+                    gvar.initializer = ir.Constant(llvm_type, ir.Undefined)
+                elif isinstance(llvm_type, ir.IntType):
                     gvar.initializer = ir.Constant(llvm_type, 0)
                 elif isinstance(llvm_type, ir.FloatType):
                     gvar.initializer = ir.Constant(llvm_type, 0.0)
