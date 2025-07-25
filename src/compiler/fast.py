@@ -21,6 +21,15 @@ class DataType(Enum):
     DATA = "data"
     VOID = "void"
     THIS = "this"
+    # Fixed-width integer types
+    UINT8 = "uint8"
+    UINT16 = "uint16"
+    UINT32 = "uint32"
+    UINT64 = "uint64"
+    INT8 = "int8"
+    INT16 = "int16"
+    INT32 = "int32"
+    INT64 = "int64"
 
 class Operator(Enum):
     ADD = "+"
@@ -65,6 +74,23 @@ class Literal(ASTNode):
             return ir.Constant(ir.IntType(8), ord(self.value[0]) if isinstance(self.value, str) else self.value)
         elif self.type == DataType.VOID:
             return None
+        # Fixed-width integer types
+        elif self.type == DataType.UINT8:
+            return ir.Constant(ir.IntType(8), int(self.value) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.UINT16:
+            return ir.Constant(ir.IntType(16), int(self.value) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.UINT32:
+            return ir.Constant(ir.IntType(32), int(self.value) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.UINT64:
+            return ir.Constant(ir.IntType(64), int(self.value) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.INT8:
+            return ir.Constant(ir.IntType(8), int(self.value) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.INT16:
+            return ir.Constant(ir.IntType(16), int(self.value) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.INT32:
+            return ir.Constant(ir.IntType(32), int(self.value) if isinstance(self.value, str) else self.value)
+        elif self.type == DataType.INT64:
+            return ir.Constant(ir.IntType(64), int(self.value) if isinstance(self.value, str) else self.value)
         else:
             # Handle custom types
             if hasattr(module, '_type_aliases') and str(self.type) in module._type_aliases:
@@ -129,6 +155,23 @@ class TypeSpec(ASTNode):
             return ir.VoidType()
         elif self.base_type == DataType.DATA:
             return ir.IntType(self.bit_width)
+        # Fixed-width integer types
+        elif self.base_type == DataType.UINT8:
+            return ir.IntType(8)
+        elif self.base_type == DataType.UINT16:
+            return ir.IntType(16)
+        elif self.base_type == DataType.UINT32:
+            return ir.IntType(32)
+        elif self.base_type == DataType.UINT64:
+            return ir.IntType(64)
+        elif self.base_type == DataType.INT8:
+            return ir.IntType(8)
+        elif self.base_type == DataType.INT16:
+            return ir.IntType(16)
+        elif self.base_type == DataType.INT32:
+            return ir.IntType(32)
+        elif self.base_type == DataType.INT64:
+            return ir.IntType(64)
         else:
             raise ValueError(f"Unsupported type: {self.base_type}")
 
@@ -1076,6 +1119,17 @@ class NamespaceDef(ASTNode):
         return None
 
 # Import statement
+@dataclass
+class UsingStatement(Statement):
+    namespace_path: str  # e.g., "standard::io"
+    
+    def codegen(self, builder: ir.IRBuilder, module: ir.Module) -> None:
+        """Using statements are compile-time directives - no runtime code generated"""
+        # For now, just store the namespace information for symbol resolution
+        if not hasattr(module, '_using_namespaces'):
+            module._using_namespaces = []
+        module._using_namespaces.append(self.namespace_path)
+
 @dataclass
 class ImportStatement(Statement):
     module_name: str
