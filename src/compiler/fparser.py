@@ -528,11 +528,11 @@ class FluxParser:
         
         if base_type == DataType.DATA and self.expect(TokenType.LEFT_BRACE):
             self.advance()
-            bit_width = int(self.consume(TokenType.INTEGER).value)
+            bit_width = int(self.consume(TokenType.INTEGER).value, 0)
             
             if self.expect(TokenType.COLON):
                 self.advance()
-                alignment = int(self.consume(TokenType.INTEGER).value)
+                alignment = int(self.consume(TokenType.INTEGER).value, 0)
             
             self.consume(TokenType.RIGHT_BRACE)
         
@@ -544,7 +544,7 @@ class FluxParser:
             is_array = True
             self.advance()
             if not self.expect(TokenType.RIGHT_BRACKET):
-                array_size = int(self.consume(TokenType.INTEGER).value)
+                array_size = int(self.consume(TokenType.INTEGER).value, 0)
             self.consume(TokenType.RIGHT_BRACKET)
         
         # Pointer specification
@@ -1299,7 +1299,7 @@ class FluxParser:
             self.consume(TokenType.RIGHT_PAREN)
             return FunctionCall("xor", args)
         elif self.expect(TokenType.INTEGER):
-            value = int(self.current_token.value)
+            value = int(self.current_token.value, 0)
             self.advance()
             return Literal(value, DataType.INT)
         elif self.expect(TokenType.FLOAT):

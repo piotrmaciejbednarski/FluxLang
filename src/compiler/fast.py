@@ -55,8 +55,8 @@ class Literal(ASTNode):
             if hasattr(module, '_type_aliases'):
                 for name, llvm_type in module._type_aliases.items():
                     if isinstance(llvm_type, ir.IntType) and llvm_type.width == 64 and name.startswith('i'):
-                        return ir.Constant(llvm_type, int(self.value))
-            return ir.Constant(ir.IntType(32), int(self.value))
+                        return ir.Constant(llvm_type, int(self.value) if isinstance(self.value, str) else self.value)
+            return ir.Constant(ir.IntType(32), int(self.value) if isinstance(self.value, str) else self.value)
         elif self.type == DataType.FLOAT:
             return ir.Constant(ir.FloatType(), float(self.value))
         elif self.type == DataType.BOOL:
@@ -70,7 +70,7 @@ class Literal(ASTNode):
             if hasattr(module, '_type_aliases') and str(self.type) in module._type_aliases:
                 llvm_type = module._type_aliases[str(self.type)]
                 if isinstance(llvm_type, ir.IntType):
-                    return ir.Constant(llvm_type, int(self.value))
+                    return ir.Constant(llvm_type, int(self.value) if isinstance(self.value, str) else self.value)
                 elif isinstance(llvm_type, ir.FloatType):
                     return ir.Constant(llvm_type, float(self.value))
             raise ValueError(f"Unsupported literal type: {self.type}")

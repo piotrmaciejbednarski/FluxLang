@@ -139,20 +139,10 @@ def main():
         input_file = sys.argv[1]
         output_bin = sys.argv[2] if len(sys.argv) > 2 else None
         for arg in sys.argv:
-            match (arg.lower()[0:2]):
-                case ("-v"):
-                    match (arg.lower()[2:]):
-                        case ("0"):
-                            verbosity = int(arg[2:])
-                        case ("1"):
-                            verbosity = int(arg[2:])
-                        case ("2"):
-                            verbosity = int(arg[2:])
-                        case ("3"):
-                            verbosity = int(arg[2:])
-                        case ("4"):
-                            verbosity = int(arg[2:])
-                case ("-o"):
+            if arg.lower().startswith("-v"):
+                if len(arg) > 2 and arg[2:].isdigit():
+                    verbosity = int(arg[2:])
+            elif arg.lower() == "-o":
                     with open(input_file, 'r') as f:
                         source = f.read()
                     lexer = FluxLexer(source)
