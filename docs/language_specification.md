@@ -1,6 +1,5 @@
 # Flux
 
-# Flux
 Flux is a systems programming language, resembling C++ and Python.
 
 It borrows elements from C++, Python, Zig, and Rust.
@@ -11,9 +10,10 @@ Flux has a manual memory model. Memory management is up to the programmer.
 
 A Flux program must have a main() function, and must be defined in global scope.
 
-----
+---
 
 ## **Function definition:**
+
 ```
 def name (parameters) -> return_type
 {
@@ -33,8 +33,8 @@ def myAdd(float x, float y) -> float
 };
 ```
 
-
 **Recursive function:**
+
 ```
 def rsub(int x, int y) -> int
 {
@@ -44,8 +44,8 @@ def rsub(int x, int y) -> int
 };
 ```
 
-
 **Function Templates:**
+
 ```
 // Function templates
 def myMax<T>(T x, T y) -> T
@@ -66,16 +66,15 @@ def convert<V,K,R>(V x, K y) -> R
 char n = convert<int,int,char>(5,13);     // 65 == 'A'
 ```
 
-
 There is no template shadowing. Any inner T refers to the outermost T.
 You do not need to use `super.T` as this means nothing to the compiler in this context, and will be an error.
-
 
 **Namespaces:**
 Definition: `namespace myNamespace {};`
 Scope access: `myNamespace::myMember;`
 
 Namespace example:
+
 ```
 namespace myNamespace
 {
@@ -107,7 +106,6 @@ of both combine as if they were one namespace. This is so the standard
 library or any library can have a core namespace across multiple files.
 Namespaces are the only container that have this functionality.
 
-
 **Objects:**
 Prototype / forward declaration: `object myObj;`
 Definition: `object myObj {};`
@@ -118,6 +116,7 @@ Member access: `newObj.x`
 `this` never needs to be a parameter as it is always local to its object.
 Meaning, you do not need to do `def __init(this, ...) -> this` which is the Python equivalent to `def __init__(self, ...):`, the 'self' or 'this' in Flux
 does not need to be a parameter like in Python.
+
 ```
 __init()       -> this               Example: thisObj newObj();            // Constructor
 __exit()       -> void               Example: newObj.__exit();             // Destructor
@@ -126,14 +125,13 @@ __has()        -> // reflection      Example: someObj.__has("__lte");      // Re
 __cast()       -> // Define cast     Example: def __cast(weirdType wx) {}; // weirdType is the type this object is being cast to
 ```
 
-
 Objects and structs cannot be defined inside of a function, they must be within a namespace, another object, or global scope.
 This is to make functions easier to read.
 `__init` is always called on object instantiation.
 `__exit` is always called on object destruction, or called manually to destroy the object.
 
-
 Inheritance:
+
 ```
 object XYZ;   // Forward declaration
 
@@ -183,8 +181,8 @@ object obj1 : anotherObj, myObj
 };
 ```
 
-
 **Object Templates:**
+
 ```
 object myTemplateObj1<T>
 {
@@ -216,13 +214,13 @@ object myTemplateObj2<T,K>
 MyTemplateObj2<int,string> myObj(5);
 ```
 
-
 **Structs:**
 Structs are packed and have no padding naturally. There is no way to change this.
 You set up padding with alignment in your data types.
 Members of structs are aligned and tightly packed according to their width unless the types have specific alignment.
 Structs are non-executable, and therefore cannot contain functions or objects.
 Placing a for, do/while, if/elif/else, try/catch, or any executable statements other than variable declarations will result in a compilation error.
+
 ```
 struct myStruct
 {
@@ -264,11 +262,11 @@ Structs cannot contain function definitions, or object definitions, or anonymous
 Objects are functional with behavior and are executable.
 Structs cannot contain objects, but objects can contain structs. This means struct template parameters cannot be objects.
 
-
 **Public/Private with Objects/Structs:**
 Object public and private works exactly like C++ public/private does.
 Struct public and private works by only allowing access to private sections by the parent object that "owns" the struct.
 The struct is still data where public members are visible anywhere, but its private members are only visible/modifiable by the object immediately containing it.
+
 ```
 object Obj1
 {
@@ -296,10 +294,10 @@ object Obj1
 };
 ```
 
-
 Logical statements (if/else, try/catch, do/while, for, assert, etc...) cannot be at the root scope of containers such as namespaces, objects, and structs.
 It is illogical for them to exist there as that is not considered execution space.
 Evaluations can happen, such as:
+
 ```
 object X
 {
@@ -310,11 +308,11 @@ object X
 	try {int d = c;}; // Illegal, out of context, makes no sense in Flux.
 }
 
-struct MyStruct 
+struct MyStruct
 {
     int a = 5;
     int b = helper(a);        // Legal - calls external function during construction.
-    
+
     def localFunc() -> int    // Illegal - no function definitions in structs, define it somewhere else.
     {
         return 10;
@@ -322,14 +320,13 @@ struct MyStruct
 };
 ```
 
-
 Python uses f-strings, C++ uses a complicated format, Zig syntax is overly verbose.
 Flux uses "interpolated" strings and Python f-strings but without formatting, and tries to fix Zig's syntax a bit.
 The syntax in Flux would be: `i"{}{}{}":{x;y;z;};` for an i-string, and `f"{var1}{var2}";` for an f-string.
 The brackets are replaced with the results of the statements in order respective to the statements' position in the statement array in i-strings.
 
-
 **i-string Example:**
+
 ```
 import "standard.fx";
 
@@ -352,8 +349,8 @@ string y = f"{a} {b}";                      // "Hello World!"
 
 This allows you to write clean interpolated strings without strange formatting.
 
-
 Example 2:
+
 ```
 import "standard.fx";
 
@@ -376,10 +373,11 @@ def main() -> int
     return 0;
 };
 ```
+
 Result: Hello World of Coding
 
-
 **Pointers:**
+
 ```
 string a = "Test";
 string* pa = @a;
@@ -432,22 +430,21 @@ def main() -> int
 {
     int[] arr = [10, 20, 30, 40, 50];
     int[]* ptr = @arr;                         // ptr points to the first element of arr
-    
+
     print(f"Value at ptr: {*ptr}");            // Output: 10
-    
+
     ptr++;    // Increment ptr to point to the next element
     print(f"Value at ptr: {*ptr}");            // Output: 20
-    
+
     ptr += 2; // Increment ptr by 2 positions
     print(f"Value at ptr: {*ptr}");            // Output: 40
-    
+
     int *ptr2 = @arr[4]; // ptr2 points to the last element of arr
     print(f"Elements between ptr and ptr2: {ptr2 - ptr}"); // Output: 1
-    
+
     return 0;
 };
 ```
-
 
 You can also use in-line assembly directly:
 
@@ -460,8 +457,8 @@ int 0x80
 };
 ```
 
-
 **if/elif/else:**
+
 ```
 if (condition1)
 {
@@ -477,18 +474,17 @@ else
 };
 ```
 
-
 **Import:**
 // The way import works is C-like, where its as if the source code of the file you're importing
 // takes the place of the import statement.
 //
 // However that does not mean you will have access to namespaces. You must "use" them with `using`
 // This is to prevent binary bloat after compilation
+
 ```
 import "standard.fx";
 using standard::io, standard::types;          // Only use `io` and `types` namespaces from the `std` namespace.
 ```
-
 
 **The `data` keyword:**
 //
@@ -500,11 +496,11 @@ using standard::io, standard::types;          // Only use `io` and `types` names
 //
 // Syntax for declaring a datatype:
 //
-//    (const) (signed | unsigned) data {bit-width:alignment:endianness} as your_new_type
+// (const) (signed | unsigned) data {bit-width:alignment:endianness} as your_new_type
 //
-//    Example of a non-OOP string:
+// Example of a non-OOP string:
 //
-//        unsigned data {8:8:1}[] as noopstr;    // Unsigned byte array
+// unsigned data {8:8:1}[] as noopstr; // Unsigned byte array
 //
 // This allows the creation of primitive, non-OOP types that can construct other types.
 // `data` creates types, and types create types until an assignment occurs.
@@ -512,13 +508,14 @@ using standard::io, standard::types;          // Only use `io` and `types` names
 // For example, you can just keep inventing types until you assign a value like so:
 //
 // `unsigned data{16} as dbyte;`
-// `dbyte as xbyte;`      // Type-definition with as
-// `xbyte ybyte = 0xFF;`  // ybyte is now a variable because it is assigned the value 0xFF, not a type like xbyte
+// `dbyte as xbyte;` // Type-definition with as
+// `xbyte ybyte = 0xFF;` // ybyte is now a variable because it is assigned the value 0xFF, not a type like xbyte
 //
 // The endianness value can be 0 or 1 for little or big respectively.
 // Therefore `unsigned data{13:16:1} mytype;` makes an unsigned 13-bit wide, 16 bit aligned, big endian type called mytype
 // If alignment isn't specified, it is packed tightly in memory. If endianness is not specified it is big endian.
 // Bit-width must always be specified.
+
 ```
 import "standard.fx";
 
@@ -547,16 +544,16 @@ unsigned data{8} as byte;           // 8-bit, packed, big-endian
 // With alignment
 unsigned data{16:16} as word;       // 16-bit, 16-bit aligned, big-endian
 
-// Full specification  
+// Full specification
 unsigned data{13:16:0} as custom;   // 13-bit, 16-bit aligned, little-endian
 
 // Skip alignment, specify endianness
 unsigned data{24::0} as triple;     // 24-bit, packed, little-endian
 ```
 
-
 **Casting:**
 // Casting in Flux is C-like
+
 ```
 signed data{32} as i32;
 
@@ -571,6 +568,7 @@ This is dangerous on purpose, it is equivalent to free(ptr) in C. This syntax is
 This goes for functions which return void. If you declare a function's return type as void, you're explicitly saying "this function frees its return value".
 
 Example:
+
 ```
 def foo() -> void
 {
@@ -589,15 +587,17 @@ def bar() -> float
 If you try to return data with the `return` statement and the function definition declares the return type as void, nothing is returned.
 
 **Void casting in relation to the stack and heap:**
+
 ```
 def example() -> void {
     int stackVar = 42;                    // Stack allocated
     int* heapVar = malloc(sizeof(int));   // Heap allocated
-    
+
     (void)stackVar;  // What happens here?
     (void)heapVar;   // And here?
 }
 ```
+
 In either place, the stack or the heap, the memory is freed.
 (void) is essentially a "free this memory now" no matter where it is or how it got there.
 If you want to free something early, you can, but if you attempt to use it later you'll get a use-after-free bug.
@@ -605,8 +605,8 @@ If you're not familiar with a use-after-free, it is something that shows up in r
 However in Flux, they can show up in comptime as well.
 All of this is runtime behavior, but can also happen in comptime.
 
-
 **Array and pointer operations based on data types:**
+
 ```
 unsigned data{16::0}[] as larray3 little_array[3] = {0x1234, 0x5678, 0x9ABC};
 // Memory: [34 12] [78 56] [BC 9A]
@@ -630,6 +630,7 @@ word local_port = (unsigned data{16::0})((network_port >> 8) | (network_port << 
 
 **types.fx module:**
 // imported by standard.fx
+
 ```
 // The standard types found in Flux that are not included keywords
 // This is an excerpt and not a complete list of all types defined in the standard library of types
@@ -639,9 +640,9 @@ signed   data{64} as  i64;
 unsigned data{64} as ui64;
 ```
 
-
 **alignof, sizeof, typeof:**
 // typeof() operates both at compile time, and runtime.
+
 ```
 unsigned data{8:8}[] as string;
 signed data{13:16} as strange;
@@ -655,8 +656,8 @@ alignof(strange); // 16
 typeof(strange);  // signed data{13:16}
 ```
 
-
 **Example of bare-metal register access:**
+
 ```
 // Define a struct for a hardware register map
 struct GPIORegisters {
@@ -675,16 +676,16 @@ def main() -> int {
 };
 ```
 
-
 **The void literal and void keywords:**
+
 ```
 if (x == void) {...code...};    // If it's nothing, do something
 void x;
 if (x == !void) {...code...};   // If it's not nothing, do something
 ```
 
-
 **Arrays:**
+
 ```
 import "standard.fx";
 using standard::io, standard::types;
@@ -700,6 +701,7 @@ def len(int[] array) -> int
 ```
 
 **Array Comprehension:**
+
 ```
 // Basic comprehension
 int[] squares = [x ^ 2 for (x in 1..10)];
@@ -713,6 +715,7 @@ float[] floats = [(float)x for (x in int_array)];
 
 **Loops:**
 // Flux supports 2 styles of for loops, it uses Python style and C++ style
+
 ```
 for (x in y)                     // Python style
 {
@@ -741,8 +744,8 @@ while (condition)
 };
 ```
 
-
 **Destructure syntax with auto:**
+
 ```
 // Destructuring is only done with structs. Structure / Destructure. No confusion.
 struct Point { int x; int y; };
@@ -753,8 +756,8 @@ Point myPoint = {x = 10, y = 20};  // Struct initialization
 auto {t, m} = myPoint{x,y};        // int t=10, int m=20
 ```
 
-
 **Error handling with try/throw/catch:**
+
 ```
 unsigned data{8}[] as string;  // Basic string implementation with no functionality (non-OOP string)
 
@@ -827,9 +830,9 @@ def main() -> int
 };
 ```
 
-
 **Switching:**
 `switch` is static, value-based, and non-flexible. Switch statements are for speed.
+
 ```
 switch (e)
 {
@@ -848,7 +851,6 @@ switch (e)
 };
 ```
 
-
 **Compile-Time with `compt`:**
 compt is used to create anonymous blocks that are inline executed.
 Any variable declarations become global definitions in the resulting program.
@@ -856,6 +858,7 @@ compt blocks can only be declared in global scope, never inside a function or na
 You cannot use compt as part of grammar like `compt def x()` or `compt if()`, but you can put functions and if-statements inside your compt block.
 The Flux compiler will have the runtime built into it allowing for full Flux capabilities during comptime.
 compt blocks act as guard rails that guarantees everything inside is resolvable at compile time.
+
 ```
 compt {
 	// This anonymous compt block will execute in-line at compile time.
@@ -872,9 +875,9 @@ compt {
 };
 ```
 
-
 **Macros:**
 The `def` keyword has two abilities, making functions, and making macros. Example:
+
 ```
 def SOME_MACRO 0x4000000;
 
@@ -890,7 +893,7 @@ def myFunc() -> int
 // You can also macro operators like so:
 
 def MASK_SET `&       // Set bits with mask
-def MASK_CLEAR `!&    // Clear bits with mask  
+def MASK_CLEAR `!&    // Clear bits with mask
 def TOGGLE `^^        // Toggle bits
 
 // Usage becomes incredibly clean
@@ -902,7 +905,7 @@ led_state TOGGLE 0x01;          // Toggle LED bit
 def HTONSL <<8
 def HTONSR >>8    // Host to network short
 def ROTL <<       // Rotate left
-def ROTR >>       // Rotate right  
+def ROTR >>       // Rotate right
 def SBOX `^       // S-box substitution
 def PERMUTE `!&   // Bit permutation
 def NTOHSR >>8    // Network to host short
@@ -913,11 +916,13 @@ def CHECKSUM_ADD `+
 def CHECKSUM_XOR `^^
 
 def ROTL <<         // Rotate left
-def ROTR >>         // Rotate right  
+def ROTR >>         // Rotate right
 def SBOX `^          // S-box substitution
 def PERMUTE `!&      // Bit permutation
 ```
+
 It can also work to act like C++'s `#ifdef` and `#ifndef`, in Flux you do `if(def)` and `if(!def)` inside a compt block:
+
 ```
 compt
 {
@@ -941,10 +946,10 @@ This also means you can write entire compile-time programs, the Flux runtime is 
 Bad comptime code will result in slow compile times, example writing an infinite loop in a `compt` block that doesn't resolve means it never compiles.
 If you want to write an entire Bitcoin miner in compile time, that's up to you. Your miner will run, but it will never compile unless a natural program end is reached.
 
-
 **Assertion:**
 `assert` automatically performs `throw` if the condition is false if it's inside a try/catch block,
 otherwise it automatically writes to standard error output.
+
 ```
 def main() -> int
 {
@@ -962,10 +967,10 @@ def main() -> int
 };
 ```
 
-
 **External FFI:**
 Flux will support FFI with C to make adoption easier.
 You may only place extern blocks globally.
+
 ```
 extern("C")
 {
@@ -974,23 +979,24 @@ extern("C")
     def free(void* ptr) -> void;
     def memcpy(void* dest, void* src, ui64 n) -> void*;
     def memset(void* s, int c, ui64 n) -> void*;
-    
+
     // File I/O
     def fopen(string filename, string mode) -> void*;
     def fclose(void* stream) -> int;
     def fread(void* ptr, ui64 size, ui64 count, void* stream) -> ui64;
     def fwrite(void* ptr, ui64 size, ui64 count, void* stream) -> ui64;
-    
+
     // String operations
     def strlen(string s) -> ui64;
     def strcpy(string dest, string src) -> string;
     def strcmp(string s1, string s2) -> int;
 };
 ```
+
 extern will make these definitions global. You can only prototype functions inside extern blocks, nothing else.
 
-
 **Runtime type-checking:**
+
 ```
 Animal* pet = @Dog();
 if (typeof(pet) == Dog) { /* Legal */ };
@@ -998,25 +1004,25 @@ if (typeof(pet) == Dog) { /* Legal */ };
 if (pet is Dog) { /* Legal, syntactic sugar for `typeof(pet) == Dog` */ };
 ```
 
-
 **Constant Expressions:**
+
 ```
 const def myconstexpr(int x, int y) -> int {return x * y;};  // Basic syntax
 ```
 
-
 **Custom Smart Pointers:**
+
 ```
 object unique_ptr<T>
 {
     T* ptr;
-    
+
     def __init(T* p) -> this
     {
         this.ptr = p;
         return this;
     };
-    
+
     def __exit() -> void
     {
         if (this.ptr == !void)
@@ -1024,7 +1030,7 @@ object unique_ptr<T>
             (void)this.ptr;  // Explicit deallocation
         };
     };
-    
+
     def __eq(unique_ptr<T> other) -> this
     {
         if (this.ptr == !void) { (void)this.ptr; };
@@ -1044,15 +1050,14 @@ b = a;         // Ownership moved to b, a.ptr is now void
 doThing(a);    // Use-after-free, a no longer exists.
 ```
 
-
 **Heap allocation:**
+
 ```
 int* ptr = new int;  // Allocate
 (void)ptr;           // Deallocate
 ```
 
 (void) casting works on both stack and heap allocated items. It can be used like `delete` or `free()`.
-
 
 **Contracts:**
 Contracts are a collection of assertion statements. They can only be attached to functions, structs, and objects since they are assertions on data.
@@ -1062,6 +1067,7 @@ Pre-contracts must refer to valid parameters being passed.
 Post-contracts must refer to valid members of the function at the time of contract execution.
 
 Example, if you void cast anything and a contract refers to it, that will result in a use-after-free bug.
+
 ```
 // Prototype
 contract MyContract;
@@ -1126,8 +1132,8 @@ object MyObject
 MyObject someObj(); // ContractError: Object instantiation prevented.
 ```
 
-
 **Operator Overloading:**
+
 ```
 object myObj
 {
@@ -1180,13 +1186,12 @@ operator (int a, int b)[+] -> int
 // Now + will only add non-zero integers in the case of two integer operand addition.
 ```
 
-
 Overuse of contracts can add significant overhead to a Flux program. If you don't have a good reason to use them, you shouldn't.
 Contracts in compt blocks behave identically to runtime contracts, but since compt executes at compile time, a contract failure halts compilation.
 Use this for compile-time validation without runtime cost.
 
-
 **Enhanced unique pointer with operators and contracts:**
+
 ```
 contract notSame {
 	assert(@a != @b, "Cannot assign unique_ptr to itself.");
@@ -1213,8 +1218,8 @@ operator (unique_ptr<int> a, unique_ptr<int> b)[=] -> unique_ptr<int> : canMove
 In the context of developing smart pointers and unique pointers, operators combined with contracts shine.
 This creates a selective runtime pseudo-borrow-checker. You borrow check what you want borrow checked.
 
-
 **bitrev, endiswap, ctz, clz, and popcount:**
+
 ```
 unsigned data{8:8:1} myVar1 = 0xFE;
 
@@ -1234,8 +1239,8 @@ myVar2 >> 2;                //0b00101000;
 myVar2 rotl 2;              //0b10100000;
 ```
 
-
 Keyword list:
+
 ```
 alignof, and, as, asm, assert, auto, break, bool, case, catch, compt, const, continue, data, def, default, do,
 elif, else, extern, false, float, for, global, if, import, in, is, int, namespace, new, not, object, operator,
