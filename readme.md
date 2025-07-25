@@ -75,7 +75,7 @@ object unique_ptr<T>
     };
 };
 
-operator (unique_ptr<T> L, unique_ptr<T> R) -> unique_ptr<T>
+operator (unique_ptr<T> L, unique_ptr<T> R)[=] -> unique_ptr<T>
 {
     if (L.ptr == !void) { (void)L.ptr; };
     L.ptr = R.ptr;  // Transfer ownership
